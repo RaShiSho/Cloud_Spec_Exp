@@ -1,0 +1,71 @@
+# Copy this file to configs/experiment.first20.local.yaml before running.
+
+experiment:
+  name: oci-first20-smoke
+  output_dir: results/oci-first20-smoke
+  worktree_root: external/worktrees
+  timeout_seconds: 1800
+  keep_failed_workdirs: true
+
+model:
+  provider: openai
+  name: gpt-4.1
+  temperature: 0
+
+paths:
+  dataset_dir: external/oci-differential-dataset
+  baselines_dir: external/baselines
+  subjects_dir: external/subjects
+
+benchmark:
+  metadata_file: external/oci-differential-dataset/metadata.json
+  cases_dir: external/oci-differential-dataset/cases
+  rootfs_tar: external/oci-differential-dataset/alpine-base.tar.gz
+  selection:
+    mode: first_n
+    count: 20
+
+runtimes:
+  runc:
+    source_dir: external/subjects/runc
+    build_command: "make runc"
+    runtime_path: runc
+    reference_runtime: runc
+    source_extensions: [".go"]
+    buggy_ref_by_case: {}
+  crun:
+    source_dir: external/subjects/crun
+    build_command: "./autogen.sh && ./configure && make -j$(nproc)"
+    runtime_path: crun
+    reference_runtime: runc
+    source_extensions: [".c", ".h"]
+    buggy_ref_by_case: {}
+  youki:
+    source_dir: external/subjects/youki
+    build_command: "cargo build --release"
+    runtime_path: target/release/youki
+    reference_runtime: runc
+    source_extensions: [".rs"]
+    buggy_ref_by_case: {}
+
+oracle:
+  command: "python oracles/run_oci_oracle.py"
+  timeout_seconds: 300
+
+baselines:
+  - name: mini-swe-agent
+    enabled: true
+    kind: mini_swe_agent
+    repo_dir: external/baselines/mini-swe-agent
+    trajectory_name: trajectory.json
+    command: "mini -y -m {model} -t {task_text} -o {trajectory_file} --exit-immediately"
+  - name: agentless-oci-adapted
+    enabled: true
+    kind: agentless_oci
+    model: gpt-4o-2024-05-13
+    repo_dir: external/baselines/Agentless
+    adapter_patch: baselines/agentless-oci-adapted/agentless_oci_dataset.patch
+    output_dir_name: agentless-output
+    top_n_files: 5
+    max_samples: 1
+    command: "python agentless/repair/repair.py --oci_task_file {task_jsonl} --loc_file {loc_jsonl} --output_folder {agentless_output_dir} --target_id {case_id} --top_n {top_n_files} --model {model} --backend openai --diff_format --cot --gen_and_process --num_threads 1 --max_samples {max_samples}"
