@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -44,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case", action="append", help="Case id to run. Repeatable.")
     parser.add_argument("--limit", type=int, help="Limit selected cases after filtering.")
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs and print the plan without side effects.")
+    parser.add_argument("--clean", action="store_true", help="Remove previous output/worktree for selected runs before execution.")
     return parser.parse_args()
 
 
@@ -173,6 +175,70 @@ def create_worktree(source_dir: Path, worktree_dir: Path, ref: str) -> None:
         raise RuntimeError(f"git worktree add failed: {result.stderr or result.stdout}")
 
 
+def ensure_child_path(path: Path, root: Path, name: str) -> None:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    if resolved_path == resolved_root:
+        raise RuntimeError(f"refusing to clean {name} root: {resolved_path}")
+    if resolved_path == REPO_ROOT.resolve():
+        raise RuntimeError(f"refusing to clean repository root as {name}: {resolved_path}")
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise RuntimeError(f"refusing to clean {name} outside configured root: {resolved_path}") from exc
+
+
+def remove_output_dir(output_dir: Path, output_root: Path, label: str) -> None:
+    ensure_child_path(output_dir, output_root, "output_dir")
+    if not output_dir.exists():
+        progress(f"{label} output directory does not exist; nothing to clean")
+        return
+    progress(f"{label} cleaning output directory: {output_dir}")
+    try:
+        shutil.rmtree(output_dir)
+    except OSError as exc:
+        raise RuntimeError(f"failed to remove output directory {output_dir}: {exc}") from exc
+
+
+def remove_worktree_dir(source_dir: Path, worktree_dir: Path, worktree_root: Path, label: str) -> None:
+    ensure_child_path(worktree_dir, worktree_root, "worktree_dir")
+    if not worktree_dir.exists():
+        progress(f"{label} worktree does not exist; nothing to clean")
+        return
+
+    progress(f"{label} cleaning worktree: {worktree_dir}")
+    remove_result = run_command(
+        ["git", "-C", str(source_dir), "worktree", "remove", "--force", str(worktree_dir)],
+        shell=False,
+    )
+    progress(f"{label} git worktree remove finished returncode={remove_result.returncode}")
+    prune_result = run_command(["git", "-C", str(source_dir), "worktree", "prune"], shell=False)
+    progress(f"{label} git worktree prune finished returncode={prune_result.returncode}")
+    if worktree_dir.exists():
+        progress(f"{label} removing remaining worktree directory after git cleanup: {worktree_dir}")
+        try:
+            shutil.rmtree(worktree_dir)
+        except OSError as exc:
+            raise RuntimeError(f"failed to remove worktree directory {worktree_dir}: {exc}") from exc
+
+
+def clean_previous_run(
+    *,
+    source_dir: Path,
+    output_dir: Path,
+    output_root: Path,
+    worktree_dir: Path,
+    worktree_root: Path,
+    label: str,
+) -> None:
+    progress(f"{label} clean enabled")
+    ensure_child_path(output_dir, output_root, "output_dir")
+    ensure_child_path(worktree_dir, worktree_root, "worktree_dir")
+    remove_output_dir(output_dir, output_root, label)
+    remove_worktree_dir(source_dir, worktree_dir, worktree_root, label)
+    progress(f"{label} clean finished")
+
+
 def git_diff(worktree_dir: Path) -> str:
     result = run_command(["git", "-C", str(worktree_dir), "diff", "--binary", "--no-ext-diff"], shell=False)
     return result.stdout if result.returncode == 0 else ""
@@ -267,6 +333,7 @@ def run_one(
     config: dict[str, Any],
     case: dict[str, Any],
     baseline: dict[str, Any],
+    clean: bool = False,
 ) -> dict[str, Any]:
     started = time.monotonic()
     experiment = config.get("experiment", {})
@@ -282,6 +349,28 @@ def run_one(
     output_dir = output_root / baseline["name"] / case["case_id"]
     worktree_dir = worktree_root / safe_id(experiment.get("name", "experiment")) / baseline["name"] / case["case_id"]
     progress(f"{label} initializing run paths: output={output_dir} worktree={worktree_dir}")
+    if clean:
+        try:
+            clean_previous_run(
+                source_dir=source_dir,
+                output_dir=output_dir,
+                output_root=output_root,
+                worktree_dir=worktree_dir,
+                worktree_root=worktree_root,
+                label=label,
+            )
+        except RuntimeError as exc:
+            progress(f"{label} setup error while cleaning previous run: {exc}")
+            return {
+                "case": case,
+                "baseline": baseline.get("name"),
+                "baseline_kind": baseline.get("kind"),
+                "runtime": case["runtime"],
+                "worktree_dir": str(worktree_dir),
+                "started_at_unix": started,
+                "status": "error",
+                "error": str(exc),
+            }
     output_dir.mkdir(parents=True, exist_ok=True)
 
     ref = source_ref_for_case(runtime_cfg, case["case_id"])
@@ -460,6 +549,8 @@ def main() -> int:
     progress(f"preflight finished with {len(problems)} problem(s)")
 
     if args.dry_run:
+        if args.clean:
+            progress("clean requested with dry-run; no files will be removed")
         progress("dry-run mode: printing plan without executing baselines")
         print_dry_run(config, cases, baselines, problems)
         return 0
@@ -473,7 +564,7 @@ def main() -> int:
         for case in cases:
             label = run_label(baseline, case)
             progress(f"{label} starting run")
-            results.append(run_one(config=config, case=case, baseline=baseline))
+            results.append(run_one(config=config, case=case, baseline=baseline, clean=args.clean))
             progress(f"{label} finished run status={results[-1].get('status')}")
     print(json.dumps({"runs": results}, ensure_ascii=True, indent=2))
     return 0
