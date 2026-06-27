@@ -43,6 +43,65 @@ IGNORED_FILE_PARTS = {
 }
 
 
+def _strip_inline_comment(value: str) -> str:
+    in_single = False
+    in_double = False
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_double:
+            escaped = True
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            continue
+        if char == "#" and not in_single and not in_double:
+            if index == 0 or value[index - 1].isspace():
+                return value[:index]
+    return value
+
+
+def _parse_dotenv_value(raw_value: str) -> str:
+    value = _strip_inline_comment(raw_value).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+        if raw_value.strip().startswith('"'):
+            value = value.encode("utf-8").decode("unicode_escape")
+    return value
+
+
+def load_dotenv(path: str | Path | None = None, override: bool = False) -> dict[str, str]:
+    dotenv_path = Path(path) if path is not None else REPO_ROOT / ".env"
+    if not dotenv_path.exists():
+        return {}
+
+    loaded: dict[str, str] = {}
+    with dotenv_path.open("r", encoding="utf-8") as f:
+        for line_number, raw_line in enumerate(f, start=1):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export ") :].lstrip()
+            if "=" not in line:
+                continue
+            key, raw_value = line.split("=", 1)
+            key = key.strip()
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                raise ValueError(f"Invalid .env key at {dotenv_path}:{line_number}: {key}")
+            if key in os.environ and not override:
+                continue
+            value = _parse_dotenv_value(raw_value)
+            os.environ[key] = value
+            loaded[key] = value
+    return loaded
+
+
 @dataclass
 class CommandResult:
     command: str | list[str]
@@ -70,6 +129,7 @@ class CommandResult:
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
+    load_dotenv()
     if yaml is None:
         raise RuntimeError("PyYAML is required to read YAML config files: pip install PyYAML")
     with Path(path).open("r", encoding="utf-8") as f:
