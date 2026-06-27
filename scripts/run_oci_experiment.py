@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,15 @@ from oci_common import (
     write_json,
     write_text,
 )
+
+
+def progress(message: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}", file=sys.stderr, flush=True)
+
+
+def run_label(baseline: dict[str, Any], case: dict[str, Any]) -> str:
+    return f"[{baseline.get('name')}/{case['case_id']}]"
 
 
 def parse_args() -> argparse.Namespace:
@@ -265,11 +275,13 @@ def run_one(
     runtime_cfg = get_runtime_config(config, case["runtime"])
     source_dir = resolve_path(runtime_cfg.get("source_dir"))
     assert source_dir is not None
+    label = run_label(baseline, case)
 
     output_root = resolve_path(experiment.get("output_dir")) or (REPO_ROOT / "results" / "oci-first20-smoke")
     worktree_root = resolve_path(experiment.get("worktree_root")) or (REPO_ROOT / "external" / "worktrees")
     output_dir = output_root / baseline["name"] / case["case_id"]
     worktree_dir = worktree_root / safe_id(experiment.get("name", "experiment")) / baseline["name"] / case["case_id"]
+    progress(f"{label} initializing run paths: output={output_dir} worktree={worktree_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     ref = source_ref_for_case(runtime_cfg, case["case_id"])
@@ -284,14 +296,18 @@ def run_one(
     }
 
     try:
+        progress(f"{label} creating worktree from {source_dir} at {ref}")
         create_worktree(source_dir, worktree_dir, ref)
+        progress(f"{label} worktree created: {worktree_dir}")
     except RuntimeError as exc:
+        progress(f"{label} setup error while creating worktree: {exc}")
         metadata["status"] = "error"
         metadata["error"] = str(exc)
         write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "setup", str(exc))
         return metadata
 
+    progress(f"{label} writing task prompt")
     task_text = build_task_text(case, runtime_cfg)
     task_file = output_dir / "task.md"
     write_text(task_file, task_text)
@@ -309,6 +325,7 @@ def run_one(
 
     baseline_cwd = worktree_dir
     if baseline.get("kind") == "agentless_oci":
+        progress(f"{label} preparing Agentless OCI inputs")
         repo_dir = resolve_path(baseline.get("repo_dir"))
         baseline_cwd = repo_dir or worktree_dir
         agentless_output_dir = output_dir / baseline.get("output_dir_name", "agentless-output")
@@ -327,46 +344,59 @@ def run_one(
                 "agentless_output_dir": agentless_output_dir,
             }
         )
+        progress(f"{label} Agentless inputs ready: task={agentless_inputs['task_jsonl']} loc={agentless_inputs['loc_jsonl']}")
 
     command = render_command(baseline["command"], command_values)
+    progress(f"{label} running baseline command in {baseline_cwd}")
     baseline_result = run_command(
         command,
         cwd=baseline_cwd,
         timeout=int(experiment.get("timeout_seconds", 1800)),
     )
+    progress(f"{label} baseline finished returncode={baseline_result.returncode} timed_out={baseline_result.timed_out}")
     write_command_logs(output_dir, None, baseline_result)
     metadata["baseline_result"] = baseline_result.to_dict()
 
     if baseline.get("kind") == "agentless_oci":
         agentless_output_dir = output_dir / baseline.get("output_dir_name", "agentless-output")
+        progress(f"{label} collecting Agentless patch from {agentless_output_dir}")
         raw_patch = find_agentless_patch(agentless_output_dir, case["case_id"])
         if raw_patch:
             raw_patch_file = output_dir / "agentless_model.patch"
             write_text(raw_patch_file, raw_patch)
+            progress(f"{label} applying Agentless patch: {raw_patch_file}")
             apply_result = apply_agentless_patch(worktree_dir, raw_patch_file)
+            progress(f"{label} Agentless patch apply finished returncode={apply_result.returncode}")
             write_command_logs(output_dir, "agentless_apply", apply_result)
             metadata["agentless_apply_result"] = apply_result.to_dict()
         else:
+            progress(f"{label} Agentless did not produce a model_patch")
             metadata["agentless_patch_missing"] = True
 
+    progress(f"{label} collecting git diff")
     patch = git_diff(worktree_dir)
     write_text(output_dir / "candidate.patch", patch)
     metadata["patch_size_bytes"] = len(patch.encode("utf-8"))
+    progress(f"{label} candidate patch size={metadata['patch_size_bytes']} bytes")
     if not patch.strip():
+        progress(f"{label} error: baseline produced no git diff")
         metadata["status"] = "error"
         metadata["error"] = "baseline produced no git diff"
         write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "baseline", "baseline produced no git diff")
         return metadata
 
+    progress(f"{label} building candidate runtime")
     build_result = run_command(
         runtime_cfg["build_command"],
         cwd=worktree_dir,
         timeout=int(experiment.get("timeout_seconds", 1800)),
     )
+    progress(f"{label} build finished returncode={build_result.returncode} timed_out={build_result.timed_out}")
     write_command_logs(output_dir, "build", build_result)
     metadata["build_result"] = build_result.to_dict()
     if not build_result.ok:
+        progress(f"{label} error: build failed")
         metadata["status"] = "error"
         metadata["error"] = "build failed"
         write_json(output_dir / "metadata.json", metadata)
@@ -376,7 +406,9 @@ def run_one(
     candidate_runtime = Path(runtime_cfg["runtime_path"])
     if not candidate_runtime.is_absolute():
         candidate_runtime = worktree_dir / candidate_runtime
+    progress(f"{label} validating candidate runtime path: {candidate_runtime}")
     if not candidate_runtime.exists():
+        progress(f"{label} error: candidate runtime missing after build")
         metadata["status"] = "error"
         metadata["error"] = f"candidate runtime missing after build: {candidate_runtime}"
         write_json(output_dir / "metadata.json", metadata)
@@ -403,33 +435,46 @@ def run_one(
         "--timeout",
         str(oracle_timeout),
     ]
+    progress(f"{label} running oracle")
     oracle_result = run_command(oracle_command, timeout=oracle_timeout * 4, shell=False)
+    progress(f"{label} oracle finished returncode={oracle_result.returncode} timed_out={oracle_result.timed_out}")
     write_command_logs(output_dir, "oracle", oracle_result)
     metadata["oracle_result"] = oracle_result.to_dict()
     metadata["status"] = "done"
     metadata["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    progress(f"{label} writing final metadata: {output_dir / 'metadata.json'}")
     write_json(output_dir / "metadata.json", metadata)
+    progress(f"{label} run done elapsed_seconds={metadata['elapsed_seconds']}")
     return metadata
 
 
 def main() -> int:
     args = parse_args()
+    progress(f"loading config: {args.config}")
     config = load_config(args.config)
     cases, case_problems = selected_cases(config, args.case, args.limit)
     baselines = enabled_baselines(config, args.baseline)
+    progress(f"selected {len(cases)} case(s), {len(baselines)} baseline(s)")
+    progress("running preflight checks")
     problems = case_problems + preflight(config, cases, baselines)
+    progress(f"preflight finished with {len(problems)} problem(s)")
 
     if args.dry_run:
+        progress("dry-run mode: printing plan without executing baselines")
         print_dry_run(config, cases, baselines, problems)
         return 0
     if problems:
+        progress("preflight failed; aborting experiment")
         print(json.dumps({"problems": problems}, ensure_ascii=True, indent=2), file=sys.stderr)
         return 2
 
     results = []
     for baseline in baselines:
         for case in cases:
+            label = run_label(baseline, case)
+            progress(f"{label} starting run")
             results.append(run_one(config=config, case=case, baseline=baseline))
+            progress(f"{label} finished run status={results[-1].get('status')}")
     print(json.dumps({"runs": results}, ensure_ascii=True, indent=2))
     return 0
 
