@@ -60,6 +60,14 @@ def bash_env_path(value: str | Path) -> str:
     return text
 
 
+def ensure_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 def run_repro(
     *,
     case_id: str,
@@ -110,8 +118,8 @@ def run_repro(
                 "runtime_label": runtime_label,
                 "config": config_name,
                 "returncode": 124,
-                "stdout": exc.stdout or "",
-                "stderr": exc.stderr or "",
+                "stdout": ensure_text(exc.stdout),
+                "stderr": ensure_text(exc.stderr),
                 "elapsed_seconds": round(time.monotonic() - start, 3),
                 "timed_out": True,
                 "error": f"timeout after {timeout}s",

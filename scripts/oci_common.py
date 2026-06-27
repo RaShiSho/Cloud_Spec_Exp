@@ -155,9 +155,17 @@ def write_json(path: Path, data: Any) -> None:
         f.write("\n")
 
 
-def write_text(path: Path, text: str) -> None:
+def ensure_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def write_text(path: Path, text: str | bytes | None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    path.write_text(ensure_text(text), encoding="utf-8", newline="\n")
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -228,8 +236,8 @@ def run_command(
             command=command,
             cwd=str(cwd) if cwd else None,
             returncode=124,
-            stdout=exc.stdout or "",
-            stderr=exc.stderr or "",
+            stdout=ensure_text(exc.stdout),
+            stderr=ensure_text(exc.stderr),
             timed_out=True,
             error=f"timeout after {timeout}s",
         )
