@@ -1,22 +1,17 @@
-# Copy this file to configs/experiment.first20.local.yaml before running.
-
 experiment:
   name: oci-first20-smoke
   output_dir: results/oci-first20-smoke
   worktree_root: external/worktrees
   timeout_seconds: 600
   keep_failed_workdirs: true
-
 model:
   provider: deepseek
   name: deepseek/deepseek-v4-flash
   temperature: 0
-
 paths:
   dataset_dir: external/oci-differential-dataset
   baselines_dir: external/baselines
   subjects_dir: external/subjects
-
 benchmark:
   metadata_file: external/oci-differential-dataset/metadata.json
   cases_dir: external/oci-differential-dataset/cases
@@ -24,50 +19,64 @@ benchmark:
   selection:
     mode: first_n
     count: 20
-
 runtimes:
   runc:
     source_dir: external/subjects/runc
-    build_command: "make runc"
+    build_command: make runc
     runtime_path: runc
     reference_runtime: runc
-    source_extensions: [".go"]
-    buggy_ref_by_case: {}
+    source_extensions:
+    - .go
+    buggy_ref_by_case:
+      runc-4772: 3764d6e888b21b3f67855736e7605e3785a3d553^
+      runc-5182: 3cdda464fa1f1eb0d5774acacf73bb446df5f3d8^
   crun:
     source_dir: external/subjects/crun
-    build_command: "./autogen.sh && ./configure && make -j$(nproc)"
+    build_command: ./autogen.sh && ./configure && make -j$(nproc)
     runtime_path: crun
     reference_runtime: runc
-    source_extensions: [".c", ".h"]
-    buggy_ref_by_case: {
-      crun-13: "c047a49b^"
-    }
+    source_extensions:
+    - .c
+    - .h
+    buggy_ref_by_case:
+      crun-13: c047a49b^
+      crun-129: 8645d1a50b16d070091126c645939cf5febd373b^
+      crun-237: a75a4fd27631f2222b9d2578ec98ad6094762098^
+      crun-353: c7ac9320589f1ac206617c45a1314e30ea19eac1^
+      crun-453: 47dd153de92414b5bfdbcfefc87380aa38ac3fa1^
+      crun-876: 6904cf4a4fec6929abdd8d6b9676ed5fa9119612^
+      crun-1083: 3880f04675f5eaea60c8b36e21849ba01a09e1b2^
+      crun-1307: 98db1d2fa60756c523b655c7479cef7c07c15f21^
+      crun-1783: 7407bbc9a5bc8c32eac466a54022410ce08e3b58^
+      crun-1943: 8e8186b3f0879b3cf11dccb21505d1ff6d809633^
   youki:
     source_dir: external/subjects/youki
-    build_command: "cargo build --release"
+    build_command: cargo build --release
     runtime_path: target/release/youki
     reference_runtime: runc
-    source_extensions: [".rs"]
+    source_extensions:
+    - .rs
     buggy_ref_by_case: {}
-
 oracle:
-  command: "python oracles/run_oci_oracle.py"
+  command: python oracles/run_oci_oracle.py
   timeout_seconds: 300
-
 baselines:
-  - name: mini-swe-agent
-    enabled: true
-    kind: mini_swe_agent
-    repo_dir: external/baselines/mini-swe-agent
-    trajectory_name: trajectory.json
-    command: "mini -y -m {model} -t {task_text} -o {trajectory_file} --exit-immediately"
-  - name: agentless-oci-adapted
-    enabled: true
-    kind: agentless_oci
-    model: gpt-4o-2024-05-13
-    repo_dir: external/baselines/Agentless
-    adapter_patch: baselines/agentless-oci-adapted/agentless_oci_dataset.patch
-    output_dir_name: agentless-output
-    top_n_files: 5
-    max_samples: 1
-    command: "python agentless/repair/repair.py --oci_task_file {task_jsonl} --loc_file {loc_jsonl} --output_folder {agentless_output_dir} --target_id {case_id} --top_n {top_n_files} --model {model} --backend openai --diff_format --cot --gen_and_process --num_threads 1 --max_samples {max_samples}"
+- name: mini-swe-agent
+  enabled: true
+  kind: mini_swe_agent
+  repo_dir: external/baselines/mini-swe-agent
+  trajectory_name: trajectory.json
+  command: mini -y -m {model} -t {task_text} -o {trajectory_file} --exit-immediately
+- name: agentless-oci-adapted
+  enabled: true
+  kind: agentless_oci
+  model: gpt-4o-2024-05-13
+  repo_dir: external/baselines/Agentless
+  adapter_patch: baselines/agentless-oci-adapted/agentless_oci_dataset.patch
+  output_dir_name: agentless-output
+  top_n_files: 5
+  max_samples: 1
+  command: python agentless/repair/repair.py --oci_task_file {task_jsonl} --loc_file
+    {loc_jsonl} --output_folder {agentless_output_dir} --target_id {case_id} --top_n
+    {top_n_files} --model {model} --backend openai --diff_format --cot --gen_and_process
+    --num_threads 1 --max_samples {max_samples}
