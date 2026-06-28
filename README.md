@@ -148,13 +148,15 @@ python scripts/summarize_oci_results.py \
 
 ### `scripts/populate_buggy_refs.py`
 
-根据配置选择 case，在本地 cloned runtime 仓库中离线搜索可能的 upstream 修复提交，并将修复提交的父版本写入配置中的 `buggy_ref_by_case`。
+根据配置选择 case，识别对应的 buggy 版本，并写入配置中的 `buggy_ref_by_case`。
 
-它不会访问 GitHub 网络，只依赖：
+识别顺序为：
 
-- 配置文件中的 `benchmark.metadata_file`
-- 配置文件中的 `runtimes.<runtime>.source_dir`
-- 本地 runtime 仓库的 `git log --all`
+1. 请求 GitHub Issue events：`https://api.github.com/repos/{owner}/{repo}/issues/{issue}/events`，找到 `event == "closed"` 且带 `commit_id` 的事件，将该 `commit_id` 作为 `fix_commit`，写入 `<fix_commit>^`。
+2. 如果 GitHub events 未定位到，则在本地 runtime 仓库中用 `git log --all --extended-regexp --regexp-ignore-case --grep=... --format=%H -n 1` 搜索 commit message，匹配 fix/close/resolve 与 issue 号，找到后写入 `<fix_commit>^`。
+3. 如果本地也找不到，则请求 issue 本身，读取 `created_at`，并执行 `git rev-list -n 1 --before=<created_at> main`，将 issue 创建前 main 上最近提交直接作为 buggy 版本写入。
+
+GitHub API 请求使用标准库实现，不新增依赖。如果设置了 `GITHUB_TOKEN`，脚本会自动携带 token 以提高 API rate limit。网络失败、限流、404 或 events 无匹配时不会中断整个 case，会自动进入 fallback。
 
 常用 dry-run：
 
@@ -183,19 +185,13 @@ python scripts/populate_buggy_refs.py \
 | `--runtime <name>` | 否 | 只处理指定 runtime，例如 `crun` 或 `runc`。 |
 | `--overwrite` | 否 | 覆盖已有 `buggy_ref_by_case` 映射。默认遇到已有映射会跳过。 |
 | `--write` | 否 | 将结果写回 YAML。默认是 dry-run，只打印候选。 |
-| `--min-score <int>` | 否 | 写入所需的最低置信分数，默认 `80`。 |
+| `--min-score <int>` | 否 | 兼容保留参数。当前 GitHub events 和 created_at fallback 不使用分数过滤。 |
 
-搜索和打分逻辑：
+输出为 JSON，包含 `case_id`、`runtime`、`method`、`fix_commit`、`buggy_ref`、`api_url`、`created_at`、`command`、`fallback_reasons`、`reason` 和 `status`。其中：
 
-- 完整 upstream issue URL 命中得分最高。
-- 其次匹配 `issues/<number>`、`#<number>`。
-- `fix`、`fixes`、`close`、`resolve` 等动词靠近 issue 编号会加分。
-- title 关键词只作为辅助加分，不单独触发高置信写入。
-- commit subject 含 `revert` 会扣分。
-- 普通提交写入 `<fix_commit>^`。
-- merge commit 写入 `<fix_commit>^1`。
-
-输出为 JSON，包含 `case_id`、`runtime`、`fix_commit`、`buggy_ref`、`score`、`reason` 和 `status`。
+- `method: "github_events"` 表示通过 closed issue event 的 `commit_id` 找到 fix commit。
+- `method: "local_git_grep"` 表示通过本地 git commit message 找到 fix commit。
+- `method: "issue_created_at"` 表示通过 issue 创建时间前 main 上最近提交推断 buggy 版本。
 
 ### `scripts/oci_common.py`
 
