@@ -41,7 +41,7 @@ nano .env
 - `configs/experiment.full.example.yaml`：全量数据集模板配置，使用 `benchmark.selection.mode: all`，会读取 `metadata.json` 中的全部 case。
 - `configs/experiment.first20.local.yaml`：本地运行配置示例，包含你已经填过的一部分 `buggy_ref_by_case`。
 
-全量配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。`autocoderover`、`metagpt`、`repairagent` 已写入配置，但默认 `enabled: false`，并使用 `run_oci_repair.sh` wrapper 约定；需要先在对应 clone 仓库中准备 OCI adapter，再改为启用。
+全量配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。`autocoderover`、`metagpt`、`repairagent` 已写入配置，但默认 `enabled: false`。它们调用的是本项目 tracked `baselines/<name>/run_oci_repair.sh` OCI adapter skeleton，不是 upstream 原生命令；需要先在对应 wrapper 中实现真实 baseline 调用，再改为启用。
 
 ## Scripts
 

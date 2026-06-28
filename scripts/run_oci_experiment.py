@@ -420,6 +420,7 @@ def run_one(
         "task_file": task_file,
         "case_id": case["case_id"],
         "worktree_dir": worktree_dir,
+        "repo_root": REPO_ROOT,
         "baseline_repo_dir": baseline_repo_dir,
         "baseline_output_dir": baseline_output_dir,
         "output_dir": output_dir,
