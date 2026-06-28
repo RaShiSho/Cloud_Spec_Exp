@@ -35,6 +35,14 @@ nano .env
 
 已经在 shell 中 `export` 的变量优先级高于 `.env`。
 
+## 配置文件
+
+- `configs/experiment.first20.example.yaml`：前 20 个 case 的模板配置，使用 `benchmark.selection.mode: first_n` 和 `count: 20`。
+- `configs/experiment.full.example.yaml`：全量数据集模板配置，使用 `benchmark.selection.mode: all`，会读取 `metadata.json` 中的全部 case。
+- `configs/experiment.first20.local.yaml`：本地运行配置示例，包含你已经填过的一部分 `buggy_ref_by_case`。
+
+全量配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。`autocoderover`、`metagpt`、`repairagent` 已写入配置，但默认 `enabled: false`，并使用 `run_oci_repair.sh` wrapper 约定；需要先在对应 clone 仓库中准备 OCI adapter，再改为启用。
+
 ## Scripts
 
 本节列出 `scripts/` 目录中的可用代码。除特别说明外，命令应在仓库根目录运行。
@@ -199,7 +207,7 @@ python scripts/populate_buggy_refs.py \
 
 - `load_dotenv()`：读取仓库根目录 `.env`，支持 `KEY=value`、引号、空行和 `#` 注释，不覆盖已存在的 shell 环境变量。
 - `load_config()`：读取 YAML 配置，并在读取前加载 `.env`。
-- `load_oci_cases()`：读取数据集 metadata，按 `benchmark.selection.mode: first_n` 选择 case，并检查必需文件。
+- `load_oci_cases()`：读取数据集 metadata，按 `benchmark.selection.mode: first_n` 或 `all` 选择 case，并检查必需文件。
 - `build_task_text()`：把 case README、expected diff、构建命令和 runtime 信息组装成 baseline prompt。
 - `run_command()`：统一执行 subprocess，捕获 stdout/stderr、timeout 和错误信息。
 - `write_json()` / `write_text()` / `append_jsonl()` / `load_jsonl()`：统一 UTF-8 文件读写。

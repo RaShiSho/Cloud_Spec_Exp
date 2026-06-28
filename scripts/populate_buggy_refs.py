@@ -108,9 +108,12 @@ def load_metadata_entries(config: dict[str, Any], requested_ids: list[str] | Non
     else:
         selection = benchmark.get("selection", {})
         mode = selection.get("mode", "first_n")
-        if mode != "first_n":
+        if mode == "all":
+            selected = metadata
+        elif mode == "first_n":
+            selected = metadata[: int(selection.get("count", 20))]
+        else:
             raise ValueError(f"Unsupported benchmark.selection.mode: {mode}")
-        selected = metadata[: int(selection.get("count", 20))]
 
     cases: list[CaseEntry] = []
     for entry in selected:

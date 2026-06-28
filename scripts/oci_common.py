@@ -277,12 +277,16 @@ def load_oci_cases(config: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
 
     selection = benchmark.get("selection", {})
     mode = selection.get("mode", "first_n")
-    if mode != "first_n":
+    if mode == "all":
+        selected_metadata = metadata
+    elif mode == "first_n":
+        count = int(selection.get("count", 20))
+        selected_metadata = metadata[:count]
+    else:
         raise ValueError(f"Unsupported benchmark.selection.mode: {mode}")
-    count = int(selection.get("count", 20))
 
     cases: list[dict[str, Any]] = []
-    for index, entry in enumerate(metadata[:count], start=1):
+    for index, entry in enumerate(selected_metadata, start=1):
         case_id = entry.get("number")
         if not case_id:
             problems.append(f"metadata entry {index} is missing number")

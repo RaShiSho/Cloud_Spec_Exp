@@ -158,6 +158,17 @@ def render_command(template: str, values: dict[str, Any]) -> str:
     return template.format(**quoted)
 
 
+def resolve_baseline_cwd(baseline: dict[str, Any], worktree_dir: Path) -> Path:
+    cwd_mode = baseline.get("cwd", "worktree_dir")
+    if cwd_mode == "worktree_dir":
+        return worktree_dir
+    if cwd_mode == "repo_dir":
+        repo_dir = resolve_path(baseline.get("repo_dir"))
+        return repo_dir or worktree_dir
+    custom_cwd = resolve_path(cwd_mode)
+    return custom_cwd or worktree_dir
+
+
 def source_ref_for_case(runtime_cfg: dict[str, Any], case_id: str) -> str:
     by_case = runtime_cfg.get("buggy_ref_by_case") or {}
     return by_case.get(case_id) or runtime_cfg.get("buggy_ref") or runtime_cfg.get("default_ref") or "HEAD"
@@ -401,18 +412,23 @@ def run_one(
     task_file = output_dir / "task.md"
     write_text(task_file, task_text)
 
+    baseline_output_dir = output_dir / baseline.get("output_dir_name", f"{baseline['name']}-output")
+    baseline_repo_dir = resolve_path(baseline.get("repo_dir")) or Path("")
     command_values: dict[str, Any] = {
         "model": baseline.get("model") or model.get("name", ""),
         "task_text": task_text,
         "task_file": task_file,
         "case_id": case["case_id"],
         "worktree_dir": worktree_dir,
+        "baseline_repo_dir": baseline_repo_dir,
+        "baseline_output_dir": baseline_output_dir,
+        "output_dir": output_dir,
         "trajectory_file": output_dir / baseline.get("trajectory_name", "trajectory.json"),
         "max_samples": baseline.get("max_samples", 1),
         "top_n_files": baseline.get("top_n_files", 5),
     }
 
-    baseline_cwd = worktree_dir
+    baseline_cwd = resolve_baseline_cwd(baseline, worktree_dir)
     if baseline.get("kind") == "agentless_oci":
         progress(f"{label} preparing Agentless OCI inputs")
         repo_dir = resolve_path(baseline.get("repo_dir"))
