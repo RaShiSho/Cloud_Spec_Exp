@@ -1,0 +1,85 @@
+experiment:
+  name: oci-mini-rest
+  output_dir: results/oci-mini-rest
+  worktree_root: external/worktrees
+  timeout_seconds: 600
+  keep_failed_workdirs: true
+model:
+  provider: deepseek
+  name: deepseek/deepseek-v4-flash
+  temperature: 0
+paths:
+  dataset_dir: external/oci-differential-dataset
+  baselines_dir: external/baselines
+  subjects_dir: external/subjects
+benchmark:
+  metadata_file: external/oci-differential-dataset/metadata.json
+  cases_dir: external/oci-differential-dataset/cases
+  rootfs_tar: external/oci-differential-dataset/alpine-base.tar.gz
+  selection:
+    mode: all
+runtimes:
+  runc:
+    source_dir: external/subjects/runc
+    build_command: make runc
+    runtime_path: runc
+    reference_runtime: runc
+    source_extensions:
+    - .go
+    buggy_ref_by_case:
+  crun:
+    source_dir: external/subjects/crun
+    build_command: ./autogen.sh && ./configure && make -j$(nproc)
+    runtime_path: crun
+    reference_runtime: runc
+    source_extensions:
+    - .c
+    - .h
+    buggy_ref_by_case:
+  youki:
+    source_dir: external/subjects/youki
+    build_command: cargo build --release
+    runtime_path: target/release/youki
+    reference_runtime: runc
+    source_extensions:
+    - .rs
+    buggy_ref_by_case:
+      youki-2756: 30d0b9babce3b160f0690964c478c53ebd8ab64f^
+      youki-2994: 38822f90da250e9e00ddb807e9fbdd78ba21156e^
+      youki-3132: 6b02740e8f339d558a1ddbd8ff6b1793fb9c04f0^
+      youki-3186: f60f41780507b26d12dd8695368a641467571cf0^
+      youki-3266: 8e95bdecc36d89df019d18ced33da75a656f3e0a^
+      youki-3320: 123b51a4ee054fb94d9843d4a5bdb5210b73ca5a^
+      youki-3431: aab4d42f8c8b6e26bc37e224b44f9c566d8e7a68^
+oracle:
+  command: python oracles/run_oci_oracle.py
+  timeout_seconds: 300
+baselines:
+- name: agentless-oci-adapted
+  enabled: true
+  kind: agentless_oci
+  model: deepseek-coder
+  repo_dir: external/baselines/Agentless
+  adapter_patch: baselines/agentless-oci-adapted/agentless_oci_dataset.patch
+  output_dir_name: agentless-output
+  top_n_files: 5
+  max_samples: 1
+  command: >-
+    PYTHONPATH={baseline_repo_dir}:$PYTHONPATH
+    GIT_AUTHOR_NAME='Agentless Runner'
+    GIT_AUTHOR_EMAIL='agentless@example.com'
+    GIT_COMMITTER_NAME='Agentless Runner'
+    GIT_COMMITTER_EMAIL='agentless@example.com'
+    python agentless/repair/repair.py
+    --oci_task_file {task_jsonl}
+    --loc_file {loc_jsonl}
+    --output_folder {agentless_output_dir}
+    --target_id {case_id}
+    --top_n {top_n_files}
+    --model {model}
+    --backend deepseek
+    --diff_format
+    --cot
+    --gen_and_process
+    --num_threads 1
+    --max_samples {max_samples}
