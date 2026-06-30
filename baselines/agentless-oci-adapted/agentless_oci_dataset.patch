@@ -1,17 +1,131 @@
 diff --git a/agentless/repair/repair.py b/agentless/repair/repair.py
 --- a/agentless/repair/repair.py
 +++ b/agentless/repair/repair.py
-@@ -1,8 +1,9 @@
+@@ -1,8 +1,10 @@
  import argparse
  import concurrent.futures
++import ast
  import json
  import os
-+from pathlib import Path
  from difflib import unified_diff
++from pathlib import Path
  from threading import Lock
  
  from datasets import load_dataset
-@@ -258,6 +259,27 @@ def construct_topn_file_context(
+@@ -141,6 +143,68 @@ repair_prompt_combine_topn_cot_str_replace = """
+ Please first localize the bug based on the issue statement, and then generate editing commands to fix the issue.
+ """
+ 
++
++def normalize_edit_file_path(path):
++    path = str(path).strip()
++    try:
++        parsed = ast.literal_eval(path)
++        if isinstance(parsed, str):
++            path = parsed
++    except Exception:
++        pass
++
++    path = path.strip()
++    if path.startswith("###"):
++        path = path[3:].strip()
++    path = path.strip().strip("'\"`").strip()
++    if path.startswith("a/") or path.startswith("b/"):
++        path = path[2:]
++    return path
++
++
++def lookup_by_normalized_path(mapping, path):
++    if path in mapping:
++        return path, mapping[path]
++    for key, value in mapping.items():
++        if normalize_edit_file_path(key) == path:
++            return key, value
++    return None, None
++
++
++def parse_search_replace_commands(edit_commands, content, logger):
++    new_content = content
++    changed = False
++
++    for command in edit_commands:
++        if (
++            "<<<<<<< SEARCH" not in command
++            or "=======" not in command
++            or ">>>>>>> REPLACE" not in command
++        ):
++            continue
++
++        search_part = command.split("<<<<<<< SEARCH", 1)[1]
++        search_text, replace_part = search_part.split("=======", 1)
++        replace_text = replace_part.split(">>>>>>> REPLACE", 1)[0]
++
++        search_text = search_text.strip("\n")
++        replace_text = replace_text.strip("\n")
++
++        if search_text in new_content:
++            new_content = new_content.replace(search_text, replace_text, 1)
++            changed = True
++            continue
++
++        logger.error("SEARCH block not found. search=%r", search_text)
++
++    if not changed:
++        return ""
++    return new_content
++
++
+ def _post_process_multifile_repair(
+     raw_output: str,
+     file_contents: dict[str, str],
+@@ -174,16 +238,37 @@ def _post_process_multifile_repair(
+             logger.info("=== edit_commands: ===")
+             for c in edit_commands:
+                 logger.info(c)
+                 logger.info("\n" + "-" * 40)
+-            edited_file = eval(edited_file_key)  # convert '"file.py"' to 'file.py'
+-            content = file_contents[edited_file]
++            edited_file = normalize_edit_file_path(edited_file_key)
++
++            _, content = lookup_by_normalized_path(file_contents, edited_file)
++            if content is None:
++                logger.error(
++                    "edited_file not found after normalize: raw=%r normalized=%r available=%s",
++                    edited_file_key,
++                    edited_file,
++                    list(file_contents.keys()),
++                )
++                continue
++
++            _, intervals = lookup_by_normalized_path(file_loc_intervals, edited_file)
++            if intervals is None:
++                intervals = []
++
+             if diff_format:
+-                new_content = parse_diff_edit_commands(
+-                    edit_commands, content, file_loc_intervals[edited_file]
+-                )
++                try:
++                    new_content = parse_diff_edit_commands(
++                        edit_commands, content, intervals
++                    )
++                except Exception as e:
++                    logger.error(
++                        "parse_diff_edit_commands failed for %s; fallback to parse_search_replace_commands: %s",
++                        edited_file,
++                        e,
++                    )
++                    new_content = parse_search_replace_commands(
++                        edit_commands, content, logger
++                    )
+             elif str_replace_format:
+                 new_content = parse_str_replace_edit_commands(
+-                    edit_commands, content, file_loc_intervals[edited_file]
++                    edit_commands, content, intervals
+                 )
+             else:
+                 new_content = parse_edit_commands(edit_commands, content)
+@@ -258,6 +343,27 @@ def construct_topn_file_context(
  
      return topn_content, file_loc_intervals
  
@@ -39,7 +153,7 @@ diff --git a/agentless/repair/repair.py b/agentless/repair/repair.py
  
  def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
      instance_id = loc["instance_id"]
-@@ -307,10 +329,14 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
+@@ -307,10 +413,14 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
      pred_files = loc["found_files"][: args.top_n]
      bench_data = [x for x in swe_bench_data if x["instance_id"] == instance_id][0]
      problem_statement = bench_data["problem_statement"]
@@ -58,7 +172,7 @@ diff --git a/agentless/repair/repair.py b/agentless/repair/repair.py
      raw_outputs, counts, all_generations, traj, prev_contents, file_names = (
          [],
          [],
-@@ -325,13 +351,17 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
+@@ -325,13 +435,17 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
      # Construct file contents
      file_contents = dict()
      for i, pred_file in enumerate(pred_files):
@@ -83,7 +197,7 @@ diff --git a/agentless/repair/repair.py b/agentless/repair/repair.py
          assert content is not None, f"{pred_file} file not found"
      # Construct top-n file context
      file_to_edit_locs = dict()
-@@ -339,18 +369,25 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
+@@ -339,18 +453,25 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
      if "found_edit_locs" in loc:
          file_to_edit_locs = loc["found_edit_locs"]
  
@@ -121,7 +235,41 @@ diff --git a/agentless/repair/repair.py b/agentless/repair/repair.py
  
      if topn_content.strip() == "":
          if write_lock is not None:
-@@ -544,7 +582,7 @@ def repair(args):
+@@ -509,19 +630,24 @@ def process_loc(loc, args, swe_bench_data, prev_o, write_lock=None):
+ 
+     if write_lock is not None:
+         write_lock.acquire()
+-    with open(args.output_file, "a") as f:
+-        f.write(
+-            json.dumps(
+-                {
+-                    "instance_id": instance_id,
+-                    "raw_output": raw_outputs,
+-                    "all_generations": [all_generations],
+-                    "try_count": counts,
+-                    "traj": traj,
+-                    "prev_content": [prev_contents],
+-                    "file_names": [file_names],
+-                }
+-            )
+-            + "\n"
+-        )
++    row = {
++        "instance_id": instance_id,
++        "raw_output": raw_outputs,
++        "all_generations": [all_generations],
++        "try_count": counts,
++        "traj": traj,
++        "prev_content": [prev_contents],
++        "file_names": [file_names],
++    }
++    if "repo_path" in bench_data:
++        row["repo_path"] = bench_data["repo_path"]
++    with open(args.output_file, "a", encoding="utf-8") as f:
++        f.write(json.dumps(row) + "\n")
+     if write_lock is not None:
+         write_lock.release()
+@@ -544,7 +670,7 @@ def repair(args):
      with open(f"{args.output_folder}/args.json", "w") as f:
          json.dump(vars(args), f, indent=4)
  
@@ -129,8 +277,154 @@ diff --git a/agentless/repair/repair.py b/agentless/repair/repair.py
 +    swe_bench_data = load_benchmark_data(args)
      locs = load_jsonl(args.loc_file)
      prev_o = load_jsonl(args.output_file) if os.path.exists(args.output_file) else []
+@@ -579,7 +705,7 @@ def repair(args):
  
-@@ -758,6 +796,11 @@ def main():
+ def post_process_raw_output(
+-    raw_output_text, file_contents, logger, file_loc_intervals, args
++    raw_output_text, file_contents, logger, file_loc_intervals, args, skip_syntax_check=False
+ ):
+     git_diffs = ""
+     raw_git_diffs = ""
+@@ -597,7 +723,7 @@ def post_process_raw_output(
+ 
+         raw_git_diffs += "\n" + git_diff.replace("\ No newline at end of file\n", "")
+ 
+-        syntax_success = check_syntax(new_contents)
++        syntax_success = True if skip_syntax_check else check_syntax(new_contents)
+ 
+         differ_by_empty_lines = check_code_differ_by_just_empty_lines(
+             new_contents, contents
+@@ -647,51 +773,54 @@ def post_process_repair(args):
+         else:
+             # Use the indexed generation
+             generation_idx = args.select_id
+             try:
+                 raw_output_text = raw_output["all_generations"][0][generation_idx]
+-                original_file_content = raw_output["prev_content"][0][generation_idx]
+-                pred_file = raw_output["file_names"][0][generation_idx]
+-
+-                pred_files = [loc for loc in locs if loc["instance_id"] == instance_id][
+-                    0
+-                ]["found_files"][: args.top_n]
+-
+-                git_diffs = ""
+-                raw_git_diffs = ""
+-                if isinstance(raw_output["raw_output"], str):
+-                    # for backward compatibility
+-                    raw_output["raw_output"] = [raw_output["raw_output"]]
+-
+-                if isinstance(original_file_content, str):
+-                    original_file_content = [original_file_content]
+-                    pred_file = [pred_file]
+-
+-                file_contents = {
+-                    file_name: o_file_content
+-                    for file_name, o_file_content in zip(
+-                        pred_file, original_file_content
+-                    )
+-                }
++                loc = [loc for loc in locs if loc["instance_id"] == instance_id][0]
++                pred_files = loc["found_files"][: args.top_n]
+ 
+-                file_loc_intervals = dict()
++                if "repo_path" in raw_output:
++                    file_contents = {
++                        pred_file: read_local_repo_file(raw_output["repo_path"], pred_file)
++                        for pred_file in pred_files
++                    }
++                    file_loc_intervals = {
++                        pred_file: []
++                        for pred_file in pred_files
++                    }
++                else:
++                    original_file_content = raw_output["prev_content"][0][generation_idx]
++                    pred_file = raw_output["file_names"][0][generation_idx]
+ 
+-                loc = [loc for loc in locs if loc["instance_id"] == instance_id][0]
++                    git_diffs = ""
++                    raw_git_diffs = ""
++                    if isinstance(raw_output["raw_output"], str):
++                        # for backward compatibility
++                        raw_output["raw_output"] = [raw_output["raw_output"]]
+ 
+-                for i, tmp_pred_file in enumerate(pred_files):
+-                    if tmp_pred_file not in pred_file:
+-                        continue
+-                    if (
+-                        "found_edit_locs" in loc
+-                        and tmp_pred_file in loc["found_edit_locs"]
+-                    ):
+-                        line_locs, context_intervals = transfer_arb_locs_to_locs(
+-                            loc["found_edit_locs"][tmp_pred_file],
+-                            None,
+-                            loc["found_files"][i],
+-                            args.context_window,
+-                            args.loc_interval,
+-                            args.fine_grain_loc_only,
+-                            file_content=file_contents[tmp_pred_file]
+-                            if tmp_pred_file in file_contents
+-                            else "",
+-                        )
+-                    else:
+-                        line_locs, context_intervals = [], []  # default values.
+-
+-                    file_loc_intervals[tmp_pred_file] = context_intervals
++                    if isinstance(original_file_content, str):
++                        original_file_content = [original_file_content]
++                        pred_file = [pred_file]
++
++                    file_contents = {
++                        file_name: o_file_content
++                        for file_name, o_file_content in zip(
++                            pred_file, original_file_content
++                        )
++                    }
++
++                    file_loc_intervals = dict()
++
++                    for i, tmp_pred_file in enumerate(pred_files):
++                        if tmp_pred_file not in pred_file:
++                            continue
++                        if (
++                            "found_edit_locs" in loc
++                            and tmp_pred_file in loc["found_edit_locs"]
++                        ):
++                            line_locs, context_intervals = transfer_arb_locs_to_locs(
++                                loc["found_edit_locs"][tmp_pred_file],
++                                None,
++                                loc["found_files"][i],
++                                args.context_window,
++                                args.loc_interval,
++                                args.fine_grain_loc_only,
++                                file_content=file_contents[tmp_pred_file]
++                                if tmp_pred_file in file_contents
++                                else "",
++                            )
++                        else:
++                            line_locs, context_intervals = [], []  # default values.
++
++                        file_loc_intervals[tmp_pred_file] = context_intervals
+             except Exception as e:
+                 logger.info(e)
+                 print(e)
+@@ -707,6 +836,7 @@ def post_process_repair(args):
+                 logger,
+                 file_loc_intervals,
+                 args,
++                skip_syntax_check=("repo_path" in raw_output),
+             )
+         else:
+             git_diffs = ""
+@@ -720,7 +850,7 @@ def post_process_repair(args):
+             edited_files = []
+             new_contents = []
+ 
+-        with open(args.output_file, "a") as f:
++        with open(args.output_file, "a", encoding="utf-8") as f:
+             f.write(
+                 json.dumps(
+                     {
+@@ -758,6 +888,11 @@ def main():
      parser.add_argument(
          "--mock", action="store_true", help="Mock run to compute prompt tokens."
      )
