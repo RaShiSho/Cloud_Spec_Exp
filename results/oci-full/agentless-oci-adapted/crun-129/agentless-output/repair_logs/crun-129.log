@@ -1,13 +1,13 @@
-2026-06-30 22:07:36,655 - INFO - ================ repairing crun-13 ================
-2026-06-30 22:07:36,657 - INFO - prompting with message:
+2026-06-30 22:16:44,196 - INFO - ================ repairing crun-129 ================
+2026-06-30 22:16:44,198 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
-Fix OCI runtime bug case crun-13.
+Fix OCI runtime bug case crun-129.
 
 Target runtime: crun
-Title: $PATH lookup before exec'ing the container process
-Upstream issue: https://github.com/containers/crun/issues/13
-Category: Process & Execution
+Title: crun hangs when an OCI hook exists non-zero
+Upstream issue: https://github.com/containers/crun/issues/129
+Category: POSIX-platform Hooks
 
 Goal:
 Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
@@ -20,15 +20,15 @@ Candidate runtime path after build:
 crun
 
 Expected differential behavior and validation notes:
-Issue ID: crun-13
-Upstream URL: https://github.com/containers/crun/issues/13
-Category: Process & Execution
+Issue ID: crun-129
+Upstream URL: https://github.com/containers/crun/issues/129
+Category: POSIX-platform Hooks
 
 Payload under test:
-process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
 
 Expected differential behavior:
-Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
 
 Validation procedure:
 1. Run this case with a known-good or reference runtime.
@@ -37,12 +37,12 @@ Validation procedure:
 4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
 
 Case README:
-# crun-13
+# crun-129
 
 ## Upstream Issue Summary
-- Title: $PATH lookup before exec'ing the container process
-- URL: https://github.com/containers/crun/issues/13
-- Category: Process & Execution
+- Title: crun hangs when an OCI hook exists non-zero
+- URL: https://github.com/containers/crun/issues/129
+- Category: POSIX-platform Hooks
 - Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
 
 ## Runtime Version Assessment
@@ -62,16 +62,16 @@ Use the runtime version discussed in the upstream issue as the affected implemen
 - Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
 
 ## Reproduction Steps
-1. Change into `cases/crun-13`.
+1. Change into `cases/crun-129`.
 2. Run `bash repro.sh` with the default runtime.
 3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
 4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
 5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
 
 ## Result Validation
-Payload: process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+Payload: process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
 
-Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+Oracle: A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
 
 --- END ISSUE ---
 
@@ -241,51 +241,55 @@ struct propagation_flags_s
     const char *name;
     int clear;
     int flags;
+    int extra_flags;
   };
+
+enum {
+      OPTION_TMPCOPYUP = 1
+};
 
 static struct propagation_flags_s propagation_flags[] =
   {
-    {"defaults", 0, 0},
-    {"rbind", 0, MS_REC | MS_BIND},
-    {"ro", 0, MS_RDONLY},
-    {"rw", 1, MS_RDONLY},
-    {"suid", 1, MS_NOSUID},
-    {"nosuid", 0, MS_NOSUID},
-    {"dev", 1, MS_NODEV},
-    {"nodev", 0, MS_NODEV},
-    {"exec", 1, MS_NOEXEC},
-    {"noexec", 0, MS_NOEXEC},
-    {"sync", 0, MS_SYNCHRONOUS},
-    {"async", 1, MS_SYNCHRONOUS},
-    {"dirsync", 0, MS_DIRSYNC},
-    {"remount", 0, MS_REMOUNT},
-    {"mand", 0, MS_MANDLOCK},
-    {"nomand", 1, MS_MANDLOCK},
-    {"atime", 1, MS_NOATIME},
-    {"noatime", 0, MS_NOATIME},
-    {"diratime", 1, MS_NODIRATIME},
-    {"nodiratime", 0, MS_NODIRATIME},
-    {"relatime", 0, MS_RELATIME},
-    {"norelatime", 1, MS_RELATIME},
-    {"strictatime", 0, MS_STRICTATIME},
-    {"nostrictatime", 1, MS_STRICTATIME},
-    {"shared", 0, MS_SHARED},
-    {"rshared", 0, MS_REC | MS_SHARED},
-    {"slave", 0, MS_SLAVE},
-    {"rslave", 0, MS_REC | MS_SLAVE},
-    {"private", 0, MS_PRIVATE},
-    {"rprivate", 0, MS_REC | MS_PRIVATE},
-    {"unbindable", 0, MS_UNBINDABLE},
-    {"runbindable", 0, MS_REC | MS_UNBINDABLE},
+   {"defaults", 0, 0, 0},
+   {"rbind", 0, MS_REC | MS_BIND, 0},
+   {"ro", 0, MS_RDONLY, 0},
+   {"rw", 1, MS_RDONLY, 0},
+   {"suid", 1, MS_NOSUID, 0},
+   {"nosuid", 0, MS_NOSUID, 0},
+   {"dev", 1, MS_NODEV, 0},
+   {"nodev", 0, MS_NODEV, 0},
+   {"exec", 1, MS_NOEXEC, 0},
+   {"noexec", 0, MS_NOEXEC, 0},
+   {"sync", 0, MS_SYNCHRONOUS, 0},
+   {"async", 1, MS_SYNCHRONOUS, 0},
+   {"dirsync", 0, MS_DIRSYNC, 0},
+   {"remount", 0, MS_REMOUNT, 0},
+   {"mand", 0, MS_MANDLOCK, 0},
+   {"nomand", 1, MS_MANDLOCK, 0},
+   {"atime", 1, MS_NOATIME, 0},
+   {"noatime", 0, MS_NOATIME, 0},
+   {"diratime", 1, MS_NODIRATIME, 0},
+   {"nodiratime", 0, MS_NODIRATIME, 0},
+   {"relatime", 0, MS_RELATIME, 0},
+   {"norelatime", 1, MS_RELATIME, 0},
+   {"strictatime", 0, MS_STRICTATIME, 0},
+   {"nostrictatime", 1, MS_STRICTATIME, 0},
+   {"shared", 0, MS_SHARED, 0},
+   {"rshared", 0, MS_REC | MS_SHARED, 0},
+   {"slave", 0, MS_SLAVE, 0},
+   {"rslave", 0, MS_REC | MS_SLAVE, 0},
+   {"private", 0, MS_PRIVATE, 0},
+   {"rprivate", 0, MS_REC | MS_PRIVATE, 0},
+   {"unbindable", 0, MS_UNBINDABLE, 0},
+   {"runbindable", 0, MS_REC | MS_UNBINDABLE, 0},
 
-    /* runc has support for tmpcopyup which is not part of OCI.  Silently ignore it for now.  */
-    {"tmpcopyup", 0, 0},
+   {"tmpcopyup", 0, 0, OPTION_TMPCOPYUP},
 
-    {NULL, 0}
+   {NULL, 0, 0, 0}
   };
 
 static unsigned long
-get_mount_flags (const char *name, int current_flags, int *found)
+get_mount_flags (const char *name, int current_flags, int *found, unsigned long *extra_flags)
 {
   struct propagation_flags_s *it;
   if (found)
@@ -296,6 +300,9 @@ get_mount_flags (const char *name, int current_flags, int *found)
         if (found)
           *found = 1;
 
+        if (extra_flags)
+          *extra_flags |= it->extra_flags;
+
         if (it->clear)
           return current_flags & ~it->flags;
 
@@ -305,11 +312,11 @@ get_mount_flags (const char *name, int current_flags, int *found)
 }
 
 static unsigned long
-get_mount_flags_or_option (const char *name, int current_flags, char **option)
+get_mount_flags_or_option (const char *name, int current_flags, unsigned long *extra_flags, char **option)
 {
   int found;
   cleanup_free char *prev = NULL;
-  unsigned long flags = get_mount_flags (name, current_flags, &found);
+  unsigned long flags = get_mount_flags (name, current_flags, &found, extra_flags);
   if (found)
     return flags;
 
@@ -348,6 +355,68 @@ make_remount (const char *target, unsigned long flags, const char *data, struct 
 }
 
 static int
+do_remount (const char *target, unsigned long flags, const char *data, libcrun_error_t *err)
+{
+  int ret;
+
+  ret = mount ("none", target, "", flags, data);
+  if (UNLIKELY (ret < 0))
+    {
+      unsigned long remount_flags;
+      struct statfs sfs;
+
+      ret = statfs (target, &sfs);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "statfs '%s'", target);
+
+      remount_flags = sfs.f_flags & (MS_NOSUID | MS_NODEV | MS_NOEXEC);
+
+      ret = mount ("none", target, "", flags | remount_flags, data);
+      if (LIKELY (ret == 0))
+        return 0;
+
+      /* If it still fails try to add MS_RDONLY.  */
+      if (sfs.f_flags & MS_RDONLY)
+        {
+          remount_flags = sfs.f_flags & (MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RDONLY);
+          ret = mount ("none", target, "", flags | remount_flags, data);
+        }
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "remount '%s'", target);
+    }
+  return 0;
+}
+
+static int
+finalize_mounts (libcrun_container_t *container, libcrun_error_t *err)
+{
+  int ret = 0;
+  struct remount_s *r = get_private_data (container)->remounts;
+  while (r)
+    {
+      struct remount_s *next = r->next;
+
+      ret = do_remount (r->target, r->flags, r->data, err);
+      if (UNLIKELY (ret < 0))
+        goto cleanup;
+
+      free_remount (r);
+      r = next;
+    }
+
+ cleanup:
+  while (r)
+    {
+      struct remount_s *next = r->next;
+      free_remount (r);
+      r = next;
+    }
+
+  get_private_data (container)->remounts = NULL;
+  return ret;
+}
+
+static int
 do_mount (libcrun_container_t *container,
           const char *source,
           const char *target,
@@ -360,6 +429,7 @@ do_mount (libcrun_container_t *container,
   int ret = 0;
   cleanup_free char *data_with_label = NULL;
   const char *label = container->container_def->linux->mount_label;
+  bool needs_remount = false;
 
   if (!skip_labelling)
     {
@@ -370,18 +440,18 @@ do_mount (libcrun_container_t *container,
     }
 
 #define ALL_PROPAGATIONS (MS_REC | MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE)
+#define ALL_PROPAGATIONS_NO_REC (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE)
 
   if ((fstype && fstype[0]) || (mountflags & MS_BIND))
     {
-      unsigned long flags = mountflags & ~MS_RDONLY;
-      if ((mountflags & MS_BIND) == 0)
-        flags &= ~ALL_PROPAGATIONS;
+      unsigned long flags = mountflags & ~(ALL_PROPAGATIONS_NO_REC | MS_RDONLY);
+
       ret = mount (source, target, fstype, flags, data);
       if (UNLIKELY (ret < 0))
         {
-          if (strcmp (fstype ? fstype : "", "sysfs"))
-            return crun_make_error (err, errno, "mount '%s' to '%s'", source, target);
-          else
+          int saved_errno = errno;
+
+          if (strcmp (fstype ? fstype : "", "sysfs") == 0)
             {
               /* If we are running in an user namespace, just bind mount /sys if creating
                  sysfs failed.  */
@@ -390,17 +460,15 @@ do_mount (libcrun_container_t *container,
                 return ret;
 
               ret = mount ("/sys", target, "/sys", MS_BIND | MS_REC | MS_SLAVE, data);
-              if (ret == 0)
+              if (LIKELY (ret == 0))
                 return 0;
             }
+
+          return crun_make_error (err, saved_errno, "mount '%s' to '%s'", source, target);
         }
 
-      if ((flags & MS_BIND) && (flags & ~(MS_BIND | ALL_PROPAGATIONS)))
-        {
-          ret = mount (source, target, fstype, MS_REMOUNT | flags, NULL);
-          if (UNLIKELY (ret < 0))
-            return crun_make_error (err, errno, "remount '%s'", target);
-        }
+      if ((flags & MS_BIND) && (flags & ~(MS_BIND | MS_RDONLY | ALL_PROPAGATIONS)))
+        needs_remount = true;
     }
 
   if (mountflags & ALL_PROPAGATIONS)
@@ -420,10 +488,25 @@ do_mount (libcrun_container_t *container,
     }
 
   if (mountflags & MS_RDONLY)
+    needs_remount = true;
+
+  if (needs_remount)
     {
-      unsigned long remount_flags = MS_REMOUNT | MS_BIND | MS_RDONLY;
-      struct remount_s *r = make_remount (target, remount_flags, NULL, get_private_data (container)->remounts);
-      get_private_data (container)->remounts = r;
+      unsigned long remount_flags = MS_REMOUNT | MS_BIND | (mountflags & ~ALL_PROPAGATIONS);
+
+      if ((remount_flags & MS_RDONLY) == 0)
+        {
+          ret = do_remount (target, remount_flags, data, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+        }
+      else
+        {
+          struct remount_s *r;
+
+          r = make_remount (target, remount_flags, data, get_private_data (container)->remounts);
+          get_private_data (container)->remounts = r;
+        }
     }
 
   return ret;
@@ -431,11 +514,8 @@ do_mount (libcrun_container_t *container,
 
 static int
 do_mount_cgroup_v2 (libcrun_container_t *container,
-                    const char *source,
                     const char *target,
-                    const char *fstype,
                     unsigned long mountflags,
-                    const void *data,
                     libcrun_error_t *err)
 {
   int ret;
@@ -476,12 +556,9 @@ has_mount_for (libcrun_container_t *container, const char *destination)
 
 static int
 do_mount_cgroup_v1 (libcrun_container_t *container,
-                    int cgroup_mode,
                     const char *source,
                     const char *target,
-                    const char *fstype,
                     unsigned long mountflags,
-                    const void *data,
                     libcrun_error_t *err)
 {
   int ret;
@@ -559,9 +636,7 @@ static int
 do_mount_cgroup (libcrun_container_t *container,
                  const char *source,
                  const char *target,
-                 const char *fstype,
                  unsigned long mountflags,
-                 const void *data,
                  libcrun_error_t *err)
 {
   int cgroup_mode;
@@ -573,10 +648,10 @@ do_mount_cgroup (libcrun_container_t *container,
   switch (cgroup_mode)
     {
     case CGROUP_MODE_UNIFIED:
-      return do_mount_cgroup_v2 (container, source, target, fstype, mountflags, data, err);
+      return do_mount_cgroup_v2 (container, target, mountflags, err);
     case CGROUP_MODE_LEGACY:
     case CGROUP_MODE_HYBRID:
-      return do_mount_cgroup_v1 (container, cgroup_mode, source, target, fstype, mountflags, data, err);
+      return do_mount_cgroup_v1 (container, source, target, mountflags, err);
     }
 
   return crun_make_error (err, 0, "unknown cgroups mode %d", cgroup_mode);
@@ -750,7 +825,7 @@ do_masked_and_readonly_paths (libcrun_container_t *container, const char *rootfs
       int dir;
       xasprintf (&path, "%s/%s", rootfs, def->linux->masked_paths[i]);
 
-      ret = crun_path_exists (path, 1, err);
+      ret = crun_path_exists (path, err);
       if (UNLIKELY (ret < 0))
         {
           if (errno != EACCES)
@@ -780,7 +855,7 @@ do_masked_and_readonly_paths (libcrun_container_t *container, const char *rootfs
 
       xasprintf (&path, "%s/%s", rootfs, def->linux->readonly_paths[i]);
 
-      ret = crun_path_exists (path, 1, err);
+      ret = crun_path_exists (path, err);
       if (UNLIKELY (ret < 0))
         {
           if (errno != EACCES)
@@ -877,53 +952,6 @@ get_default_flags (libcrun_container_t *container, const char *destination, char
 }
 
 static int
-finalize_mounts (libcrun_container_t *container, const char *rootfs, int is_user_ns, libcrun_error_t *err)
-{
-  int ret = 0;
-  struct remount_s *r = get_private_data (container)->remounts;
-  while (r)
-    {
-      struct remount_s *next = r->next;
-      ret = mount ("none", r->target, "", r->flags, r->data);
-      if (UNLIKELY (ret < 0))
-        {
-          unsigned long flags;
-          struct statfs sfs;
-
-          ret = statfs (r->target, &sfs);
-          if (UNLIKELY (ret < 0))
-            {
-              crun_make_error (err, errno, "statfs '%s'", r->target);
-              goto cleanup;
-            }
-
-          flags = sfs.f_flags & (MS_NOSUID | MS_NODEV | MS_NOEXEC);
-
-          ret = mount ("none", r->target, "", r->flags | flags, r->data);
-          if (UNLIKELY (ret < 0))
-            {
-              crun_make_error (err, errno, "remount '%s'", r->target);
-              goto cleanup;
-            }
-        }
-
-      free_remount (r);
-      r = next;
-    }
-
- cleanup:
-  while (r)
-    {
-      struct remount_s *next = r->next;
-      free_remount (r);
-      r = next;
-    }
-
-  get_private_data (container)->remounts = NULL;
-  return ret;
-}
-
-static int
 do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *err)
 {
   size_t i;
@@ -936,10 +964,12 @@ do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *
       char *type;
       char *source;
       unsigned long flags = 0;
+      unsigned long extra_flags = 0;
       int skip_labelling;
       int is_dir = 1;
       char *resolved_path, buffer_resolved_path[PATH_MAX];
       char *target = NULL;
+      cleanup_close int copy_from_fd = -1;
 
       resolved_path = chroot_realpath (rootfs, def->mounts[i]->destination, buffer_resolved_path);
       if (resolved_path != NULL)
@@ -968,9 +998,7 @@ do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *
           size_t j;
 
           for (j = 0; j < def->mounts[i]->options_len; j++)
-            {
-              flags |= get_mount_flags_or_option (def->mounts[i]->options[j], flags, &data);
-            }
+            flags |= get_mount_flags_or_option (def->mounts[i]->options[j], flags, &extra_flags, &data);
 
           if (type == NULL)
             {
@@ -1005,15 +1033,20 @@ do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *
 
           if (data == NULL || strstr (data, "mode=") == NULL)
             {
-              if (data == NULL || data[0] == '\0')
-                data = xstrdup ("mode=1755");
-              else
+              bool append;
+
+              append = data != NULL && data[0] != '\0';
+
+              if (data != NULL)
                 {
-                  char *newdata;
-                  xasprintf (&newdata, "%s,%s", data, "mode=1755");
                   free (data);
-                  data = newdata;
+                  data = NULL;
                 }
+
+              if (append)
+                xasprintf (&data, "%s,%s", data, "mode=1755");
+              else
+                data = xstrdup ("mode=1755");
             }
         }
 
@@ -1030,6 +1063,19 @@ do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *
             return ret;
         }
 
+      if (extra_flags & OPTION_TMPCOPYUP)
+        {
+          if (strcmp (type, "tmpfs") != 0)
+            return crun_make_error (err, errno, "tmpcopyup can be used only with tmpfs");
+
+          copy_from_fd = open (target, O_DIRECTORY);
+          if (UNLIKELY (copy_from_fd < 0))
+            {
+              if (errno != ENOTDIR)
+                return crun_make_error (err, errno, "open target for tmpcopyup");
+            }
+        }
+
       source = def->mounts[i]->source ? def->mounts[i]->source : type;
 
       skip_labelling = strcmp (type, "sysfs") == 0
@@ -1038,7 +1084,7 @@ do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *
 
       if (strcmp (type, "cgroup") == 0)
         {
-          ret = do_mount_cgroup (container, source, target, type, flags, data, err);
+          ret = do_mount_cgroup (container, source, target, flags, err);
           if (UNLIKELY (ret < 0))
             return ret;
         }
@@ -1048,6 +1094,24 @@ do_mounts (libcrun_container_t *container, const char *rootfs, libcrun_error_t *
           if (UNLIKELY (ret < 0))
             return ret;
         }
+
+      if (copy_from_fd >= 0)
+        {
+          int destfd, tmpfd;
+
+          destfd = open (target, O_DIRECTORY);
+          if (UNLIKELY (destfd < 0))
+            return crun_make_error (err, errno, "open target to write for tmpcopyup");
+
+          /* take ownership for the fd.  */
+          tmpfd = copy_from_fd;
+          copy_from_fd = -1;
+
+          ret = copy_recursive_fd_to_fd (tmpfd, destfd, target, target, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+        }
+
     }
   return 0;
 }
@@ -1113,7 +1177,7 @@ do_notify_socket (libcrun_container_t *container, const char *rootfs, libcrun_er
 
   ret = mkdir (host_notify_socket_path_dir, 0700);
   if (ret < 0)
-    return ret;
+    return crun_make_error (err, errno, "mkdir %s", host_notify_socket_path_dir);
 
   get_private_data (container)->host_notify_socket_path = host_notify_socket_path;
   get_private_data (container)->container_notify_socket_path = container_notify_socket_path;
@@ -1194,7 +1258,7 @@ libcrun_set_mounts (libcrun_container_t *container, const char *rootfs, libcrun_
   unsigned long rootfs_propagation = 0;
 
   if (def->linux->rootfs_propagation)
-    rootfs_propagation = get_mount_flags (def->linux->rootfs_propagation, 0, NULL);
+    rootfs_propagation = get_mount_flags (def->linux->rootfs_propagation, 0, NULL, NULL);
 
   if ((rootfs_propagation & (MS_SHARED | MS_SLAVE | MS_PRIVATE | MS_UNBINDABLE)) == 0)
     rootfs_propagation = MS_REC | MS_PRIVATE;
@@ -1223,6 +1287,10 @@ libcrun_set_mounts (libcrun_container_t *container, const char *rootfs, libcrun_
       get_private_data (container)->remounts = r;
     }
 
+  ret = libcrun_container_enter_cgroup_ns (container, err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
   ret = do_mounts (container, rootfs, err);
   if (UNLIKELY (ret < 0))
     return ret;
@@ -1250,7 +1318,7 @@ libcrun_set_mounts (libcrun_container_t *container, const char *rootfs, libcrun_
   if (UNLIKELY (ret < 0))
     return ret;
 
-  ret = finalize_mounts (container, rootfs, is_user_ns, err);
+  ret = finalize_mounts (container, err);
   if (UNLIKELY (ret < 0))
     return ret;
 
@@ -1258,7 +1326,7 @@ libcrun_set_mounts (libcrun_container_t *container, const char *rootfs, libcrun_
 }
 
 static int
-move_root (libcrun_container_t *container, const char *rootfs, libcrun_error_t *err)
+move_root (const char *rootfs, libcrun_error_t *err)
 {
   int ret;
 
@@ -1297,7 +1365,7 @@ libcrun_do_pivot_root (libcrun_container_t *container, bool no_pivot, const char
     {
       if (no_pivot)
         {
-          ret = move_root (container, rootfs, err);
+          ret = move_root (rootfs, err);
           if (UNLIKELY (ret < 0))
             return ret;
         }
@@ -1635,17 +1703,20 @@ read_caps (unsigned long caps[2], char **values, size_t len, libcrun_error_t *er
 }
 
 int
-libcrun_set_selinux_exec_label (libcrun_container_t *container, libcrun_error_t *err)
+libcrun_set_selinux_exec_label (oci_container_process *proc, libcrun_error_t *err)
 {
-  char *label;
+  if (proc->selinux_label)
+    return set_selinux_exec_label (proc->selinux_label, err);
 
-  if (container->container_def->process == NULL)
-    return 0;
+  return 0;
+}
 
-  label = container->container_def->process->selinux_label;
-  if (label == NULL)
-    return 0;
-  return set_selinux_exec_label (label, err);
+int
+libcrun_set_apparmor_profile (oci_container_process *proc, libcrun_error_t *err)
+{
+  if (proc->apparmor_profile)
+    return set_apparmor_profile (proc->apparmor_profile, err);
+  return 0;
 }
 
 int
@@ -1902,7 +1973,7 @@ libcrun_run_linux_container (libcrun_container_t *container,
 #define MAX_NAMESPACES 10
   cleanup_close_vec int *namespaces_to_join = (int[MAX_NAMESPACES+1]){-1};
   int namespaces_to_join_index[MAX_NAMESPACES];
-  int n_namespaces_to_join = 0;
+  size_t n_namespaces_to_join = 0;
   int userns_join_index = -1;
 
   for (i = 0; i < def->linux->namespaces_len; i++)
@@ -2334,7 +2405,7 @@ libcrun_join_process (libcrun_container_t *container, pid_t pid_to_join, libcrun
       ret = setns (fds[i], 0);
       if (UNLIKELY (ret < 0 && errno != EINVAL))
         {
-          int j;
+          size_t j;
           bool found = false;
 
           for (j = 0; j < def->linux->namespaces_len; j++)
@@ -2438,7 +2509,7 @@ libcrun_join_process (libcrun_container_t *container, pid_t pid_to_join, libcrun
 }
 
 int
-libcrun_linux_container_update (libcrun_container_status_t *status, const char *content, size_t len, libcrun_error_t *err)
+libcrun_linux_container_update (libcrun_container_status_t *status, const char *content, size_t len arg_unused, libcrun_error_t *err)
 {
   int ret;
   yajl_val tree = NULL;
@@ -2475,44 +2546,21 @@ libcrun_linux_container_update (libcrun_container_status_t *status, const char *
 }
 
 static int
-libcrun_container_pause_unpause_linux (libcrun_container_status_t *status, const char *id, const bool pause, libcrun_error_t *err)
+libcrun_container_pause_unpause_linux (libcrun_container_status_t *status, const bool pause, libcrun_error_t *err)
 {
-  int ret;
-  cleanup_free char *path = NULL;
-  int cgroup_mode;
-  const char *state = "";
-
-  cgroup_mode = libcrun_get_cgroup_mode (err);
-  if (cgroup_mode < 0)
-    return cgroup_mode;
-
-  if (cgroup_mode == CGROUP_MODE_UNIFIED)
-    {
-      state = pause ? "1" : "0";
-      xasprintf (&path, "/sys/fs/cgroup/%s/cgroup.freeze", status->cgroup_path);
-    }
-  else
-    {
-      state = pause ? "FROZEN" : "THAWED";
-      xasprintf (&path, "/sys/fs/cgroup/freezer/%s/freezer.state", status->cgroup_path);
-    }
-
-  ret = write_file (path, state, strlen (state), err);
-  if (ret >= 0)
-    return 0;
-  return ret;
+  return libcrun_cgroup_pause_unpause (status->cgroup_path, pause, err);
 }
 
 int
-libcrun_container_pause_linux (libcrun_container_status_t *status, const char *id, libcrun_error_t *err)
+libcrun_container_pause_linux (libcrun_container_status_t *status, libcrun_error_t *err)
 {
-  return libcrun_container_pause_unpause_linux (status, id, true, err);
+  return libcrun_container_pause_unpause_linux (status, true, err);
 }
 
 int
-libcrun_container_unpause_linux (libcrun_container_status_t *status, const char *id, libcrun_error_t *err)
+libcrun_container_unpause_linux (libcrun_container_status_t *status, libcrun_error_t *err)
 {
-  return libcrun_container_pause_unpause_linux (status, id, false, err);
+  return libcrun_container_pause_unpause_linux (status, false, err);
 }
 
 /* Protection for attacks like CVE-2019-5736.  */
@@ -2912,8 +2960,8 @@ make_container (oci_container *container_def)
   memset (container, 0, sizeof (*container));
   container->container_def = container_def;
 
-  container->host_uid = getuid ();
-  container->host_gid = getgid ();
+  container->host_uid = geteuid ();
+  container->host_gid = getegid ();
 
   return container;
 }
@@ -2970,9 +3018,34 @@ int unblock_signals (libcrun_error_t *err)
   return 0;
 }
 
+/* must be used on the host before pivot_root(2).  */
+static int
+initialize_security (oci_container_process *proc, libcrun_error_t *err)
+{
+  int ret;
+
+  if (UNLIKELY (proc == NULL))
+    return 0;
+
+  if (proc->apparmor_profile)
+    {
+      ret = libcrun_initialize_apparmor (err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  ret = libcrun_initialize_selinux (err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  return 0;
+}
+
+
 static int
 container_entrypoint_init (void *args, const char *notify_socket,
-                           int sync_socket, libcrun_error_t *err)
+                           int sync_socket, const char **exec_path,
+                           libcrun_error_t *err)
 {
   struct container_entrypoint_s *entrypoint_args = args;
   libcrun_container_t *container = entrypoint_args->container;
@@ -2984,6 +3057,10 @@ container_entrypoint_init (void *args, const char *notify_socket,
   oci_container_process_capabilities *capabilities;
   cleanup_free char *rootfs = NULL;
   int no_new_privs;
+
+  ret = initialize_security (def->process, err);
+  if (UNLIKELY (ret < 0))
+    return ret;
 
   rootfs = realpath (def->root->path, NULL);
   if (UNLIKELY (rootfs == NULL))
@@ -3014,10 +3091,6 @@ container_entrypoint_init (void *args, const char *notify_socket,
   if (UNLIKELY (ret < 0))
     return ret;
 
-  ret = libcrun_container_enter_cgroup_ns (container, err);
-  if (UNLIKELY (ret < 0))
-    return ret;
-
   ret = sync_socket_send_sync (sync_socket, false, err);
   if (UNLIKELY (ret < 0))
     return ret;
@@ -3029,6 +3102,37 @@ container_entrypoint_init (void *args, const char *notify_socket,
   ret = libcrun_do_pivot_root (container, entrypoint_args->context->no_pivot, rootfs, err);
   if (UNLIKELY (ret < 0))
     return ret;
+
+  if (clearenv ())
+    return crun_make_error (err, errno, "clearenv");
+
+  if (def->process)
+    {
+      size_t i;
+
+      for (i = 0; i < def->process->env_len; i++)
+        if (putenv (def->process->env[i]) < 0)
+          return crun_make_error (err, errno, "putenv '%s'", def->process->env[i]);
+    }
+
+  if (getenv ("HOME") == NULL)
+    {
+      ret = set_home_env (container->container_uid);
+      if (UNLIKELY (ret < 0))
+        libcrun_warning ("cannot set HOME environment variable");
+    }
+
+  if (def->process && def->process->args)
+    {
+      *exec_path = find_executable (def->process->args[0]);
+      if (UNLIKELY (*exec_path == NULL))
+        {
+          if (errno == ENOENT)
+            return crun_make_error (err, errno, "executable file not found in $PATH");
+
+          return crun_make_error (err, errno, "open executable");
+        }
+    }
 
   if (has_terminal)
     {
@@ -3061,9 +3165,16 @@ container_entrypoint_init (void *args, const char *notify_socket,
         }
     }
 
-  ret = libcrun_set_selinux_exec_label (container, err);
-  if (UNLIKELY (ret < 0))
-    return ret;
+  if (def->process)
+    {
+      ret = libcrun_set_selinux_exec_label (def->process, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+
+      ret = libcrun_set_apparmor_profile (def->process, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
 
   ret = libcrun_set_hostname (container, err);
   if (UNLIKELY (ret < 0))
@@ -3071,7 +3182,16 @@ container_entrypoint_init (void *args, const char *notify_socket,
 
   if (def->process && !def->process->no_new_privileges)
     {
-      ret = libcrun_generate_and_load_seccomp (entrypoint_args->container, entrypoint_args->seccomp_fd, err);
+      char **seccomp_flags = NULL;
+      size_t seccomp_flags_len = 0;
+
+      if (def->linux && def->linux->seccomp)
+        {
+          seccomp_flags = def->linux->seccomp->flags;
+          seccomp_flags_len = def->linux->seccomp->flags_len;
+        }
+
+      ret = libcrun_generate_and_load_seccomp (entrypoint_args->container, entrypoint_args->seccomp_fd, seccomp_flags, seccomp_flags_len, err);
       if (UNLIKELY (ret < 0))
         return ret;
     }
@@ -3086,17 +3206,6 @@ container_entrypoint_init (void *args, const char *notify_socket,
     if (UNLIKELY (chdir (def->process->cwd) < 0))
       return crun_make_error (err, errno, "chdir");
 
-  if (clearenv ())
-    return crun_make_error (err, errno, "clearenv");
-
-  if (def->process)
-    {
-      size_t i;
-
-      for (i = 0; i < def->process->env_len; i++)
-        if (putenv (def->process->env[i]) < 0)
-          return crun_make_error (err, errno, "putenv '%s'", def->process->env[i]);
-    }
   if (notify_socket)
     {
       char *notify_socket_env;
@@ -3116,11 +3225,12 @@ container_entrypoint (void *args, const char *notify_socket,
   struct container_entrypoint_s *entrypoint_args = args;
   int ret;
   oci_container *def = entrypoint_args->container->container_def;
+  cleanup_free const char *exec_path = NULL;
   entrypoint_args->sync_socket = sync_socket;
 
-  crun_set_output_handler (log_write_to_sync_socket, args);
+  crun_set_output_handler (log_write_to_sync_socket, args, false);
 
-  ret = container_entrypoint_init (args, notify_socket, sync_socket, err);
+  ret = container_entrypoint_init (args, notify_socket, sync_socket, &exec_path, err);
   if (UNLIKELY (ret < 0))
     {
       /* If it fails to write the error using the sync socket, then fallback
@@ -3164,7 +3274,7 @@ container_entrypoint (void *args, const char *notify_socket,
       while (ret == 0);
     }
 
-  crun_set_output_handler (log_write_to_stream, stderr);
+  crun_set_output_handler (log_write_to_stderr, NULL, false);
 
   ret = close_fds_ge_than (entrypoint_args->context->preserve_fds + 3, err);
   if (UNLIKELY (ret < 0))
@@ -3172,17 +3282,27 @@ container_entrypoint (void *args, const char *notify_socket,
 
   if (def->process && def->process->no_new_privileges)
     {
-      ret = libcrun_generate_and_load_seccomp (entrypoint_args->container, entrypoint_args->seccomp_fd, err);
+      char **seccomp_flags = NULL;
+      size_t seccomp_flags_len = 0;
+
+      if (def->linux && def->linux->seccomp)
+        {
+          seccomp_flags = def->linux->seccomp->flags;
+          seccomp_flags_len = def->linux->seccomp->flags_len;
+        }
+
+      ret = libcrun_generate_and_load_seccomp (entrypoint_args->container, entrypoint_args->seccomp_fd, seccomp_flags, seccomp_flags_len, err);
       if (UNLIKELY (ret < 0))
         return ret;
     }
 
-  if (! def->process)
+  if (UNLIKELY (def->process == NULL))
     return crun_make_error (err, errno, "block 'process' not found");
 
-  execvp (def->process->args[0], def->process->args);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
+  if (UNLIKELY (exec_path == NULL))
+    return crun_make_error (err, errno, "executable path not specified");
+
+  execv (exec_path, def->process->args);
 
   return crun_make_error (err, errno, "exec the container process");
 }
@@ -3259,32 +3379,44 @@ do_hooks (oci_container *def, pid_t pid, const char *id, bool keep_going, const 
 }
 
 static int
+read_container_config_from_state (libcrun_container_t **container, const char *state_root, const char *id, libcrun_error_t *err)
+{
+  cleanup_free char *dir = NULL;
+  cleanup_free char *config_file = NULL;
+
+  *container = NULL;
+
+  dir = libcrun_get_state_directory (state_root, id);
+  if (UNLIKELY (dir == NULL))
+    return crun_make_error (err, 0, "cannot get state directory from %s", state_root);
+
+  xasprintf (&config_file, "%s/config.json", dir);
+  *container = libcrun_container_load_from_file (config_file, err);
+  if (*container == NULL)
+    return crun_make_error (err, 0, "error loading %s", config_file);
+
+  return 0;
+}
+
+static int
 run_poststop_hooks (libcrun_context_t *context, oci_container *def,
                     libcrun_container_status_t *status,
                     const char *state_root, const char *id, libcrun_error_t *err)
 {
   cleanup_free libcrun_container_t *container = NULL;
+  int ret;
+
   if (def == NULL)
     {
-      cleanup_free char *dir = NULL;
-      cleanup_free char *config_file = NULL;
-
-      dir = libcrun_get_state_directory (state_root, id);
-      if (UNLIKELY (dir == NULL))
-        return crun_make_error (err, 0, "cannot get state directory");
-
-      xasprintf (&config_file, "%s/config.json", dir);
-      container = libcrun_container_load_from_file (config_file, err);
-      if (container == NULL)
-        return crun_make_error (err, 0, "error loading config.json");
+      ret = read_container_config_from_state (&container, state_root, id, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 
       def = container->container_def;
     }
 
   if (def->hooks && def->hooks->poststop_len)
     {
-      int ret;
-
       ret = do_hooks (def, 0, id, true, def->root->path, status->bundle,
                       "stopped", (struct hook_s **) def->hooks->poststop,
                       def->hooks->poststop_len, err);
@@ -3294,6 +3426,22 @@ run_poststop_hooks (libcrun_context_t *context, oci_container *def,
   if (container && container->container_def)
     free_oci_container (container->container_def);
   return 0;
+}
+
+static bool
+has_namespace_in_definition (oci_container *def, const char *namespace)
+{
+  size_t i;
+
+  if (def->linux == NULL || def->linux->namespaces == NULL)
+    return false;
+
+  for (i = 0; i < def->linux->namespaces_len; i++)
+    {
+      if (strcmp (def->linux->namespaces[i]->type, namespace) == 0)
+        return true;
+    }
+  return false;
 }
 
 static int
@@ -3321,22 +3469,45 @@ container_delete_internal (libcrun_context_t *context, oci_container *def, const
 
   if (!only_cleanup && !status.detached)
     {
-      if (force)
-        {
-          ret = kill (status.pid, SIGKILL);
-          if (UNLIKELY (ret < 0) && errno != ESRCH)
-            {
-              crun_make_error (err, errno, "kill");
-              return ret;
-            }
-        }
-      else
+      if (! force)
         {
           ret = libcrun_is_container_running (&status, err);
           if (UNLIKELY (ret < 0))
             return ret;
           if (ret == 1)
             return crun_make_error (err, 0, "the container '%s' is not in 'stopped' state", id);
+        }
+      else
+        {
+          cleanup_free libcrun_container_t *container = NULL;
+
+          if (def == NULL)
+            {
+              ret = read_container_config_from_state (&container, state_root, id, err);
+              if (UNLIKELY (ret < 0))
+                return ret;
+
+              def = container->container_def;
+            }
+
+          /* If the container has a pid namespace, it is enough to kill the first
+             process (pid=1 in the namespace).
+          */
+          if (has_namespace_in_definition (def, "pid"))
+            {
+              ret = kill (status.pid, SIGKILL);
+              if (UNLIKELY (ret < 0) && errno != ESRCH)
+                {
+                  crun_make_error (err, errno, "kill cannot find process");
+                  return ret;
+                }
+            }
+          else
+            {
+              ret = libcrun_cgroup_killall (status.cgroup_path, err);
+              if (UNLIKELY (ret < 0))
+                return 0;
+            }
         }
     }
 
@@ -3379,6 +3550,25 @@ libcrun_container_kill (libcrun_context_t *context, const char *id, int signal, 
   ret = kill (status.pid, signal);
   if (UNLIKELY (ret < 0))
     return crun_make_error (err, errno, "kill container");
+  return 0;
+}
+
+int
+libcrun_container_kill_all (libcrun_context_t *context, const char *id, int signal, libcrun_error_t *err)
+{
+  int ret;
+  const char *state_root = context->state_root;
+  cleanup_container_status libcrun_container_status_t status;
+
+  memset (&status, 0, sizeof (status));
+
+  ret = libcrun_read_container_status (&status, state_root, id, err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  ret = libcrun_cgroup_killall_signal (status.cgroup_path, signal, err);
+  if (UNLIKELY (ret < 0))
+    return ret;
   return 0;
 }
 
@@ -3680,6 +3870,45 @@ int open_seccomp_output (const char *id, int *fd, bool readonly, const char *sta
   return 0;
 }
 
+/* Find the uid:gid that is mapped to root inside the container user namespace.  */
+static void
+get_root_in_the_userns_for_cgroups (oci_container *def, uid_t host_uid, gid_t host_gid, uid_t *uid, gid_t *gid)
+{
+  *uid = -1;
+  *gid = -1;
+
+  /* Not root in the namespace.  */
+  if (host_uid)
+    return;
+
+  if (def->linux && def->linux->uid_mappings)
+    {
+      size_t i;
+
+      for (i = 0; i < def->linux->uid_mappings_len; i++)
+        if (def->linux->uid_mappings[i]->container_id == 0)
+          {
+            *uid = def->linux->uid_mappings[i]->host_id;
+            break;
+          }
+    }
+  if (def->linux && def->linux->gid_mappings)
+    {
+      size_t i;
+
+      for (i = 0; i < def->linux->gid_mappings_len; i++)
+        if (def->linux->gid_mappings[i]->container_id == 0)
+          {
+            *gid = def->linux->gid_mappings[i]->host_id;
+            break;
+          }
+    }
+
+  /* If the uid and the gid are not changed, do not attempt any chown.  */
+  if (*uid == host_uid && *gid == host_gid)
+    *uid = *gid = -1;
+}
+
 static int
 libcrun_container_run_internal (libcrun_container_t *container, libcrun_context_t *context, int container_ready_fd, libcrun_error_t *err)
 {
@@ -3698,6 +3927,8 @@ libcrun_container_run_internal (libcrun_container_t *container, libcrun_context_
   cleanup_close int console_socket_fd = -1;
   int cgroup_mode, cgroup_manager;
   char created[35];
+  uid_t root_uid = -1;
+  gid_t root_gid = -1;
   struct container_entrypoint_s container_args =
     {
       .container = container,
@@ -3782,7 +4013,12 @@ libcrun_container_run_internal (libcrun_container_t *container, libcrun_context_
   else if (context->force_no_cgroup)
     cgroup_manager = CGROUP_MANAGER_DISABLED;
 
-  ret = libcrun_cgroup_enter (def->linux ? def->linux->resources : NULL, cgroup_mode, &cgroup_path, def->linux ? def->linux->cgroups_path : "", cgroup_manager, pid, context->id, err);
+  /* If we are root (either on the host or in a namespace), then chown the cgroup to root in the container user namespace.  */
+  get_root_in_the_userns_for_cgroups (def, container->host_uid, container->host_gid, &root_uid, &root_gid);
+
+  ret = libcrun_cgroup_enter (def->linux ? def->linux->resources : NULL, cgroup_mode,
+                              &cgroup_path, def->linux ? def->linux->cgroups_path : "",
+                              cgroup_manager, pid, root_uid, root_gid, context->id, err);
   if (UNLIKELY (ret < 0))
     {
       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
@@ -4018,7 +4254,7 @@ libcrun_container_run (libcrun_context_t *context, libcrun_container_t *containe
       TEMP_FAILURE_RETRY (write (pipefd1, &((*err)->status), sizeof ((*err)->status)));
       TEMP_FAILURE_RETRY (write (pipefd1, (*err)->msg, strlen ((*err)->msg) + 1));
 
-      crun_set_output_handler (log_write_to_stderr, NULL);
+      crun_set_output_handler (log_write_to_stderr, NULL, false);
       libcrun_fail_with_error ((*err)->status, "%s", (*err)->msg);
     }
   exit (ret);
@@ -4102,8 +4338,8 @@ libcrun_container_create (libcrun_context_t *context, libcrun_container_t *conta
   ret = libcrun_container_run_internal (container, context, pipefd1, err);
   if (UNLIKELY (ret < 0))
     {
-      libcrun_error ((*err)->status, true, "%s", (*err)->msg);
-      crun_set_output_handler (log_write_to_stderr, NULL);
+      libcrun_error ((*err)->status, "%s", (*err)->msg);
+      crun_set_output_handler (log_write_to_stderr, NULL, false);
     }
 
   TEMP_FAILURE_RETRY (write (pipefd1, &ret, sizeof (ret)));
@@ -4321,6 +4557,11 @@ libcrun_container_exec (libcrun_context_t *context, const char *id, oci_containe
   cleanup_free char *config_file = NULL;
   cleanup_free libcrun_container_t *container = NULL;
   cleanup_free char *dir = NULL;
+  cleanup_free const char *exec_path = NULL;
+  int container_ret_status[2];
+  cleanup_close int pipefd0 = -1;
+  cleanup_close int pipefd1 = -1;
+  char b;
 
   memset (&status, 0, sizeof (status));
   ret = libcrun_read_container_status (&status, state_root, id, err);
@@ -4363,6 +4604,16 @@ libcrun_container_exec (libcrun_context_t *context, const char *id, oci_containe
   if (UNLIKELY (ret < 0))
     return ret;
 
+  ret = pipe (container_ret_status);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "pipe");
+  pipefd0 = container_ret_status[0];
+  pipefd1 = container_ret_status[1];
+
+  ret = initialize_security (process, err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
   pid = libcrun_join_process (container, status.pid, &status, context->detach, process->terminal ? &terminal_fd : NULL, err);
   if (UNLIKELY (pid < 0))
     return pid;
@@ -4370,11 +4621,16 @@ libcrun_container_exec (libcrun_context_t *context, const char *id, oci_containe
   /* Process to exec.  */
   if (pid == 0)
     {
-      int i;
+      size_t i;
       uid_t container_uid = process->user ? process->user->uid : 0;
       gid_t container_gid = process->user ? process->user->gid : 0;
       const char *cwd;
       oci_container_process_capabilities *capabilities = NULL;
+      char **seccomp_flags = NULL;
+      size_t seccomp_flags_len = 0;
+
+      close (pipefd0);
+      pipefd0 = -1;
 
       cwd = process->cwd ? process->cwd : "/";
       if (chdir (cwd) < 0)
@@ -4388,15 +4644,39 @@ libcrun_container_exec (libcrun_context_t *context, const char *id, oci_containe
         if (putenv (process->env[i]) < 0)
           libcrun_fail_with_error ( errno, "putenv '%s'", process->env[i]);
 
-      if (process->selinux_label)
+      if (getenv ("HOME") == NULL)
         {
-          if (UNLIKELY (set_selinux_exec_label (process->selinux_label, err) < 0))
-            libcrun_fail_with_error ((*err)->status, "%s", (*err)->msg);
+          ret = set_home_env (container->container_uid);
+          if (UNLIKELY (ret < 0))
+            libcrun_warning ("cannot set HOME environment variable");
+        }
+
+      if (UNLIKELY (libcrun_set_selinux_exec_label (process, err) < 0))
+        libcrun_fail_with_error ((*err)->status, "%s", (*err)->msg);
+
+      if (UNLIKELY (libcrun_set_apparmor_profile (process, err) < 0))
+        libcrun_fail_with_error ((*err)->status, "%s", (*err)->msg);
+
+      if (container->container_def->linux && container->container_def->linux->seccomp)
+        {
+          seccomp_flags = container->container_def->linux->seccomp->flags;
+          seccomp_flags_len = container->container_def->linux->seccomp->flags_len;
+        }
+
+      exec_path = find_executable (process->args[0]);
+      if (UNLIKELY (exec_path == NULL))
+        {
+          if (errno == ENOENT)
+            crun_make_error (err, errno, "executable file not found in $PATH");
+          else
+            crun_make_error (err, errno, "open executable");
+
+          libcrun_fail_with_error ((*err)->status, "%s", (*err)->msg);
         }
 
       if (!process->no_new_privileges)
         {
-          ret = libcrun_apply_seccomp (seccomp_fd, err);
+          ret = libcrun_apply_seccomp (seccomp_fd, seccomp_flags, seccomp_flags_len, err);
           if (UNLIKELY (ret < 0))
             return ret;
         }
@@ -4428,17 +4708,22 @@ libcrun_container_exec (libcrun_context_t *context, const char *id, oci_containe
 
       if (process->no_new_privileges)
         {
-          ret = libcrun_apply_seccomp (seccomp_fd, err);
+          ret = libcrun_apply_seccomp (seccomp_fd, seccomp_flags, seccomp_flags_len, err);
           if (UNLIKELY (ret < 0))
             return ret;
         }
 
-      execvp (process->args[0], process->args);
-      if (errno == ENOENT)
-        libcrun_fail_with_error (errno, "executable file not found in $PATH");
+      TEMP_FAILURE_RETRY (write (pipefd1, "0", 1));
+      close (pipefd1);
+      pipefd1 = -1;
+
+      execv (exec_path, process->args);
       libcrun_fail_with_error (errno, "exec");
       _exit (EXIT_FAILURE);
     }
+
+  close (pipefd1);
+  pipefd1 = -1;
 
   if (seccomp_fd >= 0)
     close_and_reset (&seccomp_fd);
@@ -4479,7 +4764,13 @@ libcrun_container_exec (libcrun_context_t *context, const char *id, oci_containe
         }
     }
 
-  ret = wait_for_process (pid, context, terminal_fd, -1, -1, err);
+  TEMP_FAILURE_RETRY (read (pipefd0, &b, sizeof (b)));
+  close (pipefd0);
+  pipefd0 = -1;
+  if (b != '0')
+    ret = -1;
+  else
+    ret = wait_for_process (pid, context, terminal_fd, -1, -1, err);
 
   flush_fd_to_err (context, terminal_fd);
   return ret;
@@ -4541,7 +4832,7 @@ libcrun_container_update (libcrun_context_t *context, const char *id, const char
 }
 
 int
-libcrun_container_spec (bool root, FILE *out, libcrun_error_t *err)
+libcrun_container_spec (bool root, FILE *out, libcrun_error_t *err arg_unused)
 {
   return fprintf (out, spec_file, root ? "" : spec_user);
 }
@@ -4564,7 +4855,7 @@ libcrun_container_pause (libcrun_context_t *context, const char *id, libcrun_err
   if (ret == 0)
     return crun_make_error (err, errno, "the container %s is not running", id);
 
-  return libcrun_container_pause_linux (&status, id, err);
+  return libcrun_container_pause_linux (&status, err);
 }
 
 int
@@ -4585,530 +4876,7 @@ libcrun_container_unpause (libcrun_context_t *context, const char *id, libcrun_e
   if (ret == 0)
     return crun_make_error (err, errno, "the container %s is not running", id);
 
-  return libcrun_container_unpause_linux (&status, id, err);
-}
-
-
-
-### src/libcrun/cloned_binary.c
-/*
- * Copyright (C) 2019 Aleksa Sarai <cyphar@cyphar.com>
- * Copyright (C) 2019 SUSE LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#define _GNU_SOURCE
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <limits.h>
-#include <fcntl.h>
-#include <errno.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/statfs.h>
-#include <sys/vfs.h>
-#include <sys/mman.h>
-#include <sys/mount.h>
-#include <sys/sendfile.h>
-#include <sys/syscall.h>
-
-/* Use our own wrapper for memfd_create. */
-#if !defined(SYS_memfd_create) && defined(__NR_memfd_create)
-#  define SYS_memfd_create __NR_memfd_create
-#endif
-/* memfd_create(2) flags -- copied from <linux/memfd.h>. */
-#ifndef MFD_CLOEXEC
-#  define MFD_CLOEXEC       0x0001U
-#  define MFD_ALLOW_SEALING 0x0002U
-#endif
-int memfd_create(const char *name, unsigned int flags)
-{
-#ifdef SYS_memfd_create
-	return syscall(SYS_memfd_create, name, flags);
-#else
-	errno = ENOSYS;
-	return -1;
-#endif
-}
-
-
-/* This comes directly from <linux/fcntl.h>. */
-#ifndef F_LINUX_SPECIFIC_BASE
-#  define F_LINUX_SPECIFIC_BASE 1024
-#endif
-#ifndef F_ADD_SEALS
-#  define F_ADD_SEALS (F_LINUX_SPECIFIC_BASE + 9)
-#  define F_GET_SEALS (F_LINUX_SPECIFIC_BASE + 10)
-#endif
-#ifndef F_SEAL_SEAL
-#  define F_SEAL_SEAL   0x0001	/* prevent further seals from being set */
-#  define F_SEAL_SHRINK 0x0002	/* prevent file from shrinking */
-#  define F_SEAL_GROW   0x0004	/* prevent file from growing */
-#  define F_SEAL_WRITE  0x0008	/* prevent writes */
-#endif
-
-#define CLONED_BINARY_ENV "_LIBCONTAINER_CLONED_BINARY"
-#define CRUN_MEMFD_COMMENT "crun_cloned:/proc/self/exe"
-#define CRUN_MEMFD_SEALS \
-	(F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE)
-
-static void *must_realloc(void *ptr, size_t size)
-{
-	void *old = ptr;
-	do {
-		ptr = realloc(old, size);
-	} while(!ptr);
-	return ptr;
-}
-
-/*
- * Verify whether we are currently in a self-cloned program (namely, is
- * /proc/self/exe a memfd). F_GET_SEALS will only succeed for memfds (or rather
- * for shmem files), and we want to be sure it's actually sealed.
- */
-static int is_self_cloned(void)
-{
-	int fd, ret, is_cloned = 0;
-	struct stat statbuf = {};
-	struct statfs fsbuf = {};
-
-	fd = open("/proc/self/exe", O_RDONLY|O_CLOEXEC);
-	if (fd < 0)
-		return -ENOTRECOVERABLE;
-
-	/*
-	 * Is the binary a fully-sealed memfd? We don't need CLONED_BINARY_ENV for
-	 * this, because you cannot write to a sealed memfd no matter what (so
-	 * sharing it isn't a bad thing -- and an admin could bind-mount a sealed
-	 * memfd to /usr/bin/crun to allow re-use).
-	 */
-	ret = fcntl(fd, F_GET_SEALS);
-	if (ret >= 0) {
-		is_cloned = (ret == CRUN_MEMFD_SEALS);
-		goto out;
-	}
-
-	/*
-	 * All other forms require CLONED_BINARY_ENV, since they are potentially
-	 * writeable (or we can't tell if they're fully safe) and thus we must
-	 * check the environment as an extra layer of defence.
-	 */
-	if (!getenv(CLONED_BINARY_ENV)) {
-		is_cloned = false;
-		goto out;
-	}
-
-	/*
-	 * Is the binary on a read-only filesystem? We can't detect bind-mounts in
-	 * particular (in-kernel they are identical to regular mounts) but we can
-	 * at least be sure that it's read-only. In addition, to make sure that
-	 * it's *our* bind-mount we check CLONED_BINARY_ENV.
-	 */
-	if (fstatfs(fd, &fsbuf) >= 0)
-		is_cloned |= (fsbuf.f_flags & MS_RDONLY);
-
-	/*
-	 * Okay, we're a tmpfile -- or we're currently running on RHEL <=7.6
-	 * which appears to have a borked backport of F_GET_SEALS. Either way,
-	 * having a file which has no hardlinks indicates that we aren't using
-	 * a host-side "crun" binary and this is something that a container
-	 * cannot fake (because unlinking requires being able to resolve the
-	 * path that you want to unlink).
-	 */
-	if (fstat(fd, &statbuf) >= 0)
-		is_cloned |= (statbuf.st_nlink == 0);
-
-out:
-	close(fd);
-	return is_cloned;
-}
-
-/* Read a given file into a new buffer, and providing the length. */
-static char *read_file(char *path, size_t *length)
-{
-	int fd;
-	char buf[4096], *copy = NULL;
-
-	if (!length)
-		return NULL;
-
-	fd = open(path, O_RDONLY | O_CLOEXEC);
-	if (fd < 0)
-		return NULL;
-
-	*length = 0;
-	for (;;) {
-		ssize_t n;
-
-		n = read(fd, buf, sizeof(buf));
-		if (n < 0)
-			goto error;
-		if (!n)
-			break;
-
-		copy = must_realloc(copy, (*length + n) * sizeof(*copy));
-		memcpy(copy + *length, buf, n);
-		*length += n;
-	}
-	close(fd);
-	return copy;
-
-error:
-	close(fd);
-	free(copy);
-	return NULL;
-}
-
-/*
- * A poor-man's version of "xargs -0". Basically parses a given block of
- * NUL-delimited data, within the given length and adds a pointer to each entry
- * to the array of pointers.
- */
-static int parse_xargs(char *data, int data_length, char ***output)
-{
-	int num = 0;
-	char *cur = data;
-
-	if (!data || *output != NULL)
-		return -1;
-
-	while (cur < data + data_length) {
-		num++;
-		*output = must_realloc(*output, (num + 1) * sizeof(**output));
-		(*output)[num - 1] = cur;
-		cur += strlen(cur) + 1;
-	}
-	(*output)[num] = NULL;
-	return num;
-}
-
-/*
- * "Parse" out argv from /proc/self/cmdline.
- * This is necessary because we are running in a context where we don't have a
- * main() that we can just get the arguments from.
- */
-static int fetchve(char ***argv)
-{
-	char *cmdline = NULL;
-	size_t cmdline_size;
-
-	cmdline = read_file("/proc/self/cmdline", &cmdline_size);
-	if (!cmdline)
-		goto error;
-
-	if (parse_xargs(cmdline, cmdline_size, argv) <= 0)
-		goto error;
-
-	return 0;
-
-error:
-	free(cmdline);
-	return -EINVAL;
-}
-
-enum {
-	EFD_NONE = 0,
-	EFD_MEMFD,
-	EFD_FILE,
-};
-
-/*
- * This comes from <linux/fcntl.h>. We can't hard-code __O_TMPFILE because it
- * changes depending on the architecture. If we don't have O_TMPFILE we always
- * have the mkostemp(3) fallback.
- */
-#ifndef O_TMPFILE
-#  if defined(__O_TMPFILE) && defined(O_DIRECTORY)
-#    define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
-#  endif
-#endif
-
-static int make_execfd(int *fdtype)
-{
-	int fd = -1;
-	char template[PATH_MAX] = {0};
-	char *prefix = secure_getenv("_LIBCONTAINER_STATEDIR");
-
-	if (!prefix || *prefix != '/')
-		prefix = "/tmp";
-	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
-		return -1;
-
-	/*
-	 * Now try memfd, it's much nicer than actually creating a file in STATEDIR
-	 * since it's easily detected thanks to sealing and also doesn't require
-	 * assumptions about STATEDIR.
-	 */
-	*fdtype = EFD_MEMFD;
-	fd = memfd_create(CRUN_MEMFD_COMMENT, MFD_CLOEXEC | MFD_ALLOW_SEALING);
-	if (fd >= 0)
-		return fd;
-	if (errno != ENOSYS && errno != EINVAL)
-		goto error;
-
-#ifdef O_TMPFILE
-	/*
-	 * Try O_TMPFILE to avoid races where someone might snatch our file. Note
-	 * that O_EXCL isn't actually a security measure here (since you can just
-	 * fd re-open it and clear O_EXCL).
-	 */
-	*fdtype = EFD_FILE;
-	fd = open(prefix, O_TMPFILE | O_EXCL | O_RDWR | O_CLOEXEC, 0700);
-	if (fd >= 0) {
-		struct stat statbuf = {};
-		bool working_otmpfile = false;
-
-		/*
-		 * open(2) ignores unknown O_* flags -- yeah, I was surprised when I
-		 * found this out too. As a result we can't check for EINVAL. However,
-		 * if we get nlink != 0 (or EISDIR) then we know that this kernel
-		 * doesn't support O_TMPFILE.
-		 */
-		if (fstat(fd, &statbuf) >= 0)
-			working_otmpfile = (statbuf.st_nlink == 0);
-
-		if (working_otmpfile)
-			return fd;
-
-		/* Pretend that we got EISDIR since O_TMPFILE failed. */
-		close(fd);
-		errno = EISDIR;
-	}
-	if (errno != EISDIR)
-		goto error;
-#endif /* defined(O_TMPFILE) */
-
-	/*
-	 * Our final option is to create a temporary file the old-school way, and
-	 * then unlink it so that nothing else sees it by accident.
-	 */
-	*fdtype = EFD_FILE;
-	fd = mkostemp(template, O_CLOEXEC);
-	if (fd >= 0) {
-		if (unlink(template) >= 0)
-			return fd;
-		close(fd);
-	}
-
-error:
-	*fdtype = EFD_NONE;
-	return -1;
-}
-
-static int seal_execfd(int *fd, int fdtype)
-{
-	switch (fdtype) {
-	case EFD_MEMFD:
-		return fcntl(*fd, F_ADD_SEALS, CRUN_MEMFD_SEALS);
-	case EFD_FILE: {
-		/* Need to re-open our pseudo-memfd as an O_PATH to avoid execve(2) giving -ETXTBSY. */
-		int newfd;
-		char fdpath[PATH_MAX] = {0};
-
-		if (fchmod(*fd, 0100) < 0)
-			return -1;
-
-		if (snprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", *fd) < 0)
-			return -1;
-
-		newfd = open(fdpath, O_PATH | O_CLOEXEC);
-		if (newfd < 0)
-			return -1;
-
-		close(*fd);
-		*fd = newfd;
-		return 0;
-	}
-	default:
-	   break;
-	}
-	return -1;
-}
-
-static int try_bindfd(void)
-{
-	mode_t mask;
-	int fd, ret = -1;
-	char template[PATH_MAX] = {0};
-	char *prefix = secure_getenv("_LIBCONTAINER_STATEDIR");
-
-	if (!prefix || *prefix != '/')
-		prefix = "/tmp";
-	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
-		return ret;
-
-	/*
-	 * We need somewhere to mount it, mounting anything over /proc/self is a
-	 * BAD idea on the host -- even if we do it temporarily.
-	 */
-	mask = umask(0700);
-	fd = mkstemp(template);
-	umask(mask);
-	if (fd < 0)
-		return ret;
-	close(fd);
-
-	/*
-	 * For obvious reasons this won't work in rootless mode because we haven't
-	 * created a userns+mntns -- but getting that to work will be a bit
-	 * complicated and it's only worth doing if someone actually needs it.
-	 */
-	ret = -EPERM;
-	if (mount("/proc/self/exe", template, "", MS_BIND, "") < 0)
-		goto out;
-	if (mount("", template, "", MS_REMOUNT | MS_BIND | MS_RDONLY, "") < 0)
-		goto out_umount;
-
-
-	/* Get read-only handle that we're sure can't be made read-write. */
-	ret = open(template, O_PATH | O_CLOEXEC);
-
-out_umount:
-	/*
-	 * Make sure the MNT_DETACH works, otherwise we could get remounted
-	 * read-write and that would be quite bad (the fd would be made read-write
-	 * too, invalidating the protection).
-	 */
-	if (umount2(template, MNT_DETACH) < 0) {
-		if (ret >= 0)
-			close(ret);
-		ret = -ENOTRECOVERABLE;
-	}
-
-out:
-	/*
-	 * We don't care about unlink errors, the worst that happens is that
-	 * there's an empty file left around in STATEDIR.
-	 */
-	unlink(template);
-	return ret;
-}
-
-static ssize_t fd_to_fd(int outfd, int infd)
-{
-	ssize_t total = 0;
-	char buffer[4096];
-
-	for (;;) {
-		ssize_t nread, nwritten = 0;
-
-		nread = read(infd, buffer, sizeof(buffer));
-		if (nread < 0)
-			return -1;
-		if (!nread)
-			break;
-
-		do {
-			ssize_t n = write(outfd, buffer + nwritten, nread - nwritten);
-			if (n < 0)
-				return -1;
-			nwritten += n;
-		} while(nwritten < nread);
-
-		total += nwritten;
-	}
-
-	return total;
-}
-
-static int clone_binary(void)
-{
-	int binfd, execfd;
-	struct stat statbuf = {};
-	size_t sent = 0;
-	int fdtype = EFD_NONE;
-
-	/*
-	 * Before we resort to copying, let's try creating an ro-binfd in one shot
-	 * by getting a handle for a read-only bind-mount of the execfd.
-	 */
-	execfd = try_bindfd();
-	if (execfd >= 0)
-		return execfd;
-
-	/*
-	 * Dammit, that didn't work -- time to copy the binary to a safe place we
-	 * can seal the contents.
-	 */
-	execfd = make_execfd(&fdtype);
-	if (execfd < 0 || fdtype == EFD_NONE)
-		return -ENOTRECOVERABLE;
-
-	binfd = open("/proc/self/exe", O_RDONLY | O_CLOEXEC);
-	if (binfd < 0)
-		goto error;
-
-	if (fstat(binfd, &statbuf) < 0)
-		goto error_binfd;
-
-	while (sent < statbuf.st_size) {
-		int n = sendfile(execfd, binfd, NULL, statbuf.st_size - sent);
-		if (n < 0) {
-			/* sendfile can fail so we fallback to a dumb user-space copy. */
-			n = fd_to_fd(execfd, binfd);
-			if (n < 0)
-				goto error_binfd;
-		}
-		sent += n;
-	}
-	close(binfd);
-	if (sent != statbuf.st_size)
-		goto error;
-
-	if (seal_execfd(&execfd, fdtype) < 0)
-		goto error;
-
-	return execfd;
-
-error_binfd:
-	close(binfd);
-error:
-	close(execfd);
-	return -EIO;
-}
-
-/* Get cheap access to the environment. */
-extern char **environ;
-
-int ensure_cloned_binary(void)
-{
-	int execfd;
-	char **argv = NULL;
-
-	/* Check that we're not self-cloned, and if we are then bail. */
-	int cloned = is_self_cloned();
-	if (cloned > 0 || cloned == -ENOTRECOVERABLE)
-		return cloned;
-
-	if (fetchve(&argv) < 0)
-		return -EINVAL;
-
-	execfd = clone_binary();
-	if (execfd < 0)
-		return -EIO;
-
-	if (putenv(CLONED_BINARY_ENV "=1"))
-		goto error;
-
-	fexecve(execfd, argv, environ);
-error:
-	close(execfd);
-	return -ENOEXEC;
+  return libcrun_container_unpause_linux (&status, err);
 }
 
 
@@ -5159,7 +4927,7 @@ static const cgroups_subsystem_t cgroups_subsystems[] = { "cpuset", "cpu", "devi
                                                           "unified", NULL};
 
 const cgroups_subsystem_t *
-libcrun_get_cgroups_subsystems (libcrun_error_t *err)
+libcrun_get_cgroups_subsystems (libcrun_error_t *err arg_unused)
 {
   return cgroups_subsystems;
 }
@@ -5384,7 +5152,7 @@ initialize_memory_subsystem (const char *path, libcrun_error_t *err)
 }
 
 static int
-enter_cgroup_subsystem (int cgroup_mode, pid_t pid, const char *subsystem, const char *path, int ensure_missing, libcrun_error_t *err)
+enter_cgroup_subsystem (pid_t pid, const char *subsystem, const char *path, int ensure_missing, libcrun_error_t *err)
 {
   cleanup_free char *cgroup_path_procs = NULL;
   cleanup_free char *cgroup_path = NULL;
@@ -5421,7 +5189,7 @@ enter_cgroup_subsystem (int cgroup_mode, pid_t pid, const char *subsystem, const
     }
   else
     {
-      ret = crun_path_exists (cgroup_path, 0, err);
+      ret = crun_path_exists (cgroup_path, err);
       if (UNLIKELY (ret < 0))
         return ret;
       if (ret == 0)
@@ -5438,12 +5206,103 @@ enter_cgroup_subsystem (int cgroup_mode, pid_t pid, const char *subsystem, const
 }
 
 static int
-enter_cgroup (int cgroup_mode, pid_t pid, const char *path, int ensure_missing, libcrun_error_t *err)
+is_rootless (libcrun_error_t *err)
+{
+  if (geteuid ())
+    return 1;
+
+  return check_running_in_user_namespace (err);
+}
+
+static int
+get_file_owner (const char *path, uid_t *uid, gid_t *gid)
+{
+  struct stat st;
+  int ret;
+
+#ifdef HAVE_STATX
+  struct statx stx;
+
+  ret = statx (AT_FDCWD, path, AT_STATX_DONT_SYNC, STATX_UID|STATX_GID, &stx);
+  if (UNLIKELY (ret < 0))
+    {
+      if (errno == ENOSYS)
+        goto fallback;
+
+      return ret;
+    }
+  *uid = stx.stx_uid;
+  *gid = stx.stx_gid;
+  return ret;
+
+ fallback:
+#endif
+  ret = stat (path, &st);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  *uid = st.st_uid;
+  *gid = st.st_gid;
+  return ret;
+}
+static int
+chown_cgroups (const char *path, uid_t uid, gid_t gid, libcrun_error_t *err)
+{
+  cleanup_free char *cgroup_path = NULL;
+  cleanup_dir DIR *dir = NULL;
+  struct dirent *next;
+  int ret;
+  int dfd;
+
+  xasprintf (&cgroup_path, "/sys/fs/cgroup/%s", path);
+
+  dir = opendir (cgroup_path);
+  if (UNLIKELY (dir == NULL))
+    return crun_make_error (err, errno, "cannot opendir %s", cgroup_path);
+
+  dfd = dirfd (dir);
+
+  for (next = readdir (dir); next; next = readdir (dir))
+    {
+      const char *name = next->d_name;
+
+      /* do not chown the parent directory, but chown the current one.  */
+      if (name[0] == '.' && name[1] == '.')
+        continue;
+
+      ret = fchownat (dfd, name, uid, gid, AT_SYMLINK_NOFOLLOW);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "cannot chown %s/%s", cgroup_path, name);
+    }
+
+  return 0;
+}
+
+static int
+copy_owner (const char *from, const char *to, libcrun_error_t *err)
+{
+  uid_t uid = 0;
+  gid_t gid = 0;
+  int ret;
+
+  ret = get_file_owner (from, &uid, &gid);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "cannot get file owner for %s", from);
+
+  if (uid == 0 && gid == 0)
+    return 0;
+
+  return chown_cgroups (to, uid, gid, err);
+}
+
+static int
+enter_cgroup (int cgroup_mode, pid_t pid, const char *path, bool ensure_missing, libcrun_error_t *err)
 {
   char pid_str[16];
   int ret;
   size_t i;
   int entered_any = 0;
+  int rootless;
   const cgroups_subsystem_t *subsystems;
 
   sprintf (pid_str, "%d", pid);
@@ -5464,13 +5323,35 @@ enter_cgroup (int cgroup_mode, pid_t pid, const char *path, int ensure_missing, 
       xasprintf (&cgroup_path_procs, "/sys/fs/cgroup/%s/cgroup.procs", path);
       ret = write_file (cgroup_path_procs, pid_str, strlen (pid_str), err);
       if (UNLIKELY (ret < 0))
-        return ret;
+        {
+          if (!ensure_missing && (*err)->status == EBUSY)
+            {
+              /* There are subdirectories so it is not possible to join the initial
+                 cgroup.  Create a subdirectory and use that.
+                 It can still fail if the container creates a subdirectory under
+                 /sys/fs/cgroup/../crun-exec/  */
+              cleanup_free char *cgroup_crun_exec_path = NULL;
+
+              xasprintf (&cgroup_crun_exec_path, "%s/crun-exec", path);
+
+              ret = enter_cgroup (cgroup_mode, pid, cgroup_crun_exec_path, true, err);
+              if (UNLIKELY (ret < 0))
+                return ret;
+
+              return copy_owner (cgroup_path_procs, cgroup_crun_exec_path, err);
+            }
+          return ret;
+        }
       return 0;
     }
 
   subsystems = libcrun_get_cgroups_subsystems (err);
   if (UNLIKELY (subsystems == NULL))
     return -1;
+
+  rootless = is_rootless (err);
+  if (UNLIKELY (rootless < 0))
+    return rootless;
 
   for (i = 0; subsystems[i]; i++)
     {
@@ -5480,16 +5361,24 @@ enter_cgroup (int cgroup_mode, pid_t pid, const char *path, int ensure_missing, 
         continue;
 
       sprintf (subsystem_path, "/sys/fs/cgroup/%s", subsystems[i]);
-      ret = crun_path_exists (subsystem_path, !ensure_missing, err);
+      ret = crun_path_exists (subsystem_path, err);
       if (UNLIKELY (ret < 0))
         return ret;
       if (ret == 0)
         continue;
 
       entered_any = 1;
-      ret = enter_cgroup_subsystem (cgroup_mode, pid, subsystems[i], path, ensure_missing, err);
+      ret = enter_cgroup_subsystem (pid, subsystems[i], path, ensure_missing, err);
       if (UNLIKELY (ret < 0))
-        return ret;
+        {
+          int errcode = crun_error_get_errno (err);
+          if (rootless && (errcode == EACCES || errcode == EPERM))
+            {
+              crun_error_release (err);
+              continue;
+            }
+          return ret;
+        }
     }
 
   return entered_any ? 0 : -1;
@@ -5523,10 +5412,13 @@ int
 libcrun_move_process_to_cgroup (pid_t pid, char *path, libcrun_error_t *err)
 {
   int cgroup_mode = libcrun_get_cgroup_mode (err);
-  if (cgroup_mode < 0)
+  if (UNLIKELY (cgroup_mode < 0))
     return cgroup_mode;
 
-  return enter_cgroup (cgroup_mode, pid, path, 0, err);
+  if (path == NULL || *path == '\0')
+    return 0;
+
+  return enter_cgroup (cgroup_mode, pid, path, false, err);
 }
 
 #ifdef HAVE_SYSTEMD
@@ -5596,9 +5488,13 @@ int systemd_finalize (oci_container_linux_resources *resources, int cgroup_mode,
       subpath = strchr (subsystem, ':') + 1;
       *(subpath - 1) = '\0';
 
+      /* skip named hierarchies that have no cgroup controller */
+      if (strcmp(subsystem, "") == 0)
+        continue;
+
       if (strcmp (subpath, *path))
         {
-          ret = enter_cgroup_subsystem (cgroup_mode, pid, subsystem, *path, 1, err);
+          ret = enter_cgroup_subsystem (pid, subsystem, *path, 1, err);
           if (UNLIKELY (ret < 0))
             return ret;
         }
@@ -5614,7 +5510,7 @@ struct systemd_job_removed_s
 };
 
 static int
-systemd_job_removed (sd_bus_message *m, void *userdata, sd_bus_error *error)
+systemd_job_removed (sd_bus_message *m, void *userdata, sd_bus_error *error arg_unused)
 {
   const char *path, *unit, *result;
   uint32_t id;
@@ -5971,20 +5867,11 @@ libcrun_cgroup_enter_internal (oci_container_linux_resources *resources, int cgr
         return ret;
     }
 
-  return enter_cgroup (cgroup_mode, pid, *path, 1, err);
-}
-
-static int
-is_rootless (libcrun_error_t *err)
-{
-  if (geteuid ())
-    return 1;
-
-  return check_running_in_user_namespace (err);
+  return enter_cgroup (cgroup_mode, pid, *path, true, err);
 }
 
 int
-libcrun_cgroup_enter (oci_container_linux_resources *resources, int cgroup_mode, char **path, const char *cgroup_path, int manager, pid_t pid, const char *id, libcrun_error_t *err)
+libcrun_cgroup_enter (oci_container_linux_resources *resources, int cgroup_mode, char **path, const char *cgroup_path, int manager, pid_t pid, uid_t root_uid, gid_t root_gid, const char *id, libcrun_error_t *err)
 {
   libcrun_error_t tmp_err = NULL;
   int rootless;
@@ -6006,7 +5893,12 @@ libcrun_cgroup_enter (oci_container_linux_resources *resources, int cgroup_mode,
 
   ret = libcrun_cgroup_enter_internal (resources, cgroup_mode, path, cgroup_path, manager, pid, id, err);
   if (LIKELY (ret == 0))
-    return ret;
+    {
+      if (cgroup_mode == CGROUP_MODE_UNIFIED && (root_uid != (uid_t) -1 || root_gid != (gid_t) -1))
+        return chown_cgroups (*path, root_uid, root_gid, err);
+
+      return ret;
+    }
 
   rootless = is_rootless (&tmp_err);
   if (UNLIKELY (rootless < 0))
@@ -6016,8 +5908,12 @@ libcrun_cgroup_enter (oci_container_linux_resources *resources, int cgroup_mode,
       return ret;
     }
 
-  if (rootless > 0 && cgroup_mode != CGROUP_MODE_UNIFIED)
+  if (rootless > 0 && (cgroup_mode != CGROUP_MODE_UNIFIED || manager != CGROUP_MANAGER_SYSTEMD))
     {
+      if (cgroup_mode == CGROUP_MODE_UNIFIED && manager != CGROUP_MANAGER_SYSTEMD)
+        libcrun_warning ("cannot configure rootless cgroup using the cgroupfs manager");
+
+      /* Ignore cgroups errors and set there is no cgroup path to use.  */
       free (*path);
       *path = NULL;
       crun_error_release (err);
@@ -6027,8 +5923,45 @@ libcrun_cgroup_enter (oci_container_linux_resources *resources, int cgroup_mode,
   return ret;
 }
 
+static int
+libcrun_cgroup_pause_unpause_with_mode (const char *cgroup_path, int cgroup_mode, const bool pause, libcrun_error_t *err)
+{
+  cleanup_free char *path = NULL;
+  const char *state = "";
+  int ret;
+
+  if (cgroup_mode == CGROUP_MODE_UNIFIED)
+    {
+      state = pause ? "1" : "0";
+      xasprintf (&path, "/sys/fs/cgroup/%s/cgroup.freeze", cgroup_path);
+    }
+  else
+    {
+      state = pause ? "FROZEN" : "THAWED";
+      xasprintf (&path, "/sys/fs/cgroup/freezer/%s/freezer.state", cgroup_path);
+    }
+
+  ret = write_file (path, state, strlen (state), err);
+  if (ret >= 0)
+    return 0;
+  return ret;
+
+}
+
 int
-libcrun_cgroup_killall (char *path, libcrun_error_t *err)
+libcrun_cgroup_pause_unpause (const char *cgroup_path, const bool pause, libcrun_error_t *err)
+{
+  int cgroup_mode;
+
+  cgroup_mode = libcrun_get_cgroup_mode (err);
+  if (cgroup_mode < 0)
+    return cgroup_mode;
+
+  return libcrun_cgroup_pause_unpause_with_mode (cgroup_path, cgroup_mode, pause, err);
+}
+
+int
+libcrun_cgroup_killall_signal (char *path, int signal, libcrun_error_t *err)
 {
   cleanup_free char *cgroup_path_procs = NULL;
   cleanup_free char *buffer = NULL;
@@ -6044,6 +5977,10 @@ libcrun_cgroup_killall (char *path, libcrun_error_t *err)
   mode = libcrun_get_cgroup_mode (err);
   if (mode < 0)
     return mode;
+
+  ret = libcrun_cgroup_pause_unpause (path, true, err);
+  if (UNLIKELY (ret < 0))
+    crun_error_release (err);
 
   switch (mode)
     {
@@ -6067,13 +6004,23 @@ libcrun_cgroup_killall (char *path, libcrun_error_t *err)
       pid_t pid = strtoul (it, NULL, 10);
       if (pid > 0)
         {
-          ret = kill (pid, SIGKILL);
+          ret = kill (pid, signal);
           if (UNLIKELY (ret < 0))
             return crun_make_error (err, errno, "kill process %d", pid);
         }
     }
 
+  ret = libcrun_cgroup_pause_unpause (path, false, err);
+  if (UNLIKELY (ret < 0))
+    crun_error_release (err);
+
   return 0;
+}
+
+int
+libcrun_cgroup_killall (char *path, libcrun_error_t *err)
+{
+  return libcrun_cgroup_killall_signal (path, SIGKILL, err);
 }
 
 int
@@ -6178,7 +6125,7 @@ write_blkio_v1_resources_throttling (int dirfd, const char *name, struct throttl
     {
       int ret;
       size_t len;
-      len = sprintf (fmt_buf, "%" PRIu64 ":%" PRIu64 "%" PRIu64 "\n",
+      len = sprintf (fmt_buf, "%" PRIu64 ":%" PRIu64 " %" PRIu64 "\n",
                      throttling[i]->major,
                      throttling[i]->minor,
                      throttling[i]->rate);
@@ -6275,7 +6222,7 @@ write_blkio_resources (int dirfd, bool cgroup2, oci_container_linux_resources_bl
         {
           cleanup_close int w_device_fd = -1;
           cleanup_close int w_leafdevice_fd = -1;
-          int i;
+          size_t i;
 
           w_device_fd = openat (dirfd, "blkio.weight_device", O_WRONLY);
           if (UNLIKELY (w_device_fd < 0))
@@ -6570,7 +6517,8 @@ write_devices_resources_v2_internal (int dirfd, oci_container_linux_resources_de
 static int
 write_devices_resources_v2 (int dirfd, oci_container_linux_resources_devices_element **devs, size_t devs_len, libcrun_error_t *err)
 {
-  int ret, i;
+  int ret;
+  size_t i;
   bool can_skip = true;
 
   ret = write_devices_resources_v2_internal (dirfd, devs, devs_len, err);
@@ -6683,7 +6631,7 @@ write_memory_resources (int dirfd, bool cgroup2, oci_container_linux_resources_m
 }
 
 static int
-write_pids_resources (int dirfd, bool cgroup2, oci_container_linux_resources_pids *pids, libcrun_error_t *err)
+write_pids_resources (int dirfd, bool cgroup2 arg_unused, oci_container_linux_resources_pids *pids, libcrun_error_t *err)
 {
   if (pids->limit)
     {
@@ -6784,7 +6732,7 @@ write_cpu_resources (int dirfd_cpu, bool cgroup2, oci_container_linux_resources_
 }
 
 static int
-write_cpuset_resources (int dirfd_cpuset, int cgroup2, oci_container_linux_resources_cpu *cpu, libcrun_error_t *err)
+write_cpuset_resources (int dirfd_cpuset, int cgroup2 arg_unused, oci_container_linux_resources_cpu *cpu, libcrun_error_t *err)
 {
   int ret;
 
@@ -7051,6 +6999,522 @@ libcrun_update_cgroup_resources (int cgroup_mode, oci_container_linux_resources 
 
 
 
+### src/libcrun/cloned_binary.c
+/*
+ * Copyright (C) 2019 Aleksa Sarai <cyphar@cyphar.com>
+ * Copyright (C) 2019 SUSE LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#define _GNU_SOURCE
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <limits.h>
+#include <fcntl.h>
+#include <errno.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/statfs.h>
+#include <sys/vfs.h>
+#include <sys/mman.h>
+#include <sys/mount.h>
+#include <sys/sendfile.h>
+#include <sys/syscall.h>
+
+#include "utils.h"
+
+/* Use our own wrapper for memfd_create. */
+#if !defined(SYS_memfd_create) && defined(__NR_memfd_create)
+#  define SYS_memfd_create __NR_memfd_create
+#endif
+/* memfd_create(2) flags -- copied from <linux/memfd.h>. */
+#ifndef MFD_CLOEXEC
+#  define MFD_CLOEXEC       0x0001U
+#  define MFD_ALLOW_SEALING 0x0002U
+#endif
+int memfd_create(const char *name, unsigned int flags)
+{
+#ifdef SYS_memfd_create
+	return syscall(SYS_memfd_create, name, flags);
+#else
+	errno = ENOSYS;
+	return -1;
+#endif
+}
+
+
+/* This comes directly from <linux/fcntl.h>. */
+#ifndef F_LINUX_SPECIFIC_BASE
+#  define F_LINUX_SPECIFIC_BASE 1024
+#endif
+#ifndef F_ADD_SEALS
+#  define F_ADD_SEALS (F_LINUX_SPECIFIC_BASE + 9)
+#  define F_GET_SEALS (F_LINUX_SPECIFIC_BASE + 10)
+#endif
+#ifndef F_SEAL_SEAL
+#  define F_SEAL_SEAL   0x0001	/* prevent further seals from being set */
+#  define F_SEAL_SHRINK 0x0002	/* prevent file from shrinking */
+#  define F_SEAL_GROW   0x0004	/* prevent file from growing */
+#  define F_SEAL_WRITE  0x0008	/* prevent writes */
+#endif
+
+#define CLONED_BINARY_ENV "_LIBCONTAINER_CLONED_BINARY"
+#define CRUN_MEMFD_COMMENT "crun_cloned:/proc/self/exe"
+#define CRUN_MEMFD_SEALS \
+	(F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE)
+
+/*
+ * Verify whether we are currently in a self-cloned program (namely, is
+ * /proc/self/exe a memfd). F_GET_SEALS will only succeed for memfds (or rather
+ * for shmem files), and we want to be sure it's actually sealed.
+ */
+static int is_self_cloned(void)
+{
+	int fd, ret, is_cloned = 0;
+	struct stat statbuf = {};
+	struct statfs fsbuf = {};
+
+	fd = open("/proc/self/exe", O_RDONLY|O_CLOEXEC);
+	if (fd < 0)
+		return -ENOTRECOVERABLE;
+
+	/*
+	 * Is the binary a fully-sealed memfd? We don't need CLONED_BINARY_ENV for
+	 * this, because you cannot write to a sealed memfd no matter what (so
+	 * sharing it isn't a bad thing -- and an admin could bind-mount a sealed
+	 * memfd to /usr/bin/crun to allow re-use).
+	 */
+	ret = fcntl(fd, F_GET_SEALS);
+	if (ret >= 0) {
+		is_cloned = (ret == CRUN_MEMFD_SEALS);
+		goto out;
+	}
+
+	/*
+	 * All other forms require CLONED_BINARY_ENV, since they are potentially
+	 * writeable (or we can't tell if they're fully safe) and thus we must
+	 * check the environment as an extra layer of defence.
+	 */
+	if (!getenv(CLONED_BINARY_ENV)) {
+		is_cloned = false;
+		goto out;
+	}
+
+	/*
+	 * Is the binary on a read-only filesystem? We can't detect bind-mounts in
+	 * particular (in-kernel they are identical to regular mounts) but we can
+	 * at least be sure that it's read-only. In addition, to make sure that
+	 * it's *our* bind-mount we check CLONED_BINARY_ENV.
+	 */
+	if (fstatfs(fd, &fsbuf) >= 0)
+		is_cloned |= (fsbuf.f_flags & MS_RDONLY);
+
+	/*
+	 * Okay, we're a tmpfile -- or we're currently running on RHEL <=7.6
+	 * which appears to have a borked backport of F_GET_SEALS. Either way,
+	 * having a file which has no hardlinks indicates that we aren't using
+	 * a host-side "crun" binary and this is something that a container
+	 * cannot fake (because unlinking requires being able to resolve the
+	 * path that you want to unlink).
+	 */
+	if (fstat(fd, &statbuf) >= 0)
+		is_cloned |= (statbuf.st_nlink == 0);
+
+out:
+	close(fd);
+	return is_cloned;
+}
+
+/* Read a given file into a new buffer, and providing the length. */
+static char *read_file(char *path, size_t *length)
+{
+	int fd;
+	char buf[4096], *copy = NULL;
+
+	if (!length)
+		return NULL;
+
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return NULL;
+
+	*length = 0;
+	for (;;) {
+		ssize_t n;
+
+		n = read(fd, buf, sizeof(buf));
+		if (n < 0)
+			goto error;
+		if (!n)
+			break;
+
+		copy = xrealloc(copy, (*length + n) * sizeof(*copy));
+		memcpy(copy + *length, buf, n);
+		*length += n;
+	}
+	close(fd);
+	return copy;
+
+error:
+	close(fd);
+	free(copy);
+	return NULL;
+}
+
+/*
+ * A poor-man's version of "xargs -0". Basically parses a given block of
+ * NUL-delimited data, within the given length and adds a pointer to each entry
+ * to the array of pointers.
+ */
+static int parse_xargs(char *data, int data_length, char ***output)
+{
+	int num = 0;
+	char *cur = data;
+
+	if (!data || *output != NULL)
+		return -1;
+
+	while (cur < data + data_length) {
+		num++;
+		*output = xrealloc(*output, (num + 1) * sizeof(**output));
+		(*output)[num - 1] = cur;
+		cur += strlen(cur) + 1;
+	}
+	(*output)[num] = NULL;
+	return num;
+}
+
+/*
+ * "Parse" out argv from /proc/self/cmdline.
+ * This is necessary because we are running in a context where we don't have a
+ * main() that we can just get the arguments from.
+ */
+static int fetchve(char ***argv)
+{
+	char *cmdline = NULL;
+	size_t cmdline_size;
+
+	cmdline = read_file("/proc/self/cmdline", &cmdline_size);
+	if (!cmdline)
+		goto error;
+
+	if (parse_xargs(cmdline, cmdline_size, argv) <= 0)
+		goto error;
+
+	return 0;
+
+error:
+	free(cmdline);
+	return -EINVAL;
+}
+
+enum {
+	EFD_NONE = 0,
+	EFD_MEMFD,
+	EFD_FILE,
+};
+
+/*
+ * This comes from <linux/fcntl.h>. We can't hard-code __O_TMPFILE because it
+ * changes depending on the architecture. If we don't have O_TMPFILE we always
+ * have the mkostemp(3) fallback.
+ */
+#ifndef O_TMPFILE
+#  if defined(__O_TMPFILE) && defined(O_DIRECTORY)
+#    define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
+#  endif
+#endif
+
+static int make_execfd(int *fdtype)
+{
+	int fd = -1;
+	char template[PATH_MAX] = {0};
+	char *prefix = secure_getenv("_LIBCONTAINER_STATEDIR");
+
+	if (!prefix || *prefix != '/')
+		prefix = "/tmp";
+	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
+		return -1;
+
+	/*
+	 * Now try memfd, it's much nicer than actually creating a file in STATEDIR
+	 * since it's easily detected thanks to sealing and also doesn't require
+	 * assumptions about STATEDIR.
+	 */
+	*fdtype = EFD_MEMFD;
+	fd = memfd_create(CRUN_MEMFD_COMMENT, MFD_CLOEXEC | MFD_ALLOW_SEALING);
+	if (fd >= 0)
+		return fd;
+	if (errno != ENOSYS && errno != EINVAL)
+		goto error;
+
+#ifdef O_TMPFILE
+	/*
+	 * Try O_TMPFILE to avoid races where someone might snatch our file. Note
+	 * that O_EXCL isn't actually a security measure here (since you can just
+	 * fd re-open it and clear O_EXCL).
+	 */
+	*fdtype = EFD_FILE;
+	fd = open(prefix, O_TMPFILE | O_EXCL | O_RDWR | O_CLOEXEC, 0700);
+	if (fd >= 0) {
+		struct stat statbuf = {};
+		bool working_otmpfile = false;
+
+		/*
+		 * open(2) ignores unknown O_* flags -- yeah, I was surprised when I
+		 * found this out too. As a result we can't check for EINVAL. However,
+		 * if we get nlink != 0 (or EISDIR) then we know that this kernel
+		 * doesn't support O_TMPFILE.
+		 */
+		if (fstat(fd, &statbuf) >= 0)
+			working_otmpfile = (statbuf.st_nlink == 0);
+
+		if (working_otmpfile)
+			return fd;
+
+		/* Pretend that we got EISDIR since O_TMPFILE failed. */
+		close(fd);
+		errno = EISDIR;
+	}
+	if (errno != EISDIR)
+		goto error;
+#endif /* defined(O_TMPFILE) */
+
+	/*
+	 * Our final option is to create a temporary file the old-school way, and
+	 * then unlink it so that nothing else sees it by accident.
+	 */
+	*fdtype = EFD_FILE;
+	fd = mkostemp(template, O_CLOEXEC);
+	if (fd >= 0) {
+		if (unlink(template) >= 0)
+			return fd;
+		close(fd);
+	}
+
+error:
+	*fdtype = EFD_NONE;
+	return -1;
+}
+
+static int seal_execfd(int *fd, int fdtype)
+{
+	switch (fdtype) {
+	case EFD_MEMFD:
+		return fcntl(*fd, F_ADD_SEALS, CRUN_MEMFD_SEALS);
+	case EFD_FILE: {
+		/* Need to re-open our pseudo-memfd as an O_PATH to avoid execve(2) giving -ETXTBSY. */
+		int newfd;
+		char fdpath[PATH_MAX] = {0};
+
+		if (fchmod(*fd, 0100) < 0)
+			return -1;
+
+		if (snprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", *fd) < 0)
+			return -1;
+
+		newfd = open(fdpath, O_PATH | O_CLOEXEC);
+		if (newfd < 0)
+			return -1;
+
+		close(*fd);
+		*fd = newfd;
+		return 0;
+	}
+	default:
+	   break;
+	}
+	return -1;
+}
+
+static int try_bindfd(void)
+{
+	mode_t mask;
+	int fd, ret = -1;
+	char template[PATH_MAX] = {0};
+	char *prefix = secure_getenv("_LIBCONTAINER_STATEDIR");
+
+	if (!prefix || *prefix != '/')
+		prefix = "/tmp";
+	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
+		return ret;
+
+	/*
+	 * We need somewhere to mount it, mounting anything over /proc/self is a
+	 * BAD idea on the host -- even if we do it temporarily.
+	 */
+	mask = umask(0700);
+	fd = mkstemp(template);
+	umask(mask);
+	if (fd < 0)
+		return ret;
+	close(fd);
+
+	/*
+	 * For obvious reasons this won't work in rootless mode because we haven't
+	 * created a userns+mntns -- but getting that to work will be a bit
+	 * complicated and it's only worth doing if someone actually needs it.
+	 */
+	ret = -EPERM;
+	if (mount("/proc/self/exe", template, "", MS_BIND, "") < 0)
+		goto out;
+	if (mount("", template, "", MS_REMOUNT | MS_BIND | MS_RDONLY, "") < 0)
+		goto out_umount;
+
+
+	/* Get read-only handle that we're sure can't be made read-write. */
+	ret = open(template, O_PATH | O_CLOEXEC);
+
+out_umount:
+	/*
+	 * Make sure the MNT_DETACH works, otherwise we could get remounted
+	 * read-write and that would be quite bad (the fd would be made read-write
+	 * too, invalidating the protection).
+	 */
+	if (umount2(template, MNT_DETACH) < 0) {
+		if (ret >= 0)
+			close(ret);
+		ret = -ENOTRECOVERABLE;
+	}
+
+out:
+	/*
+	 * We don't care about unlink errors, the worst that happens is that
+	 * there's an empty file left around in STATEDIR.
+	 */
+	unlink(template);
+	return ret;
+}
+
+static ssize_t fd_to_fd(int outfd, int infd)
+{
+	ssize_t total = 0;
+	char buffer[4096];
+
+	for (;;) {
+		ssize_t nread, nwritten = 0;
+
+		nread = read(infd, buffer, sizeof(buffer));
+		if (nread < 0)
+			return -1;
+		if (!nread)
+			break;
+
+		do {
+			ssize_t n = write(outfd, buffer + nwritten, nread - nwritten);
+			if (n < 0)
+				return -1;
+			nwritten += n;
+		} while(nwritten < nread);
+
+		total += nwritten;
+	}
+
+	return total;
+}
+
+static int clone_binary(void)
+{
+	int binfd, execfd;
+	struct stat statbuf = {};
+	ssize_t sent = 0;
+	int fdtype = EFD_NONE;
+
+	/*
+	 * Before we resort to copying, let's try creating an ro-binfd in one shot
+	 * by getting a handle for a read-only bind-mount of the execfd.
+	 */
+	execfd = try_bindfd();
+	if (execfd >= 0)
+		return execfd;
+
+	/*
+	 * Dammit, that didn't work -- time to copy the binary to a safe place we
+	 * can seal the contents.
+	 */
+	execfd = make_execfd(&fdtype);
+	if (execfd < 0 || fdtype == EFD_NONE)
+		return -ENOTRECOVERABLE;
+
+	binfd = open("/proc/self/exe", O_RDONLY | O_CLOEXEC);
+	if (binfd < 0)
+		goto error;
+
+	if (fstat(binfd, &statbuf) < 0)
+		goto error_binfd;
+
+	while (sent < statbuf.st_size) {
+		int n = sendfile(execfd, binfd, NULL, statbuf.st_size - sent);
+		if (n < 0) {
+			/* sendfile can fail so we fallback to a dumb user-space copy. */
+			n = fd_to_fd(execfd, binfd);
+			if (n < 0)
+				goto error_binfd;
+		}
+		sent += n;
+	}
+	close(binfd);
+	if (sent != statbuf.st_size)
+		goto error;
+
+	if (seal_execfd(&execfd, fdtype) < 0)
+		goto error;
+
+	return execfd;
+
+error_binfd:
+	close(binfd);
+error:
+	close(execfd);
+	return -EIO;
+}
+
+/* Get cheap access to the environment. */
+extern char **environ;
+
+int ensure_cloned_binary(void)
+{
+	int execfd;
+	char **argv = NULL;
+
+	/* Check that we're not self-cloned, and if we are then bail. */
+	int cloned = is_self_cloned();
+	if (cloned > 0 || cloned == -ENOTRECOVERABLE)
+		return cloned;
+
+	if (fetchve(&argv) < 0)
+		return -EINVAL;
+
+	execfd = clone_binary();
+	if (execfd < 0)
+		return -EIO;
+
+	if (putenv(CLONED_BINARY_ENV "=1"))
+		goto error;
+
+	fexecve(execfd, argv, environ);
+error:
+	close(execfd);
+	return -ENOEXEC;
+}
+
+
+
 ### src/libcrun/utils.c
 /*
  * crun - OCI runtime written in C
@@ -7089,10 +7553,10 @@ libcrun_update_cgroup_resources (int cgroup_mode, oci_container_linux_resources 
 #include <grp.h>
 #include <time.h>
 #include <sys/time.h>
-
-#ifdef HAVE_SELINUX
-# include <selinux/selinux.h>
-#endif
+#include <sys/xattr.h>
+#include <sys/sysmacros.h>
+#include <sys/vfs.h>
+#include <linux/magic.h>
 
 int
 close_and_reset (int *fd)
@@ -7175,9 +7639,9 @@ argp_mandatory_argument (char *arg, struct argp_state *state)
 }
 
 int
-crun_path_exists (const char *path, int readonly, libcrun_error_t *err)
+crun_path_exists (const char *path, libcrun_error_t *err arg_unused)
 {
-  int ret = access (path, readonly ? R_OK : W_OK);
+  int ret = access (path, F_OK);
   if (ret < 0)
     return 0;
   return 1;
@@ -7352,15 +7816,72 @@ crun_ensure_file (const char *path, int mode, libcrun_error_t *err)
   return 0;
 }
 
+static int
+get_file_size (int fd, off_t *size)
+{
+  struct stat st;
+  int ret;
+#ifdef HAVE_STATX
+  struct statx stx;
+
+  ret = statx (fd, "", AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_STATX_DONT_SYNC, STATX_SIZE, &stx);
+  if (UNLIKELY (ret < 0))
+    {
+      if (errno == ENOSYS)
+        goto fallback;
+      return ret;
+    }
+  *size = stx.stx_size;
+
+  return ret;
+
+ fallback:
+#endif
+  ret = fstat (fd, &st);
+  *size = st.st_size;
+  return ret;
+}
+
+static int
+get_file_type (mode_t *mode, const char *path)
+{
+  struct stat st;
+  int ret;
+
+#ifdef HAVE_STATX
+  struct statx stx;
+
+  ret = statx (AT_FDCWD, path, AT_STATX_DONT_SYNC, STATX_TYPE, &stx);
+  if (UNLIKELY (ret < 0))
+    {
+      if (errno == ENOSYS)
+        goto fallback;
+
+      return ret;
+    }
+  *mode = stx.stx_mode;
+  return ret;
+
+ fallback:
+#endif
+  ret = stat (path, &st);
+  if (UNLIKELY (ret < 0))
+    return ret;
+  *mode = st.st_mode;
+  return ret;
+}
+
 int
 crun_dir_p (const char *path, libcrun_error_t *err)
 {
-  struct stat st;
-  int ret = stat (path, &st);
+  mode_t mode;
+  int ret;
+
+  ret = get_file_type (&mode, path);
   if (UNLIKELY (ret < 0))
     return crun_make_error (err, errno, "error stat'ing file '%s'", path);
 
-  return S_ISDIR (st.st_mode);
+  return S_ISDIR (mode);
 }
 
 int
@@ -7375,34 +7896,163 @@ check_running_in_user_namespace (libcrun_error_t *err)
   return strstr (buffer, "4294967295") ? 0 : 1;
 }
 
+static int selinux_enabled = -1;
+static int apparmor_enabled = -1;
+
 int
-add_selinux_mount_label (char **ret, const char *data, const char *label, libcrun_error_t *err)
+libcrun_initialize_selinux (libcrun_error_t *err)
+{
+  cleanup_free char *out = NULL;
+  cleanup_close int fd = -1;
+  size_t len;
+  int ret;
+
+  if (selinux_enabled >= 0)
+    return selinux_enabled;
+
+  fd = open ("/proc/mounts", O_RDONLY | O_CLOEXEC);
+  if (UNLIKELY (fd < 0))
+    return crun_make_error (err, errno, "open /proc/mounts");
+
+  ret = read_all_fd (fd, "/proc/mounts", &out, &len, err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  selinux_enabled = strstr (out, "selinux") ? 1 : 0;
+
+  return selinux_enabled;
+}
+
+int
+libcrun_initialize_apparmor (libcrun_error_t *err arg_unused)
+{
+  cleanup_close int fd = -1;
+  int size;
+  char buf[2];
+
+  if (apparmor_enabled >= 0)
+    return apparmor_enabled;
+
+  fd = open ("/sys/module/apparmor/parameters/enabled", O_RDONLY | O_CLOEXEC);
+  if (fd == -1)
+    return 0;
+
+  size = TEMP_FAILURE_RETRY (read (fd, &buf, 2));
+
+  apparmor_enabled = size > 0 && buf[0] == 'Y' ? 1 : 0;
+
+  return apparmor_enabled;
+}
+
+#ifdef HAVE_SELINUX
+
+static int
+libcrun_is_selinux_enabled (libcrun_error_t *err)
+{
+  if (selinux_enabled < 0)
+    return crun_make_error (err, 0, "SELinux not initialized correctly");
+  return selinux_enabled;
+}
+#endif
+
+int
+add_selinux_mount_label (char **retlabel, const char *data, const char *label, libcrun_error_t *err arg_unused)
 {
 #ifdef HAVE_SELINUX
-  if (label && is_selinux_enabled () > 0)
+  int ret;
+
+  ret = libcrun_is_selinux_enabled (err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  if (label && ret)
     {
       if (data && *data)
-        xasprintf (ret, "%s,context=\"%s\"", data, label);
+        xasprintf (retlabel, "%s,context=\"%s\"", data, label);
       else
-        xasprintf (ret, "context=\"%s\"", label);
+        xasprintf (retlabel, "context=\"%s\"", label);
       return 0;
     }
 #endif
-  *ret = xstrdup (data);
+  *retlabel = xstrdup (data);
   return 0;
 
+}
+
+static int
+write_file_and_check_fs_type (const char *file, const char *data, size_t len, int type, const char *type_name, libcrun_error_t *err)
+{
+  int ret;
+  struct statfs sfs;
+  cleanup_close int fd = -1;
+
+  fd = open (file, O_WRONLY | O_CLOEXEC);
+  if (UNLIKELY (fd < 0))
+    return crun_make_error (err, errno, "open file '%s'", file);
+
+  ret = fstatfs (fd, &sfs);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "statfs '%s'", file);
+
+  if (sfs.f_type != type)
+    return crun_make_error (err, 0, "the file '%s' is not on file system type '%s'", file, type_name);
+
+  ret = write (fd, data, len);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "write file '%s'", file);
+
+  return 0;
 }
 
 int
 set_selinux_exec_label (const char *label, libcrun_error_t *err)
 {
 #ifdef HAVE_SELINUX
-  if (is_selinux_enabled () > 0)
-    if (UNLIKELY (setexeccon (label) < 0))
-      {
-        crun_make_error (err, errno, "error setting SELinux exec label");
-        return -1;
-      }
+  int ret;
+
+  ret = libcrun_is_selinux_enabled (err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  if (ret)
+    {
+      ret = write_file_and_check_fs_type ("/proc/thread-self/attr/exec", label, strlen (label), PROC_SUPER_MAGIC, "procfs", err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+#endif
+  return 0;
+}
+
+#ifdef HAVE_APPARMOR
+static int
+libcrun_is_apparmor_enabled (libcrun_error_t *err)
+{
+  if (apparmor_enabled < 0)
+    return crun_make_error (err, 0, "AppArmor not initialized correctly");
+  return apparmor_enabled;
+}
+#endif
+
+int
+set_apparmor_profile (const char *profile, libcrun_error_t *err)
+{
+#ifdef HAVE_APPARMOR
+  int ret;
+
+  ret = libcrun_is_apparmor_enabled (err);
+  if (UNLIKELY (ret < 0))
+    return ret;
+  if (ret)
+    {
+      cleanup_free char *buf = NULL;
+
+      xasprintf (&buf, "exec %s", profile);
+
+      ret = write_file_and_check_fs_type ("/proc/thread-self/attr/exec", buf, strlen (buf), PROC_SUPER_MAGIC, "procfs", err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
 #endif
   return 0;
 }
@@ -7411,21 +8061,21 @@ int
 read_all_fd (int fd, const char *description, char **out, size_t *len, libcrun_error_t *err)
 {
   int ret;
-  struct stat stat;
   size_t nread, allocated;
+  off_t size = 0;
   cleanup_free char *buf = NULL;
 
-  ret = fstat (fd, &stat);
+  ret = get_file_size (fd, &size);
   if (UNLIKELY (ret < 0))
     return crun_make_error (err, errno, "error stat'ing file '%s'", description);
 
   /* NUL terminate the buffer.  */
-  allocated = stat.st_size;
-  if (stat.st_size == 0)
+  allocated = size;
+  if (size == 0)
     allocated = 256;
   buf = xmalloc (allocated + 1);
   nread = 0;
-  while ((stat.st_size && nread < stat.st_size) || stat.st_size == 0)
+  while ((size && nread < (size_t) size) || size == 0)
     {
       ret = TEMP_FAILURE_RETRY (read (fd, buf + nread, allocated - nread));
       if (UNLIKELY (ret < 0))
@@ -7657,7 +8307,7 @@ copy_from_fd_to_fd (int src, int dst, int consume, libcrun_error_t *err)
 
 #ifdef HAVE_COPY_FILE_RANGE
       nread = copy_file_range (src, NULL, dst, NULL, 0, 0);
-      if (nread < 0 && errno == EINVAL)
+      if (nread < 0 && (errno == EINVAL || errno == EXDEV))
         goto fallback;
       if (consume && nread < 0 && errno == EAGAIN)
         return 0;
@@ -7714,6 +8364,61 @@ run_process (char **args, libcrun_error_t *err)
   _exit (EXIT_FAILURE);
 }
 
+int
+set_home_env (uid_t id)
+{
+#ifdef HAVE_FGETPWENT_R
+  struct passwd pwd;
+  cleanup_free char *buf = NULL;
+  long buf_size;
+  cleanup_file FILE *stream = NULL;
+
+  buf_size = sysconf (_SC_GETPW_R_SIZE_MAX);
+  if (buf_size < 0)
+    buf_size = 1024;
+
+  buf = xmalloc (buf_size);
+
+  stream = fopen ("/etc/passwd", "r");
+  if (stream == NULL)
+    {
+      if (errno == ENOENT)
+        return 0;
+      return -1;
+    }
+
+  for (;;)
+    {
+      int ret;
+      struct passwd *ret_pw = NULL;
+
+      ret = fgetpwent_r (stream, &pwd, buf, buf_size, &ret_pw);
+      if (UNLIKELY (ret != 0))
+        {
+          if (errno == ENOENT)
+            return 0;
+
+          if (errno != ERANGE)
+            return ret;
+
+          buf_size *= 2;
+          buf = xrealloc (buf, buf_size);
+          continue;
+        }
+
+      if (ret_pw && ret_pw->pw_uid == id)
+        {
+          setenv ("HOME", ret_pw->pw_dir, 1);
+          return 0;
+        }
+    }
+  return 0;
+#else
+  errno = ENOTSUP;
+  return -1;
+#endif
+}
+
 /*if subuid or subgid exist, take the first range for the user */
 static int
 getsubidrange (uid_t id, int is_uid, uint32_t *from, uint32_t *len)
@@ -7763,11 +8468,11 @@ getsubidrange (uid_t id, int is_uid, uint32_t *from, uint32_t *len)
   for (;;)
     {
       char *endptr;
-      int read = getline (&lineptr, &lenlineptr, input);
+      ssize_t read = getline (&lineptr, &lenlineptr, input);
       if (read < 0)
         return -1;
 
-      if (read < len_name + 2)
+      if (read < (ssize_t) (len_name + 2))
         continue;
 
       if (memcmp (lineptr, name, len_name) || lineptr[len_name] != ':')
@@ -7922,14 +8627,30 @@ run_process_with_stdin_timeout_envp (char *path,
 int
 close_fds_ge_than (int n, libcrun_error_t *err)
 {
-  int fd;
+  cleanup_close int cfd = -1;
   cleanup_dir DIR *dir = NULL;
   int ret;
+  int fd;
+  struct statfs sfs;
   struct dirent *next;
 
-  dir = opendir ("/proc/self/fd");
+  cfd = open ("/proc/self/fd", O_DIRECTORY | O_RDONLY | O_CLOEXEC);
+  if (UNLIKELY (cfd < 0))
+    return crun_make_error (err, errno, "open /proc/self/fd");
+
+  ret = fstatfs (cfd, &sfs);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "statfs '/proc/self/fd'");
+
+  if (sfs.f_type != PROC_SUPER_MAGIC)
+    return crun_make_error (err, 0, "the path '/proc/self/fd' is not on file system type 'procfs'");
+
+  dir = fdopendir (cfd);
   if (UNLIKELY (dir == NULL))
     return crun_make_error (err, errno, "cannot fdopendir /proc/self/fd");
+
+  /* Now it is owned by dir.  */
+  cfd = -1;
 
   fd = dirfd (dir);
   for (next = readdir (dir); next; next = readdir (dir))
@@ -7978,7 +8699,7 @@ set_blocking_fd (int fd, int blocking, libcrun_error_t *err)
 }
 
 int
-parse_json_file (yajl_val *out, const char *jsondata, struct parser_context *ctx, libcrun_error_t *err)
+parse_json_file (yajl_val *out, const char *jsondata, struct parser_context *ctx arg_unused, libcrun_error_t *err)
 {
     char errbuf[1024];
 
@@ -7996,6 +8717,344 @@ has_prefix (const char *str, const char *prefix)
 {
   size_t prefix_len = strlen (prefix);
   return strlen (str) >= prefix_len && memcmp (str, prefix, prefix_len) == 0;
+}
+
+static int
+check_access (const char *path)
+{
+  int ret;
+  mode_t mode;
+
+  ret = eaccess (path, X_OK);
+  if (ret < 0)
+    return ret;
+
+  ret = get_file_type (&mode, path);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  if (! S_ISREG (mode))
+    {
+      errno = EPERM;
+      return -1;
+    }
+
+  return 0;
+}
+
+const char *
+find_executable (const char *executable_path)
+{
+  cleanup_free char *tmp = NULL;
+  char path[PATH_MAX + 1];
+  int last_error = ENOENT;
+  char *it, *end;
+  int ret;
+
+  if (executable_path[0] == '/')
+    {
+      ret = check_access (executable_path);
+      if (ret == 0)
+        return xstrdup (executable_path);
+      return NULL;
+    }
+
+  end = tmp = xstrdup (getenv ("PATH"));
+
+  while ((it = strsep (&end, ":")))
+    {
+      size_t len;
+
+      if (it == end)
+        it = ".";
+
+      len = snprintf (path, PATH_MAX, "%s/%s", it, executable_path);
+      if (len == PATH_MAX)
+        continue;
+
+      ret = check_access (path);
+      if (ret == 0)
+        return xstrdup (path);
+
+      if (errno == ENOENT)
+        continue;
+
+      last_error = errno;
+    }
+
+  errno = last_error;
+  return NULL;
+}
+
+#ifdef HAVE_FGETXATTR
+
+static ssize_t
+safe_read_xattr (char **ret, int sfd, const char *srcname, const char *name, size_t initial_size, libcrun_error_t *err)
+{
+  cleanup_free char *buffer = NULL;
+  ssize_t current_size;
+  ssize_t s;
+
+  current_size = (ssize_t) initial_size;
+  buffer = xmalloc (current_size + 1);
+
+  while (1)
+    {
+      s = fgetxattr (sfd, name, buffer, current_size);
+      if (UNLIKELY (s < 0))
+        return crun_make_error (err, errno, "get xattr %s from %s", name, srcname);
+
+      if (s < current_size)
+        break;
+
+      current_size *= 2;
+      buffer = xrealloc (buffer, current_size + 1);
+    }
+
+  if (s <= 0)
+    return s;
+
+  buffer[s] = '\0';
+
+  /* Change owner.  */
+  *ret = buffer;
+  buffer = NULL;
+
+  return s;
+}
+
+static ssize_t
+copy_xattr (int sfd, int dfd, const char *srcname, const char *destname, libcrun_error_t *err)
+{
+  cleanup_free char *buf = NULL;
+  ssize_t xattr_len;
+  char *it;
+
+  xattr_len = flistxattr (sfd, NULL, 0);
+  if (UNLIKELY (xattr_len < 0))
+    {
+      if (errno == ENOTSUP)
+        return 0;
+
+      return crun_make_error (err, errno, "get xattr list for %s", srcname);
+    }
+
+
+  if (xattr_len == 0)
+    return 0;
+
+  buf = xmalloc (xattr_len + 1);
+
+  xattr_len = flistxattr (sfd, buf, xattr_len + 1);
+  if (UNLIKELY (xattr_len < 0))
+    return crun_make_error (err, errno, "get xattr list for %s", srcname);
+
+  for (it = buf; it - buf < xattr_len; it += strlen (it) + 1)
+    {
+      cleanup_free char *v = NULL;
+      ssize_t s;
+
+      s = safe_read_xattr (&v, sfd, srcname, it, 256, err);
+      if (UNLIKELY (s < 0))
+        return s;
+
+      s = fsetxattr (dfd, it, v, s, 0);
+      if (UNLIKELY (s < 0))
+        {
+          if (errno == EINVAL || errno == EOPNOTSUPP)
+            continue;
+
+          return crun_make_error (err, errno, "set xattr for %s", destname);
+        }
+    }
+
+  return 0;
+}
+
+#endif
+
+static
+int copy_rec_stat_file_at (int dfd, const char *path, mode_t *mode, off_t *size, dev_t *rdev, uid_t *uid, gid_t *gid)
+{
+  struct stat st;
+  int ret;
+
+#ifdef HAVE_STATX
+  struct statx stx;
+
+  ret = statx (dfd, path, AT_SYMLINK_NOFOLLOW | AT_STATX_DONT_SYNC, STATX_TYPE | STATX_MODE | STATX_SIZE | STATX_UID | STATX_GID, &stx);
+  if (UNLIKELY (ret < 0))
+    {
+      if (errno == ENOSYS)
+        goto fallback;
+
+      return ret;
+    }
+
+  *mode = stx.stx_mode;
+  *size = stx.stx_size;
+  *rdev = makedev (stx.stx_rdev_major, stx.stx_rdev_minor);
+  *uid = stx.stx_uid;
+  *gid = stx.stx_gid;
+
+  return ret;
+
+ fallback:
+#endif
+  ret = fstatat (dfd, path, &st, AT_SYMLINK_NOFOLLOW);
+
+  *mode = st.st_mode;
+  *size = st.st_size;
+  *rdev = st.st_rdev;
+  *uid = st.st_uid;
+  *gid = st.st_gid;
+
+  return ret;
+}
+
+int
+copy_recursive_fd_to_fd (int srcdirfd, int destdirfd, const char *srcname, const char *destname, libcrun_error_t *err)
+{
+  cleanup_close int dfd = destdirfd;
+  cleanup_dir DIR *dsrcfd = NULL;
+  struct dirent *de;
+
+  dsrcfd = fdopendir (srcdirfd);
+  if (UNLIKELY (dsrcfd == NULL))
+    {
+      close (srcdirfd);
+      return crun_make_error (err, errno, "cannot open directory %s", destname);
+    }
+
+  for (de = readdir (dsrcfd); de; de = readdir (dsrcfd))
+    {
+      cleanup_close int srcfd = -1;
+      cleanup_close int destfd = -1;
+      cleanup_free char *target_buf = NULL;
+      ssize_t buf_size;
+      ssize_t size;
+      int ret;
+      mode_t mode;
+      off_t st_size;
+      dev_t rdev;
+      uid_t uid;
+      gid_t gid;
+
+      if (strcmp (de->d_name, ".") == 0 ||
+          strcmp (de->d_name, "..") == 0)
+        continue;
+
+      ret = copy_rec_stat_file_at (dirfd (dsrcfd), de->d_name, &mode, &st_size, &rdev, &uid, &gid);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "stat %s/%s", srcname, de->d_name);
+
+      switch (mode & S_IFMT)
+        {
+        case S_IFREG:
+          srcfd = openat (dirfd (dsrcfd), de->d_name, O_NONBLOCK | O_RDONLY);
+          if (UNLIKELY (srcfd < 0))
+            return crun_make_error (err, errno, "open %s/%s", srcname, de->d_name);
+
+          destfd = openat (destdirfd, de->d_name, O_RDWR | O_CREAT, 0777);
+          if (UNLIKELY (destfd < 0))
+            return crun_make_error (err, errno, "open %s/%s", destname, de->d_name);
+
+          ret = copy_from_fd_to_fd (srcfd, destfd, 0, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+
+#ifdef HAVE_FGETXATTR
+          ret = (int) copy_xattr (srcfd, destfd, de->d_name, de->d_name, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+#endif
+
+          close (destfd);
+          destfd = -1;
+          break;
+
+        case S_IFDIR:
+          ret = mkdirat (destdirfd, de->d_name, mode);
+          if (UNLIKELY (ret < 0))
+            return crun_make_error (err, errno, "mkdir %s/%s", destname, de->d_name);
+
+          srcfd = openat (dirfd (dsrcfd), de->d_name, O_DIRECTORY);
+          if (UNLIKELY (srcfd < 0))
+            return crun_make_error (err, errno, "open directory %s/%s", srcname, de->d_name);
+
+          destfd = openat (destdirfd, de->d_name, O_DIRECTORY);
+          if (UNLIKELY (destfd < 0))
+            return crun_make_error (err, errno, "open directory %s/%s", srcname, de->d_name);
+
+#ifdef HAVE_FGETXATTR
+          ret = (int) copy_xattr (srcfd, destfd, de->d_name, de->d_name, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+#endif
+
+          ret = copy_recursive_fd_to_fd (srcfd, destfd, de->d_name, de->d_name, err);
+          srcfd = destfd = -1;
+          if (UNLIKELY (ret < 0))
+            return ret;
+          break;
+
+        case S_IFLNK:
+          buf_size = st_size + 1;
+          target_buf = xmalloc (buf_size);
+
+          do
+            {
+              buf_size += 1024;
+
+              target_buf = xrealloc (target_buf, buf_size);
+
+              size = readlinkat (dirfd (dsrcfd), de->d_name, target_buf, buf_size);
+              if (UNLIKELY (size < 0))
+                return crun_make_error (err, errno, "readlink %s/%s", srcname, de->d_name);
+            }
+          while (size == buf_size);
+
+          ret = symlinkat (target_buf, destdirfd, de->d_name);
+          if (UNLIKELY (ret < 0))
+            return crun_make_error (err, errno, "create symlink %s/%s", destname, de->d_name);
+          break;
+
+        case S_IFBLK:
+        case S_IFCHR:
+        case S_IFIFO:
+        case S_IFSOCK:
+          ret = mknodat (destdirfd, de->d_name, mode, rdev);
+          if (UNLIKELY (ret < 0))
+            return crun_make_error (err, errno, "create special file %s/%s", destname, de->d_name);
+          break;
+        }
+
+      ret = fchownat (destdirfd, de->d_name, uid, gid, AT_SYMLINK_NOFOLLOW);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chown %s/%s", destname, de->d_name);
+
+      ret = fchmodat (destdirfd, de->d_name, mode & ALLPERMS, AT_SYMLINK_NOFOLLOW);
+      if (UNLIKELY (ret < 0))
+        {
+          if (errno == ENOTSUP)
+            {
+              char proc_path[32];
+              cleanup_close int fd = -1;
+
+              fd = openat (destdirfd, de->d_name, O_PATH | O_NOFOLLOW);
+              if (UNLIKELY (fd < 0))
+                return crun_make_error (err, errno, "open %s/%s", destname, de->d_name);
+
+              sprintf (proc_path, "/proc/self/fd/%d", fd);
+              ret = chmod (proc_path, mode & ALLPERMS);
+            }
+
+          if (UNLIKELY (ret < 0))
+            return crun_make_error (err, errno, "chmod %s/%s", destname, de->d_name);
+        }
+    }
+
+  return 0;
 }
 ```
 --- END FILE ---
@@ -8024,140 +9083,86 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-06-30 22:07:36,657 - INFO - Initializing a decoder model: deepseek-coder ...
-2026-06-30 22:07:36,668 - INFO - Creating API request
-2026-06-30 22:07:40,716 - INFO - API response ChatCompletion(id='7c115df3-7b0f-4abe-96f8-7fa530a159a5', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Looking at the issue, the bug is about `$PATH lookup before exec\'ing the container process`. The problem is in `src/libcrun/container.c` where `execvp` is used instead of `execvpe` for the container process execution. \n\n`execvp` searches the PATH environment variable from the current process\'s environment, but the container should use the PATH that was set up in the container\'s environment (after `clearenv()` and `putenv()` calls). The fix is to use `execvpe` which allows specifying the environment explicitly.\n\nHere\'s the fix:\n\n```python\n### src/libcrun/container.c\n<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, "executable file not found in $PATH");\n\n  return crun_make_error (err, errno, "exec the container process");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, "executable file not found in $PATH");\n\n  return crun_make_error (err, errno, "exec the container process");\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1782828457, model='deepseek-v4-flash', object='chat.completion', moderation=None, service_tier=None, system_fingerprint='fp_8b330d02d0_prod0820_fp8_kvcache_20260402', usage=CompletionUsage(completion_tokens=294, prompt_tokens=69209, total_tokens=69503, completion_tokens_details=None, prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=69120), prompt_cache_hit_tokens=69120, prompt_cache_miss_tokens=89))
-2026-06-30 22:07:40,716 - INFO - Initializing a decoder model: deepseek-coder ...
-2026-06-30 22:07:40,716 - INFO - raw output:
-Looking at the issue, the bug is about `$PATH lookup before exec'ing the container process`. The problem is in `src/libcrun/container.c` where `execvp` is used instead of `execvpe` for the container process execution. 
+2026-06-30 22:16:44,198 - INFO - Initializing a decoder model: deepseek-coder ...
+2026-06-30 22:16:44,212 - INFO - Creating API request
+2026-06-30 22:16:57,735 - INFO - API response ChatCompletion(id='3130133e-efe2-40fa-a614-7305ed26bcc2', choices=[Choice(finish_reason='length', index=0, logprobs=None, message=ChatCompletionMessage(content='Looking at the issue, the problem is that crun hangs when an OCI hook exits non-zero. The issue is in the `do_hooks` function in `src/libcrun/container.c`. When a hook fails (returns non-zero), the function should propagate the error back to the caller, but the current code doesn\'t properly handle the case where `keep_going` is false (which is the case for prestart hooks).\n\nThe bug is in the `do_hooks` function - when `keep_going` is false and a hook fails, the function correctly sets `ret` to the error value, but the `goto exit` path doesn\'t properly clean up and return the error. The issue is that the function returns `ret` which is 0 when the loop breaks, not the actual error code.\n\nLooking more carefully at the code flow:\n\n```c\nfor (i = 0; i < hooks_len; i++)\n{\n    ret = run_process_with_stdin_timeout_envp(...);\n    if (!keep_going && UNLIKELY (ret != 0))\n        goto exit;\n}\nret = 0;\n```\n\nWhen `keep_going` is false and the hook fails, `ret` is set to the non-zero return value, then we `goto exit`. But at `exit:`, `ret` is already set to the non-zero value, so that should work. \n\nWait, let me re-read the issue more carefully. The issue says "crun hangs when an OCI hook exists non-zero". This suggests the process hangs rather than returning an error. Looking at the `run_process_with_stdin_timeout_envp` function, when `timeout` is 0 (which it is for hooks since the hook struct has `timeout` initialized to 0), the function doesn\'t set up the SIGCHLD mask properly, and the `waitpid` call might hang if the child process doesn\'t exit.\n\nActually, looking at the hook struct definition:\n```c\nstruct hook_s\n{\n    char *path;\n    char **args;\n    size_t args_len;\n    int timeout;\n    char **env;\n    size_t env_len;\n};\n```\n\nThe `timeout` field is initialized to 0. In `run_process_with_stdin_timeout_envp`, when `timeout > 0` is false, the function doesn\'t block SIGCHLD, but it still calls `waitpid` which should work fine.\n\nLet me look at the actual issue more carefully. The problem might be in how the hook\'s exit status is handled. When a hook exits with non-zero status, `run_process_with_stdin_timeout_envp` returns the exit status. But in `do_hooks`, when `keep_going` is false, we `goto exit` which returns `ret` (the non-zero value). This should work...\n\nWait, I think I see the issue now. Looking at the `do_hooks` function more carefully:\n\n```c\nfor (i = 0; i < hooks_len; i++)\n{\n    ret = run_process_with_stdin_timeout_envp(hooks[i]->path, hooks[i]->args, cwd, hooks[i]->timeout, hooks[i]->env, stdin, stdin_len, err);\n    if (!keep_going && UNLIKELY (ret != 0))\n        goto exit;\n}\nret = 0;\n```\n\nWhen `keep_going` is false and the hook fails, `ret` is set to the non-zero value, and we `goto exit`. But the issue is that `run_process_with_stdin_timeout_envp` might hang if the hook process doesn\'t properly terminate. However, looking at the function, it should work correctly for normal hook execution.\n\nActually, I think the real issue might be different. Let me look at how hooks are called in `libcrun_container_run_internal`:\n\n```c\nif (def->hooks && def->hooks->prestart_len)\n{\n    ret = do_hooks(def, pid, context->id, false, def->root->path, NULL, "created",\n                  (struct hook_s **) def->hooks->prestart,\n                  def->hooks->prestart_len, err);\n    if (UNLIKELY (ret != 0))\n    {\n        cleanup_watch(context, pid, def, context->id, sync_socket, terminal_fd);\n        return ret;\n    }\n}\n```\n\nThis looks correct - if `do_hooks` returns non-zero, it cleans up and returns the error.\n\nLet me look at the actual upstream issue more carefully. The issue title is "crun hangs when an OCI hook exists non-zero". Looking at the code, I think the problem might be in how the sync socket communication works. When a hook fails, the container process is waiting for a sync message, but the error handling might not properly signal', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1782829005, model='deepseek-v4-flash', object='chat.completion', moderation=None, service_tier=None, system_fingerprint='fp_8b330d02d0_prod0820_fp8_kvcache_20260402', usage=CompletionUsage(completion_tokens=1024, prompt_tokens=77896, total_tokens=78920, completion_tokens_details=None, prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0), prompt_cache_hit_tokens=0, prompt_cache_miss_tokens=77896))
+2026-06-30 22:16:57,735 - INFO - Initializing a decoder model: deepseek-coder ...
+2026-06-30 22:16:57,735 - INFO - raw output:
+Looking at the issue, the problem is that crun hangs when an OCI hook exits non-zero. The issue is in the `do_hooks` function in `src/libcrun/container.c`. When a hook fails (returns non-zero), the function should propagate the error back to the caller, but the current code doesn't properly handle the case where `keep_going` is false (which is the case for prestart hooks).
 
-`execvp` searches the PATH environment variable from the current process's environment, but the container should use the PATH that was set up in the container's environment (after `clearenv()` and `putenv()` calls). The fix is to use `execvpe` which allows specifying the environment explicitly.
+The bug is in the `do_hooks` function - when `keep_going` is false and a hook fails, the function correctly sets `ret` to the error value, but the `goto exit` path doesn't properly clean up and return the error. The issue is that the function returns `ret` which is 0 when the loop breaks, not the actual error code.
 
-Here's the fix:
+Looking more carefully at the code flow:
 
-```python
-### src/libcrun/container.c
-<<<<<<< SEARCH
-  execvp (def->process->args[0], def->process->args);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
-
-  return crun_make_error (err, errno, "exec the container process");
-=======
-  execvpe (def->process->args[0], def->process->args, environ);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
-
-  return crun_make_error (err, errno, "exec the container process");
->>>>>>> REPLACE
+```c
+for (i = 0; i < hooks_len; i++)
+{
+    ret = run_process_with_stdin_timeout_envp(...);
+    if (!keep_going && UNLIKELY (ret != 0))
+        goto exit;
+}
+ret = 0;
 ```
-2026-06-30 22:07:40,716 - INFO - === file_to_commands: ===
-2026-06-30 22:07:40,716 - INFO - {
-  "'src/libcrun/container.c'": [
-    "<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
-  ]
+
+When `keep_going` is false and the hook fails, `ret` is set to the non-zero return value, then we `goto exit`. But at `exit:`, `ret` is already set to the non-zero value, so that should work. 
+
+Wait, let me re-read the issue more carefully. The issue says "crun hangs when an OCI hook exists non-zero". This suggests the process hangs rather than returning an error. Looking at the `run_process_with_stdin_timeout_envp` function, when `timeout` is 0 (which it is for hooks since the hook struct has `timeout` initialized to 0), the function doesn't set up the SIGCHLD mask properly, and the `waitpid` call might hang if the child process doesn't exit.
+
+Actually, looking at the hook struct definition:
+```c
+struct hook_s
+{
+    char *path;
+    char **args;
+    size_t args_len;
+    int timeout;
+    char **env;
+    size_t env_len;
+};
+```
+
+The `timeout` field is initialized to 0. In `run_process_with_stdin_timeout_envp`, when `timeout > 0` is false, the function doesn't block SIGCHLD, but it still calls `waitpid` which should work fine.
+
+Let me look at the actual issue more carefully. The problem might be in how the hook's exit status is handled. When a hook exits with non-zero status, `run_process_with_stdin_timeout_envp` returns the exit status. But in `do_hooks`, when `keep_going` is false, we `goto exit` which returns `ret` (the non-zero value). This should work...
+
+Wait, I think I see the issue now. Looking at the `do_hooks` function more carefully:
+
+```c
+for (i = 0; i < hooks_len; i++)
+{
+    ret = run_process_with_stdin_timeout_envp(hooks[i]->path, hooks[i]->args, cwd, hooks[i]->timeout, hooks[i]->env, stdin, stdin_len, err);
+    if (!keep_going && UNLIKELY (ret != 0))
+        goto exit;
 }
-2026-06-30 22:07:40,716 - INFO - === edited_file: 'src/libcrun/container.c' ===
-2026-06-30 22:07:40,716 - INFO - === edit_commands: ===
-2026-06-30 22:07:40,716 - INFO - <<<<<<< SEARCH
-  execvp (def->process->args[0], def->process->args);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
+ret = 0;
+```
 
-  return crun_make_error (err, errno, "exec the container process");
-=======
-  execvpe (def->process->args[0], def->process->args, environ);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
+When `keep_going` is false and the hook fails, `ret` is set to the non-zero value, and we `goto exit`. But the issue is that `run_process_with_stdin_timeout_envp` might hang if the hook process doesn't properly terminate. However, looking at the function, it should work correctly for normal hook execution.
 
-  return crun_make_error (err, errno, "exec the container process");
->>>>>>> REPLACE
-2026-06-30 22:07:40,716 - INFO - 
-----------------------------------------
-2026-06-30 22:07:40,717 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
-2026-06-30 22:07:40,719 - INFO - extracted patch:
-2026-06-30 22:07:40,719 - INFO - --- src/libcrun/container.c
-+++ src/libcrun/container.c
-@@ -649,7 +649,7 @@
-   if (! def->process)
-     return crun_make_error (err, errno, "block 'process' not found");
- 
--  execvp (def->process->args[0], def->process->args);
-+  execvpe (def->process->args[0], def->process->args, environ);
-   if (errno == ENOENT)
-     return crun_make_error (err, errno, "executable file not found in $PATH");
- 
-2026-06-30 22:07:40,722 - INFO - === file_to_commands: ===
-2026-06-30 22:07:40,722 - INFO - === file_to_commands: ===
-2026-06-30 22:07:40,722 - INFO - {
-  "'src/libcrun/container.c'": [
-    "<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
-  ]
+Actually, I think the real issue might be different. Let me look at how hooks are called in `libcrun_container_run_internal`:
+
+```c
+if (def->hooks && def->hooks->prestart_len)
+{
+    ret = do_hooks(def, pid, context->id, false, def->root->path, NULL, "created",
+                  (struct hook_s **) def->hooks->prestart,
+                  def->hooks->prestart_len, err);
+    if (UNLIKELY (ret != 0))
+    {
+        cleanup_watch(context, pid, def, context->id, sync_socket, terminal_fd);
+        return ret;
+    }
 }
-2026-06-30 22:07:40,722 - INFO - {
-  "'src/libcrun/container.c'": [
-    "<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
-  ]
-}
-2026-06-30 22:07:40,722 - INFO - === edited_file: 'src/libcrun/container.c' ===
-2026-06-30 22:07:40,722 - INFO - === edited_file: 'src/libcrun/container.c' ===
-2026-06-30 22:07:40,722 - INFO - === edit_commands: ===
-2026-06-30 22:07:40,722 - INFO - === edit_commands: ===
-2026-06-30 22:07:40,722 - INFO - <<<<<<< SEARCH
-  execvp (def->process->args[0], def->process->args);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
+```
 
-  return crun_make_error (err, errno, "exec the container process");
-=======
-  execvpe (def->process->args[0], def->process->args, environ);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
+This looks correct - if `do_hooks` returns non-zero, it cleans up and returns the error.
 
-  return crun_make_error (err, errno, "exec the container process");
->>>>>>> REPLACE
-2026-06-30 22:07:40,722 - INFO - <<<<<<< SEARCH
-  execvp (def->process->args[0], def->process->args);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
-
-  return crun_make_error (err, errno, "exec the container process");
-=======
-  execvpe (def->process->args[0], def->process->args, environ);
-  if (errno == ENOENT)
-    return crun_make_error (err, errno, "executable file not found in $PATH");
-
-  return crun_make_error (err, errno, "exec the container process");
->>>>>>> REPLACE
-2026-06-30 22:07:40,722 - INFO - 
-----------------------------------------
-2026-06-30 22:07:40,722 - INFO - 
-----------------------------------------
-2026-06-30 22:07:40,722 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
-2026-06-30 22:07:40,722 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
-2026-06-30 22:07:40,724 - INFO - extracted patch:
-2026-06-30 22:07:40,724 - INFO - extracted patch:
-2026-06-30 22:07:40,724 - INFO - --- src/libcrun/container.c
-+++ src/libcrun/container.c
-@@ -649,7 +649,7 @@
-   if (! def->process)
-     return crun_make_error (err, errno, "block 'process' not found");
- 
--  execvp (def->process->args[0], def->process->args);
-+  execvpe (def->process->args[0], def->process->args, environ);
-   if (errno == ENOENT)
-     return crun_make_error (err, errno, "executable file not found in $PATH");
- 
-2026-06-30 22:07:40,724 - INFO - --- src/libcrun/container.c
-+++ src/libcrun/container.c
-@@ -649,7 +649,7 @@
-   if (! def->process)
-     return crun_make_error (err, errno, "block 'process' not found");
- 
--  execvp (def->process->args[0], def->process->args);
-+  execvpe (def->process->args[0], def->process->args, environ);
-   if (errno == ENOENT)
-     return crun_make_error (err, errno, "executable file not found in $PATH");
- 
-2026-06-30 22:07:40,765 - INFO - differ_by_empty_lines = False
-2026-06-30 22:07:40,765 - INFO - differ_by_empty_lines = False
+Let me look at the actual upstream issue more carefully. The issue title is "crun hangs when an OCI hook exists non-zero". Looking at the code, I think the problem might be in how the sync socket communication works. When a hook fails, the container process is waiting for a sync message, but the error handling might not properly signal
+2026-06-30 22:16:57,736 - INFO - === file_to_commands: ===
+2026-06-30 22:16:57,736 - INFO - {}
+2026-06-30 22:16:57,739 - INFO - === file_to_commands: ===
+2026-06-30 22:16:57,739 - INFO - === file_to_commands: ===
+2026-06-30 22:16:57,739 - INFO - {}
+2026-06-30 22:16:57,739 - INFO - {}
+2026-06-30 22:16:57,764 - INFO - differ_by_empty_lines = True
+2026-06-30 22:16:57,764 - INFO - differ_by_empty_lines = True
