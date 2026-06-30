@@ -1,0 +1,93 @@
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/d9b5e965-a4c1-47cf-ae8d-ce7900942491/.git/
+[master (root-commit) 0faea88] initial commit
+ 1 file changed, 797 insertions(+)
+ create mode 100644 crates/libcontainer/src/container/tenant_builder.rs
+trying the 1-th sample ...
+--- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -580,6 +580,41 @@
+         env
+     }
+ 
++    fn get_environment_from_spec(&self, spec: &Spec, path: Option<String>) -> Vec<String> {
++        let mut env_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
++
++        // First, collect environment variables from the original spec
++        if let Some(process) = spec.process() {
++            if let Some(env_vars) = process.env() {
++                for env_str in env_vars {
++                    if let Some((key, value)) = env_str.split_once('=') {
++                        env_map.insert(key.to_string(), value.to_string());
++                    }
++                }
++            }
++        }
++
++        // Then, override with exec-provided environment variables
++        let mut env_exists = false;
++        for (k, v) in &self.env {
++            env_map.insert(k.clone(), v.clone());
++            if k == "PATH" {
++                env_exists = true;
++            }
++        }
++
++        // Add PATH from original spec if not already set
++        if let Some(p) = path {
++            if !env_exists {
++                if let Some((_, value)) = p.split_once('=') {
++                    env_map.insert("PATH".to_string(), value.to_string());
++                }
++            }
++        }
++
++        env_map.into_iter().map(|(k, v)| format!("{k}={v}")).collect()
++    }
++
+     fn get_no_new_privileges(&self) -> Option<bool> {
+         self.no_new_privs
+     }
+--- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -580,6 +580,41 @@
+         env
+     }
+ 
++    fn get_environment_from_spec(&self, spec: &Spec, path: Option<String>) -> Vec<String> {
++        let mut env_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
++
++        // First, collect environment variables from the original spec
++        if let Some(process) = spec.process() {
++            if let Some(env_vars) = process.env() {
++                for env_str in env_vars {
++                    if let Some((key, value)) = env_str.split_once('=') {
++                        env_map.insert(key.to_string(), value.to_string());
++                    }
++                }
++            }
++        }
++
++        // Then, override with exec-provided environment variables
++        let mut env_exists = false;
++        for (k, v) in &self.env {
++            env_map.insert(k.clone(), v.clone());
++            if k == "PATH" {
++                env_exists = true;
++            }
++        }
++
++        // Add PATH from original spec if not already set
++        if let Some(p) = path {
++            if !env_exists {
++                if let Some((_, value)) = p.split_once('=') {
++                    env_map.insert("PATH".to_string(), value.to_string());
++                }
++            }
++        }
++
++        env_map.into_iter().map(|(k, v)| format!("{k}={v}")).collect()
++    }
++
+     fn get_no_new_privileges(&self) -> Option<bool> {
+         self.no_new_privs
+     }

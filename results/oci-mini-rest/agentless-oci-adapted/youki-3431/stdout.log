@@ -1,0 +1,51 @@
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/3912cef8-5294-4199-a4e3-246259cddbec/.git/
+[master (root-commit) 172927a] initial commit
+ 1 file changed, 1729 insertions(+)
+ create mode 100644 crates/libcontainer/src/rootfs/mount.rs
+trying the 1-th sample ...
+--- crates/libcontainer/src/rootfs/mount.rs
++++ crates/libcontainer/src/rootfs/mount.rs
+@@ -202,6 +202,20 @@
+                 }
+ 
+                 self.check_proc_mount(options.root, mount)?;
++
++                // Check if proc is already mounted at the destination to avoid
++                // duplicate mounts on exec. This prevents the bug where each
++                // youki exec adds more proc mounts to the filesystem.
++                if typ == "proc" {
++                    let mount_infos = self.mountinfo_provider.mountinfo()?;
++                    let already_mounted = mount_infos.iter().any(|mi| {
++                        mi.mount_point == dest_path && mi.fs_type == "proc"
++                    });
++                    if already_mounted {
++                        tracing::debug!("proc already mounted at {:?}, skipping", dest_path);
++                        return Ok(());
++                    }
++                }
+ 
+                 self.mount_into_container(mount, options.root, &mount_option_config, options.label)
+                     .map_err(|err| {
+--- crates/libcontainer/src/rootfs/mount.rs
++++ crates/libcontainer/src/rootfs/mount.rs
+@@ -202,6 +202,20 @@
+                 }
+ 
+                 self.check_proc_mount(options.root, mount)?;
++
++                // Check if proc is already mounted at the destination to avoid
++                // duplicate mounts on exec. This prevents the bug where each
++                // youki exec adds more proc mounts to the filesystem.
++                if typ == "proc" {
++                    let mount_infos = self.mountinfo_provider.mountinfo()?;
++                    let already_mounted = mount_infos.iter().any(|mi| {
++                        mi.mount_point == dest_path && mi.fs_type == "proc"
++                    });
++                    if already_mounted {
++                        tracing::debug!("proc already mounted at {:?}, skipping", dest_path);
++                        return Ok(());
++                    }
++                }
+ 
+                 self.mount_into_container(mount, options.root, &mount_option_config, options.label)
+                     .map_err(|err| {
