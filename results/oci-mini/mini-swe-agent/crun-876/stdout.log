@@ -1,0 +1,3541 @@
+👋 This is mini-swe-agent version 2.4.2.
+Check the v2 migration guide at https://klieret.short.gy/mini-v2-migration
+Loading global config from '/home/aludy/.config/mini-swe-agent/.env'
+Building agent config from specs: 
+['/home/aludy/scires/Cloud_Spec_Exp/external/baselines/mini-swe-agent/src/minisweagent/config/mini.yaml']
+
+System:
+You are a helpful assistant that can interact with a computer.
+
+User:
+Please solve this issue: Fix OCI runtime bug case crun-876.
+
+Target runtime: crun
+Title: support cgroupv1 cpu.idle setting
+Upstream issue: https://github.com/containers/crun/issues/876
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI 
+reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-876
+Upstream URL: https://github.com/containers/crun/issues/876
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo cpu-idle-876; cat /sys/fs/cgroup/cpu/cpu.idle 2>/dev/null || cat 
+/sys/fs/cgroup/cpu.idle 2>/dev/null || true"]; linux.resources.cpu: {"shares": 1024, "idle": 1}; linux.resources.devices: 
+[{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference
+in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or 
+insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-876
+
+## Upstream Issue Summary
+- Title: support cgroupv1 cpu.idle setting
+- URL: https://github.com/containers/crun/issues/876
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or 
+reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, 
+user namespaces, or hook execution support.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected 
+config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-876`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash 
+repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo cpu-idle-876; cat /sys/fs/cgroup/cpu/cpu.idle 2>/dev/null || cat 
+/sys/fs/cgroup/cpu.idle 2>/dev/null || true"]; linux.resources.cpu: {"shares": 1024, "idle": 1}; linux.resources.devices: 
+[{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable 
+difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+
+You can execute bash commands and edit files to implement the necessary changes.
+
+## Recommended Workflow
+
+This workflow should be done step-by-step so that you can iterate on your changes and any possible problems.
+
+1. Analyze the codebase by finding and reading relevant files
+2. Create a script to reproduce the issue
+3. Edit the source code to resolve the issue
+4. Verify your fix works by running your script again
+5. Test edge cases to ensure your fix is robust
+6. Submit your changes and finish your work by issuing the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+   Do not combine it with any other command. <important>After this command, you cannot continue working on this 
+task.</important>
+
+## Command Execution Rules
+
+You are operating in an environment where
+
+1. You issue at least one command
+2. The system executes the command(s) in a subshell
+3. You see the result(s)
+4. You write your next command(s)
+
+Each response should include:
+
+1. **Reasoning text** where you explain your analysis and plan
+2. At least one tool call with your command
+
+**CRITICAL REQUIREMENTS:**
+
+- Your response SHOULD include reasoning text explaining what you're doing
+- Your response MUST include AT LEAST ONE bash tool call
+- Directory or environment variable changes are not persistent. Every action is executed in a new subshell.
+- However, you can prefix any action with `MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...` or write/load environment 
+variables from files
+- Submit your changes and finish your work by issuing the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+  Do not combine it with any other command. <important>After this command, you cannot continue working on this 
+task.</important>
+
+Example of a CORRECT response:
+<example_response>
+I need to understand the structure of the repository first. Let me check what files are in the current directory to get a 
+better understanding of the codebase.
+
+[Makes bash tool call with {"command": "ls -la"} as arguments]
+</example_response>
+
+<system_information>
+Linux 6.6.114.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025 x86_64
+</system_information>
+
+## Useful command examples
+
+### Create a new file:
+
+```bash
+cat <<'EOF' > newfile.py
+import numpy as np
+hello = "world"
+print(hello)
+EOF
+```
+
+### Edit files with sed:```bash
+# Replace all occurrences
+sed -i 's/old_string/new_string/g' filename.py
+
+# Replace only first occurrence
+sed -i 's/old_string/new_string/' filename.py
+
+# Replace first occurrence on line 1
+sed -i '1s/old_string/new_string/' filename.py
+
+# Replace all occurrences in lines 1-10
+sed -i '1,10s/old_string/new_string/g' filename.py
+```
+
+### View file content:
+
+```bash
+# View specific lines with numbers
+nl -ba filename.py | sed -n '10,20p'
+```
+
+### Any other command you want to run
+
+```bash
+anything
+```
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 1, $0.00):
+```
+ls -la
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 304
+drwxrwxr-x 12 aludy aludy  4096 Jun 30 21:41 .
+drwxrwxr-x  8 aludy aludy  4096 Jun 30 21:41 ..
+-rw-rw-r--  1 aludy aludy  3394 Jun 30 21:41 .clang-format
+-rw-rw-r--  1 aludy aludy   149 Jun 30 21:41 .codespellrc
+lrwxrwxrwx  1 aludy aludy     4 Jun 30 21:41 .copr -> rpm/
+-rw-rw-r--  1 aludy aludy    90 Jun 30 21:41 .git
+drwxrwxr-x  3 aludy aludy  4096 Jun 30 21:41 .github
+-rw-rw-r--  1 aludy aludy   801 Jun 30 21:41 .gitignore
+-rw-rw-r--  1 aludy aludy    96 Jun 30 21:41 .gitmodules
+-rw-rw-r--  1 aludy aludy    97 Jun 30 21:41 .lgtm.yml
+-rw-rw-r--  1 aludy aludy   185 Jun 30 21:41 CODE-OF-CONDUCT.md
+-rw-rw-r--  1 aludy aludy 18092 Jun 30 21:41 COPYING
+-rw-rw-r--  1 aludy aludy 26530 Jun 30 21:41 COPYING.libcrun
+-rw-rw-r--  1 aludy aludy  4608 Jun 30 21:41 GNUmakefile
+-rw-rw-r--  1 aludy aludy  8247 Jun 30 21:41 Makefile.am
+-rw-rw-r--  1 aludy aludy 16831 Jun 30 21:41 NEWS
+-rw-rw-r--  1 aludy aludy  5577 Jun 30 21:41 README.md
+-rw-rw-r--  1 aludy aludy   238 Jun 30 21:41 SECURITY.md
+-rwxrwxr-x  1 aludy aludy   205 Jun 30 21:41 autogen.sh
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 build-aux
+-rw-rw-r--  1 aludy aludy   792 Jun 30 21:41 cfg.mk
+-rw-rw-r--  1 aludy aludy  7741 Jun 30 21:41 configure.ac
+drwxrwxr-x  7 aludy aludy  4096 Jun 30 21:41 contrib
+-rw-rw-r--  1 aludy aludy 21082 Jun 30 21:41 crun.1
+-rw-rw-r--  1 aludy aludy 19060 Jun 30 21:41 crun.1.md
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 docs
+-rw-rw-r--  1 aludy aludy   257 Jun 30 21:41 libcrun.lds
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 libocispec
+-rw-rw-r--  1 aludy aludy 63812 Jun 30 21:41 maint.mk
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 nix
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 python
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 rpm
+drwxrwxr-x  3 aludy aludy  4096 Jun 30 21:41 src
+drwxrwxr-x 13 aludy aludy  4096 Jun 30 21:41 tests
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 2, $0.00):
+```
+find src -type f -name "*.c" -o -name "*.h" | head -50
+```
+
+Tool:
+<returncode>
+0
+<output>
+src/unpause.h
+src/kill.h
+src/list.h
+src/pause.h
+src/update.h
+src/restore.h
+src/delete.h
+src/run.c
+src/libcrun/ebpf.h
+src/libcrun/cgroup-utils.c
+src/libcrun/cgroup.h
+src/libcrun/cgroup-setup.h
+src/libcrun/linux.h
+src/libcrun/signals.c
+src/libcrun/terminal.c
+src/libcrun/error.h
+src/libcrun/container.h
+src/libcrun/criu.h
+src/libcrun/seccomp_notify.c
+src/libcrun/status.c
+src/libcrun/cgroup-systemd.c
+src/libcrun/cloned_binary.c
+src/libcrun/utils.c
+src/libcrun/criu.c
+src/libcrun/cgroup-cgroupfs.c
+src/libcrun/mount_flags.c
+src/libcrun/handlers/krun.c
+src/libcrun/handlers/wasmedge.c
+src/libcrun/handlers/handler-utils.h
+src/libcrun/handlers/handler-utils.c
+src/libcrun/handlers/wasmer.c
+src/libcrun/cgroup-resources.h
+src/libcrun/seccomp.c
+src/libcrun/custom-handler.h
+src/libcrun/status.h
+src/libcrun/cgroup-resources.c
+src/libcrun/cgroup-systemd.h
+src/libcrun/cgroup-setup.c
+src/libcrun/cgroup-utils.h
+src/libcrun/error.c
+src/libcrun/seccomp_notify.h
+src/libcrun/custom-handler.c
+src/libcrun/mount_flags.h
+src/libcrun/seccomp_notify_plugin.h
+src/libcrun/chroot_realpath.c
+src/libcrun/linux.c
+src/libcrun/cgroup-internal.h
+src/libcrun/intprops.h
+src/libcrun/container.c
+src/libcrun/cgroup.c
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 3, $0.00):
+```
+cd /home/aludy/issue-876 && ls -la cases/crun-876/ 2>/dev/null || find . -path "*/crun-876/*" -type f 2>/dev/null
+```
+
+Tool:
+<returncode>
+0
+<output>
+/bin/sh: 1: cd: can't cd to /home/aludy/issue-876
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 4, $0.00):
+```
+find / -name "crun-876" -type d 2>/dev/null | head -5
+```
+
+Tool:
+<returncode>
+-1
+<output>
+
+<exception_info>
+An error occurred while executing the command: Command 'find / -name "crun-876" -type d 2>/dev/null | head -5' timed out 
+after 30 seconds
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mProvider List: https://docs.litellm.ai/docs/providers[0m
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mProvider List: https://docs.litellm.ai/docs/providers[0m
+
+
+mini-swe-agent (step 5, $0.00):
+```
+pwd && ls -la
+```
+
+Tool:
+<returncode>
+0
+<output>
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876
+total 304
+drwxrwxr-x 12 aludy aludy  4096 Jun 30 21:41 .
+drwxrwxr-x  8 aludy aludy  4096 Jun 30 21:41 ..
+-rw-rw-r--  1 aludy aludy  3394 Jun 30 21:41 .clang-format
+-rw-rw-r--  1 aludy aludy   149 Jun 30 21:41 .codespellrc
+lrwxrwxrwx  1 aludy aludy     4 Jun 30 21:41 .copr -> rpm/
+-rw-rw-r--  1 aludy aludy    90 Jun 30 21:41 .git
+drwxrwxr-x  3 aludy aludy  4096 Jun 30 21:41 .github
+-rw-rw-r--  1 aludy aludy   801 Jun 30 21:41 .gitignore
+-rw-rw-r--  1 aludy aludy    96 Jun 30 21:41 .gitmodules
+-rw-rw-r--  1 aludy aludy    97 Jun 30 21:41 .lgtm.yml
+-rw-rw-r--  1 aludy aludy   185 Jun 30 21:41 CODE-OF-CONDUCT.md
+-rw-rw-r--  1 aludy aludy 18092 Jun 30 21:41 COPYING
+-rw-rw-r--  1 aludy aludy 26530 Jun 30 21:41 COPYING.libcrun
+-rw-rw-r--  1 aludy aludy  4608 Jun 30 21:41 GNUmakefile
+-rw-rw-r--  1 aludy aludy  8247 Jun 30 21:41 Makefile.am
+-rw-rw-r--  1 aludy aludy 16831 Jun 30 21:41 NEWS
+-rw-rw-r--  1 aludy aludy  5577 Jun 30 21:41 README.md
+-rw-rw-r--  1 aludy aludy   238 Jun 30 21:41 SECURITY.md
+-rwxrwxr-x  1 aludy aludy   205 Jun 30 21:41 autogen.sh
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 build-aux
+-rw-rw-r--  1 aludy aludy   792 Jun 30 21:41 cfg.mk
+-rw-rw-r--  1 aludy aludy  7741 Jun 30 21:41 configure.ac
+drwxrwxr-x  7 aludy aludy  4096 Jun 30 21:41 contrib
+-rw-rw-r--  1 aludy aludy 21082 Jun 30 21:41 crun.1
+-rw-rw-r--  1 aludy aludy 19060 Jun 30 21:41 crun.1.md
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 docs
+-rw-rw-r--  1 aludy aludy   257 Jun 30 21:41 libcrun.lds
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 libocispec
+-rw-rw-r--  1 aludy aludy 63812 Jun 30 21:41 maint.mk
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 nix
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 python
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:41 rpm
+drwxrwxr-x  3 aludy aludy  4096 Jun 30 21:41 src
+drwxrwxr-x 13 aludy aludy  4096 Jun 30 21:41 tests
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 6, $0.00):
+```
+cat src/libcrun/cgroup-resources.h
+```
+
+Tool:
+<returncode>
+0
+<output>
+/*
+ * crun - OCI runtime written in C
+ *
+ * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+ * crun is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
+ *
+ * crun is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+ */
+#ifndef CGROUP_RESOURCES_H
+#define CGROUP_RESOURCES_H
+
+#include "container.h"
+#include "cgroup.h"
+#include <unistd.h>
+
+int update_cgroup_resources (const char *path,
+                             runtime_spec_schema_config_linux_resources *resources,
+                             libcrun_error_t *err);
+
+#endif
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 7, $0.00):
+```
+cat src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output_head>
+/*
+ * crun - OCI runtime written in C
+ *
+ * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+ * crun is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
+ *
+ * crun is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#define _GNU_SOURCE
+
+#include <config.h>
+#include "cgroup.h"
+#include "cgroup-internal.h"
+#include "cgroup-systemd.h"
+#include "cgroup-utils.h"
+#include "cgroup-resources.h"
+#include "ebpf.h"
+#include "utils.h"
+#include "status.h"
+#include <string.h>
+#include <sys/types.h>
+#include <sys/vfs.h>
+#include <inttypes.h>
+#include <time.h>
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <libgen.h>
+
+static inline int
+write_cgroup_file (int dirfd, const char *name, const void *data, size_t len, libcrun_error_t *err)
+{
+  return write_file_at_with_flags (dirfd, O_WRONLY, 0, name, data, len, err);
+}
+
+static int
+is_rwm (const char *str, libcrun_error_t *err)
+{
+  const char *it;
+  bool r = false;
+  bool w = false;
+  bool m = false;
+
+  for (it = str; *it; it++)
+    switch (*it)
+      {
+      case 'r':
+        r = true;
+        break;
+
+      case 'w':
+        w = true;
+        break;
+
+      case 'm':
+        m = true;
+        break;
+
+      default:
+        return crun_make_error (err, 0, "invalid mode specified `%s`", str);
+      }
+
+  return r && w && m ? 1 : 0;
+}
+
+static int
+check_cgroup_v2_controller_available_wrapper (int ret, int cgroup_dirfd, const char *name, libcrun_error_t *err)
+{
+  if (ret == 0 || err == NULL)
+    return 0;
+
+  errno = crun_error_get_errno (err);
+
+  /* If the file is not found, try to give a more meaningful error message.  */
+  if (errno == ENOENT || errno == EPERM || errno == EACCES)
+    {
+      cleanup_free char *controllers = NULL;
+      libcrun_error_t tmp_err = NULL;
+      cleanup_free char *key = NULL;
+      char *saveptr = NULL;
+      bool found = false;
+      const char *token;
+      char *it;
+
+      /* Check if the specified controller is enabled.  */
+      key = xstrdup (name);
+
+      it = strchr (key, '.');
+      if (it == NULL)
+        {
+          crun_error_release (err);
+          return crun_make_error (err, 0, "the specified key has not the form CONTROLLER.VALUE `%s`", name);
+        }
+      *it = '\0';
+
+      /* cgroup. files are not part of a controller.  Return the original error.  */
+      if (strcmp (key, "cgroup") == 0)
+        return ret;
+
+      /* If the cgroup.controllers file cannot be read, return the original error.  */
+      if (read_all_file_at (cgroup_dirfd, "cgroup.controllers", &controllers, NULL, &tmp_err) < 0)
+        {
+          crun_error_release (&tmp_err);
+          return ret;
+        }
+      for (token = strtok_r (controllers, " \n", &saveptr); token; token = strtok_r (NULL, " \n", &saveptr))
+        {
+          if (strcmp (token, key) == 0)
+            {
+              found = true;
+              break;
+            }
+        }
+      if (! found)
+        {
+          crun_error_release (err);
+          return crun_make_error (err, 0, "the requested cgroup controller `%s` is not available", key);
+        }
+    }
+  return ret;
+}
+
+static int
+write_file_and_check_controllers_at (bool cgroup2, int dirfd, const char *name, const void *data, size_t len,
+                                     libcrun_error_t *err)
+{
+  int ret;
+
+  ret = write_cgroup_file (dirfd, name, data, len, err);
+  if (cgroup2)
+    return check_cgroup_v2_controller_available_wrapper (ret, dirfd, name, err);
+  return ret;
+}
+
+/* The parser generates different structs but they are really all the same.  */
+typedef runtime_spec_schema_defs_linux_block_io_device_throttle throttling_s;
+
+static int
+write_blkio_v1_resources_throttling (int dirfd, const char *name, throttling_s **throttling, size_t throttling_len,
+                                     libcrun_error_t *err)
+{
+  char fmt_buf[128];
+  size_t i;
+  cleanup_close int fd = -1;
+
+  if (throttling == NULL)
+    return 0;
+
+  fd = openat (dirfd, name, O_WRONLY);
+  if (UNLIKELY (fd < 0))
+    return crun_make_error (err, errno, "open `%s`", name);
+
+  for (i = 0; i < throttling_len; i++)
+    {
+      int ret;
+      size_t len;
+      len = sprintf (fmt_buf, "%" PRIu64 ":%" PRIu64 " %" PRIu64 "\n", throttling[i]->major, throttling[i]->minor,
+                     throttling[i]->rate);
+
+      ret = TEMP_FAILURE_RETRY (write (fd, fmt_buf, len));
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "write `%s`", name);
+    }
+  return 0;
+}
+
+static int
+write_blkio_v2_res
+<output_tail>
+run_make_error (err, errno, "open `%s`", path_to_cpu);
+      ret = write_cpu_resources (dirfd_cpu, false, resources->cpu, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+
+      if (resources->cpu->cpus == NULL && resources->cpu->mems == NULL)
+        return 0;
+
+      ret = append_paths (&path_to_cpuset, err, CGROUP_ROOT "/cpuset", path, NULL);
+      if (UNLIKELY (ret < 0))
+        return ret;
+
+      dirfd_cpuset = open (path_to_cpuset, O_DIRECTORY | O_RDONLY);
+      if (UNLIKELY (dirfd_cpuset < 0))
+        return crun_make_error (err, errno, "open `%s`", path_to_cpuset);
+
+      ret = write_cpuset_resources (dirfd_cpuset, false, resources->cpu, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  if (resources->unified && resources->unified->len > 0)
+    return crun_make_error (err, 0, "invalid configuration: cannot use unified on cgroup v1");
+
+  return 0;
+}
+
+static int
+write_unified_resources (int cgroup_dirfd, runtime_spec_schema_config_linux_resources *resources, libcrun_error_t *err)
+{
+  size_t i;
+  int ret;
+
+  for (i = 0; i < resources->unified->len; i++)
+    {
+      size_t len;
+
+      if (strchr (resources->unified->keys[i], '/'))
+        return crun_make_error (err, 0, "key `%s` must be a file name without any slash", resources->unified->keys[i]);
+
+      len = strlen (resources->unified->values[i]);
+      ret = write_file_and_check_controllers_at (true, cgroup_dirfd, resources->unified->keys[i],
+                                                 resources->unified->values[i], len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  return 0;
+}
+
+static int
+update_cgroup_v2_resources (runtime_spec_schema_config_linux_resources *resources, const char *path, libcrun_error_t *err)
+{
+  cleanup_free char *cgroup_path = NULL;
+  cleanup_close int cgroup_dirfd = -1;
+  int ret;
+
+  if (resources->network)
+    return crun_make_error (err, 0, "network limits not supported on cgroupv2");
+
+  ret = append_paths (&cgroup_path, err, CGROUP_ROOT, path, NULL);
+  if (UNLIKELY (ret < 0))
+    return ret;
+
+  cgroup_dirfd = open (cgroup_path, O_DIRECTORY);
+  if (UNLIKELY (cgroup_dirfd < 0))
+    return crun_make_error (err, errno, "open `%s`", cgroup_path);
+
+  if (resources->devices_len)
+    {
+      ret = write_devices_resources (cgroup_dirfd, true, resources->devices, resources->devices_len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  if (resources->memory)
+    {
+      ret = write_memory_resources (cgroup_dirfd, true, resources->memory, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (resources->pids)
+    {
+      ret = write_pids_resources (cgroup_dirfd, true, resources->pids, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (resources->cpu)
+    {
+      ret = write_cpu_resources (cgroup_dirfd, true, resources->cpu, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+
+      ret = write_cpuset_resources (cgroup_dirfd, true, resources->cpu, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (resources->block_io)
+    {
+      ret = write_blkio_resources (cgroup_dirfd, true, resources->block_io, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  if (resources->hugepage_limits_len)
+    {
+      ret = write_hugetlb_resources (cgroup_dirfd, true, resources->hugepage_limits, resources->hugepage_limits_len,
+                                     err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  /* Write unified resources if any.  They have higher precedence and override any previous setting.  */
+  if (resources->unified)
+    {
+      ret = write_unified_resources (cgroup_dirfd, resources, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  return 0;
+}
+
+int
+update_cgroup_resources (const char *path,
+                         runtime_spec_schema_config_linux_resources *resources,
+                         libcrun_error_t *err)
+{
+  int cgroup_mode;
+
+  cgroup_mode = libcrun_get_cgroup_mode (err);
+  if (UNLIKELY (cgroup_mode < 0))
+    return cgroup_mode;
+
+  if (path == NULL)
+    {
+      size_t i;
+
+      if (resources->block_io || resources->network || resources->hugepage_limits_len || resources->memory
+          || resources->pids || resources->cpu)
+        return crun_make_error (err, 0, "cannot set limits without cgroups");
+
+      for (i = 0; i < resources->devices_len; i++)
+        {
+          int rwm;
+
+          rwm = is_rwm (resources->devices[i]->access, err);
+          if (UNLIKELY (rwm < 0))
+            return rwm;
+
+          if (rwm == 0)
+            return crun_make_error (err, 0, "cannot set limits without cgroups");
+        }
+
+      return 0;
+    }
+  switch (cgroup_mode)
+    {
+    case CGROUP_MODE_UNIFIED:
+      return update_cgroup_v2_resources (resources, path, err);
+
+    case CGROUP_MODE_LEGACY:
+    case CGROUP_MODE_HYBRID:
+      return update_cgroup_v1_resources (resources, path, err);
+
+    default:
+      return crun_make_error (err, 0, "invalid cgroup mode %d", cgroup_mode);
+    }
+}
+
+<elided_chars>
+27212
+<warning>
+Output too long.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 8, $0.00):
+```
+grep -n "write_cpu_resources\|cpu.idle\|cpu_idle\|idle" src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+810:write_cpu_resources (int dirfd_cpu, bool cgroup2, runtime_spec_schema_config_linux_resources_cpu *cpu,
+1053:      ret = write_cpu_resources (dirfd_cpu, false, resources->cpu, err);
+1141:      ret = write_cpu_resources (cgroup_dirfd, true, resources->cpu, err);
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 9, $0.00):
+```
+sed -n '810,900p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+write_cpu_resources (int dirfd_cpu, bool cgroup2, runtime_spec_schema_config_linux_resources_cpu *cpu,
+                     libcrun_error_t *err)
+{
+  size_t len;
+  int ret;
+  char fmt_buf[64];
+  int64_t period = -1;
+  int64_t quota = -1;
+
+  if (cpu->shares)
+    {
+      uint32_t val = cpu->shares;
+
+      if (cgroup2)
+        val = convert_shares_to_weight (val);
+
+      len = sprintf (fmt_buf, "%u", val);
+
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, cgroup2 ? "cpu.weight" : "cpu.shares", fmt_buf,
+                                                 len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (cpu->period)
+    {
+      if (cgroup2)
+        period = cpu->period;
+      else
+        {
+          len = sprintf (fmt_buf, "%" PRIu64, cpu->period);
+          ret = write_cgroup_file (dirfd_cpu, "cpu.cfs_period_us", fmt_buf, len, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+        }
+    }
+  if (cpu->quota)
+    {
+      if (cgroup2)
+        quota = cpu->quota;
+      else
+        {
+          len = sprintf (fmt_buf, "%" PRIu64, cpu->quota);
+          ret = write_cgroup_file (dirfd_cpu, "cpu.cfs_quota_us", fmt_buf, len, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+        }
+    }
+  if (cpu->realtime_period)
+    {
+      if (cgroup2)
+        return crun_make_error (err, 0, "realtime period not supported on cgroupv2");
+      len = sprintf (fmt_buf, "%" PRIu64, cpu->realtime_period);
+      ret = write_cgroup_file (dirfd_cpu, "cpu.rt_period_us", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (cpu->realtime_runtime)
+    {
+      if (cgroup2)
+        return crun_make_error (err, 0, "realtime runtime not supported on cgroupv2");
+      len = sprintf (fmt_buf, "%" PRIu64, cpu->realtime_runtime);
+      ret = write_cgroup_file (dirfd_cpu, "cpu.rt_runtime_us", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  if (cgroup2 && (quota > 0 || period > 0))
+    {
+      if (period < 0)
+        period = 100000;
+      if (quota < 0)
+        len = sprintf (fmt_buf, "max %" PRIi64, period);
+      else
+        len = sprintf (fmt_buf, "%" PRIi64 " %" PRIi64, quota, period);
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.max", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  return 0;
+}
+
+static int
+write_cpuset_resources (int dirfd_cpuset, int cgroup2, runtime_spec_schema_config_linux_resources_cpu *cpu,
+                        libcrun_error_t *err)
+{
+  int ret;
+
+  if (cpu->cpus)
+    {
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpuset, "cpuset.cpus", cpu->cpus, strlen (cpu->cpus),
+                                                 err);
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 10, $0.00):
+```
+find libocispec -type f -name "*.h" -o -name "*.c" | head -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 11, $0.00):
+```
+ls -la libocispec/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 8
+drwxrwxr-x  2 aludy aludy 4096 Jun 30 21:41 .
+drwxrwxr-x 12 aludy aludy 4096 Jun 30 21:41 ..
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 12, $0.00):
+```
+cat configure.ac | head -80
+```
+
+Tool:
+<returncode>
+0
+<output>
+AC_PREREQ([2.69])
+AC_INIT([crun],
+        m4_esyscmd([build-aux/git-version-gen --prefix "" .tarball-version]),
+        [giuseppe@scrivano.org])
+AC_CONFIG_AUX_DIR([build-aux])
+AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_MACRO_DIR([m4])
+AC_REQUIRE_AUX_FILE([tap-driver.sh])
+AC_CONFIG_SRCDIR([src/crun.c])
+
+LT_INIT([disable-shared])
+
+AM_INIT_AUTOMAKE([1.11.2 -Wno-portability foreign tar-ustar no-dist-gzip dist-xz subdir-objects])
+
+AM_MAINTAINER_MODE([enable])
+AM_SILENT_RULES([yes])
+
+AC_PROG_AWK
+AC_PROG_SED
+AC_PROG_CC
+AM_PATH_PYTHON(3)
+
+AC_PATH_PROG(MD2MAN, go-md2man)
+
+AM_CONDITIONAL([HAVE_MD2MAN], [test "x$ac_cv_path_MD2MAN" != x])
+
+AC_CHECK_HEADERS([error.h linux/openat2.h])
+
+AC_CHECK_FUNCS(copy_file_range fgetxattr statx fgetpwent_r issetugid)
+
+dnl embedded yajl
+AC_ARG_ENABLE(embedded-yajl,
+AS_HELP_STRING([--enable-embedded-yajl], [Statically link a modified yajl version]),
+[
+case "${enableval}" in
+        yes) embedded_yajl=true ;;
+        no)  embedded_yajl=false ;;
+        *) AC_MSG_ERROR(bad value ${enableval} for --enable-embedded-yajl) ;;
+esac],[embedded_yajl=false])
+
+AM_CONDITIONAL([HAVE_EMBEDDED_YAJL], [test x"$embedded_yajl" = xtrue])
+AM_COND_IF([HAVE_EMBEDDED_YAJL], [], [
+AC_SEARCH_LIBS(yajl_tree_get, [yajl], [AC_DEFINE([HAVE_YAJL], 1, [Define if libyajl is available])], [AC_MSG_ERROR([*** 
+libyajl headers not found])])
+PKG_CHECK_MODULES([YAJL], [yajl >= 2.0.0])
+])
+
+dnl libcap
+AC_ARG_ENABLE([caps],
+        AS_HELP_STRING([--disable-caps], [Ignore libcap and disable support]))
+AS_IF([test "x$enable_caps" != "xno"], [
+        AC_CHECK_HEADERS([sys/capability.h], [], [AC_MSG_ERROR([*** POSIX caps headers not found])])
+        AS_IF([test "$ac_cv_header_sys_capability_h" = "yes"], [
+                AC_SEARCH_LIBS(cap_from_name, [cap], [AC_DEFINE([HAVE_CAP], 1, [Define if libcap is available])], 
+[AC_MSG_ERROR([*** libcap headers not found])])
+        ])
+])
+
+dnl dl
+AC_ARG_ENABLE([dl], AS_HELP_STRING([--disable-dl], [Disable dynamic libraries support]))
+AS_IF([test "x$enable_dl" != "xno"], [
+        AC_SEARCH_LIBS([dlopen], [dl], [AC_DEFINE([HAVE_DLOPEN], 1, [Define if DLOPEN is available])], [])
+])
+
+dnl include support for wasmer (EXPERIMENTAL)
+AC_ARG_WITH([wasmer], AS_HELP_STRING([--with-wasmer], [build with wasmer support]))
+AS_IF([test "x$with_wasmer" = "xyes"], AC_CHECK_HEADERS([wasmer.h], AC_DEFINE([HAVE_WASMER], 1, [Define if wasmer is 
+available]), [AC_MSG_ERROR([*** Missing wasmer headers])]))
+
+dnl include support for wasmedge (EXPERIMENTAL)
+AC_ARG_WITH([wasmedge], AS_HELP_STRING([--with-wasmedge], [build with WasmEdge support]))
+AS_IF([test "x$with_wasmedge" = "xyes"], AC_CHECK_HEADERS([wasmedge/wasmedge.h], AC_DEFINE([HAVE_WASMEDGE], 1, [Define if 
+WasmEdge is available]), [AC_MSG_ERROR([*** Missing wasmedge headers])]))
+
+dnl include support for libkrun (EXPERIMENTAL)
+AC_ARG_WITH([libkrun], AS_HELP_STRING([--with-libkrun], [build with libkrun support]))
+AS_IF([test "x$with_libkrun" = "xyes"], AC_CHECK_HEADERS([libkrun.h], AC_DEFINE([HAVE_LIBKRUN], 1, [Define if libkrun is 
+available]), [AC_MSG_ERROR([*** Missing libkrun headers])]))
+dnl libseccomp
+AC_ARG_ENABLE([seccomp],
+        AS_HELP_STRING([--disable-seccomp], [Ignore libseccomp and disable support]))
+AS_IF([test "x$enable_seccomp" != "xno"], [
+        AC_CHECK_HEADERS([seccomp.h], [], [AC_MSG_ERROR([*** Missing libseccomp headers])])
+        AS_IF([test "$ac_cv_header_seccomp_h" = "yes"], [
+                AC_SEARCH_LIBS(seccomp_rule_add, [seccomp], [AC_DEFINE([HAVE_SECCOMP], 1, [Define if seccomp is 
+available])], [AC_MSG_ERROR([*** libseccomp headers not found])])
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 13, $0.00):
+```
+grep -rn "idle" src/ --include="*.c" --include="*.h" 2>/dev/null
+```
+
+Tool:
+<returncode>
+1
+<output>
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 14, $0.00):
+```
+find / -path "*runtime_spec*" -name "*.h" 2>/dev/null | head -20
+```
+
+Tool:
+<returncode>
+-1
+<output>
+
+<exception_info>
+An error occurred while executing the command: Command 'find / -path "*runtime_spec*" -name "*.h" 2>/dev/null | head -20' 
+timed out after 30 seconds
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 15, $0.00):
+```
+find / -name "*.h" -path "*runtime_spec*" 2>/dev/null | head -10
+```
+
+Tool:
+<returncode>
+-1
+<output>
+
+<exception_info>
+An error occurred while executing the command: Command 'find / -name "*.h" -path "*runtime_spec*" 2>/dev/null | head -10' 
+timed out after 30 seconds
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 16, $0.00):
+```
+find src -name "*.h" | head -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+src/unpause.h
+src/kill.h
+src/list.h
+src/pause.h
+src/update.h
+src/restore.h
+src/delete.h
+src/libcrun/ebpf.h
+src/libcrun/cgroup.h
+src/libcrun/cgroup-setup.h
+src/libcrun/linux.h
+src/libcrun/error.h
+src/libcrun/container.h
+src/libcrun/criu.h
+src/libcrun/handlers/handler-utils.h
+src/libcrun/cgroup-resources.h
+src/libcrun/custom-handler.h
+src/libcrun/status.h
+src/libcrun/cgroup-systemd.h
+src/libcrun/cgroup-utils.h
+src/libcrun/seccomp_notify.h
+src/libcrun/mount_flags.h
+src/libcrun/seccomp_notify_plugin.h
+src/libcrun/cgroup-internal.h
+src/libcrun/intprops.h
+src/libcrun/seccomp.h
+src/libcrun/terminal.h
+src/libcrun/cgroup-cgroupfs.h
+src/libcrun/utils.h
+src/spec.h
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 17, $0.00):
+```
+wc -l src/spec.h && head -100 src/spec.h
+```
+
+Tool:
+<returncode>
+0
+<output>
+25 src/spec.h
+/*
+ * crun - OCI runtime written in C
+ *
+ * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+ * crun is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * crun is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+ */
+#ifndef SPEC_H
+#define SPEC_H
+
+#include "crun.h"
+
+int crun_command_spec (struct crun_global_arguments *global_args, int argc, char **argv, libcrun_error_t *error);
+
+#endif
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 18, $0.00):
+```
+cat Makefile.am
+```
+
+Tool:
+<returncode>
+0
+<output>
+DIST_SUBDIRS = libocispec
+SUBDIRS = libocispec
+ACLOCAL_AMFLAGS = -I m4
+
+WD := $(shell pwd)
+
+rpm: dist-gzip rpm/crun.spec
+        echo $(VERSION)
+        $(MAKE) -C $(WD) dist-gzip
+        rpmbuild -ba --define "_sourcedir $(WD)" --define "_specdir $(WD)" --define "_builddir $(WD)" --define "_srcrpmdir 
+$(WD)" --define "_rpmdir $(WD)" --define "_buildrootdir $(WD)/.build" rpm/crun.spec
+
+srpm: dist-gzip rpm/crun.spec
+        echo $(VERSION)
+        $(MAKE) -C $(WD) dist-gzip
+        rpmbuild -bs --define "_sourcedir $(WD)" --define "_specdir $(WD)" --define "_builddir $(WD)" --define "_srcrpmdir 
+$(WD)" --define "_rpmdir $(WD)" --define "_buildrootdir $(WD)/.build" rpm/crun.spec
+
+CLEANFILES = crun.spec
+
+lib_LTLIBRARIES = libcrun.la
+
+check_LIBRARIES = libcrun_testing.a
+
+libcrun_SOURCES = src/libcrun/utils.c \
+                        src/libcrun/cloned_binary.c \
+                        src/libcrun/container.c \
+                        src/libcrun/cgroup.c \
+                        src/libcrun/cgroup-cgroupfs.c \
+                        src/libcrun/cgroup-resources.c \
+                        src/libcrun/cgroup-setup.c \
+                        src/libcrun/cgroup-systemd.c \
+                        src/libcrun/cgroup-utils.c \
+                        src/libcrun/criu.c \
+                        src/libcrun/custom-handler.c \
+                        src/libcrun/linux.c \
+                        src/libcrun/seccomp.c \
+                        src/libcrun/ebpf.c \
+                        src/libcrun/error.c \
+                        src/libcrun/status.c \
+                        src/libcrun/terminal.c \
+                        src/libcrun/chroot_realpath.c \
+                        src/libcrun/signals.c \
+                        src/libcrun/mount_flags.c \
+                        src/libcrun/seccomp_notify.c \
+                        src/libcrun/handlers/handler-utils.c \
+                        src/libcrun/handlers/krun.c \
+                        src/libcrun/handlers/wasmedge.c \
+                        src/libcrun/handlers/wasmer.c
+
+if HAVE_EMBEDDED_YAJL
+maybe_libyajl.la = libocispec/yajl/libyajl.la
+else
+maybe_libyajl.la =
+endif
+
+libocispec/libocispec.la:
+        $(MAKE) $(AM_MAKEFLAGS) -C libocispec libocispec.la
+
+libcrun_la_SOURCES = $(libcrun_SOURCES)
+libcrun_la_CFLAGS = -I $(abs_top_builddir)/libocispec/src -I $(abs_top_srcdir)/libocispec/src -fvisibility=hidden
+libcrun_la_LIBADD = libocispec/libocispec.la $(FOUND_LIBS) $(maybe_libyajl.la)
+libcrun_la_LDFLAGS = -Wl,--version-script=$(abs_top_srcdir)/libcrun.lds
+
+# build a version with all the symbols visible for testing
+libcrun_testing_a_SOURCES = $(libcrun_SOURCES)
+libcrun_testing_a_CFLAGS = -I $(abs_top_builddir)/libocispec/src -I $(abs_top_srcdir)/libocispec/src -fvisibility=default
+libcrun_testing_a_LIBADD = libocispec/libocispec.la $(maybe_libyajl.la)
+
+if PYTHON_BINDINGS
+pyexec_LTLIBRARIES = python_crun.la
+python_crun_la_SOURCES = python/crun_python.c
+python_crun_la_CFLAGS = -I $(abs_top_srcdir)/libocispec/src -I $(abs_top_builddir)/libocispec/src -I $(abs_top_builddir)/src
+$(PYTHON_CFLAGS)
+python_crun_la_LDFLAGS = -avoid-version -module $(PYTHON_LDFLAGS)
+python_crun_la_LIBADD = libcrun.la $(PYTHON_LIBS) $(FOUND_LIBS) $(maybe_libyajl.la)
+endif
+
+crun_CFLAGS = -I $(abs_top_builddir)/libocispec/src -I $(abs_top_srcdir)/libocispec/src -D CRUN_LIBDIR="\"$(CRUN_LIBDIR)\""
+crun_SOURCES = src/crun.c src/run.c src/delete.c src/kill.c src/pause.c src/unpause.c src/spec.c \
+                src/exec.c src/list.c src/create.c src/start.c src/state.c src/update.c src/ps.c \
+                src/checkpoint.c src/restore.c
+crun_LDADD = libcrun.la $(FOUND_LIBS) $(maybe_libyajl.la)
+crun_LDFLAGS = $(CRUN_LDFLAGS)
+
+EXTRA_DIST = COPYING COPYING.libcrun README.md NEWS SECURITY.md rpm/crun.spec.in autogen.sh \
+        src/crun.h src/list.h src/run.h src/delete.h src/kill.h src/pause.h src/unpause.h \
+        src/create.h src/start.h src/state.h src/exec.h src/spec.h src/update.h src/ps.h \
+        src/checkpoint.h src/restore.h src/libcrun/seccomp_notify.h src/libcrun/seccomp_notify_plugin.h \
+        src/libcrun/container.h src/libcrun/seccomp.h src/libcrun/ebpf.h \
+        src/libcrun/cgroup.h src/libcrun/cgroup-cgroupfs.h \
+        src/libcrun/cgroup-internal.h \
+        src/libcrun/cgroup-resources.h src/libcrun/cgroup-setup.h \
+        src/libcrun/cgroup-systemd.h src/libcrun/cgroup-utils.h \
+        src/libcrun/custom-handler.h \
+        src/libcrun/handlers/handler-utils.h \
+        src/libcrun/linux.h src/libcrun/utils.h src/libcrun/error.h src/libcrun/criu.h \
+        src/libcrun/status.h src/libcrun/terminal.h src/libcrun/mount_flags.h \
+        src/libcrun/intprops.h crun.1.md crun.1 libcrun.lds
+
+UNIT_TESTS = tests/tests_libcrun_utils tests/tests_libcrun_errors
+
+bin_PROGRAMS = crun
+noinst_PROGRAMS = tests/init $(UNIT_TESTS) tests/tests_libcrun_fuzzer
+
+TESTS_LDADD = libcrun_testing.a $(FOUND_LIBS) $(maybe_libyajl.la)
+
+tests_init_LDADD =
+tests_init_LDFLAGS = -static-libgcc -all-static
+tests_init_SOURCES = tests/init.c
+
+tests_tests_libcrun_utils_CFLAGS = -I $(abs_top_builddir)/libocispec/src -I $(abs_top_srcdir)/libocispec/src -I 
+$(abs_top_builddir)/src -I $(abs_top_srcdir)/src
+tests_tests_libcrun_utils_SOURCES = tests/tests_libcrun_utils.c
+tests_tests_libcrun_utils_LDADD = $(TESTS_LDADD)
+tests_tests_libcrun_utils_LDFLAGS = $(crun_LDFLAGS)
+
+tests_tests_libcrun_fuzzer_CFLAGS = -I $(abs_top_builddir)/libocispec/src -I $(abs_top_srcdir)/libocispec/src -I 
+$(abs_top_builddir)/src -I $(abs_top_srcdir)/src
+tests_tests_libcrun_fuzzer_SOURCES = tests/tests_libcrun_fuzzer.c
+tests_tests_libcrun_fuzzer_LDADD = $(TESTS_LDADD) libocispec/libocispec.la $(maybe_libyajl.la)
+tests_tests_libcrun_fuzzer_LDFLAGS = $(crun_LDFLAGS)
+
+tests_tests_libcrun_errors_CFLAGS = -I $(abs_top_builddir)/libocispec/src -I $(abs_top_srcdir)/libocispec/src -I 
+$(abs_top_builddir)/src -I $(abs_top_srcdir)/src
+tests_tests_libcrun_errors_SOURCES = tests/tests_libcrun_errors.c
+tests_tests_libcrun_errors_LDADD = $(TESTS_LDADD)
+tests_tests_libcrun_errors_LDFLAGS = $(crun_LDFLAGS)
+
+TEST_EXTENSIONS = .py
+PY_LOG_COMPILER = $(PYTHON)
+PY_LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) $(top_srcdir)/build-aux/tap-driver.sh
+LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) $(top_srcdir)/build-aux/tap-driver.sh
+
+TESTS = tests/test_capabilities.py \
+        tests/test_cwd.py \
+        tests/test_checkpoint_restore.py \
+        tests/test_devices.py \
+        tests/test_hostname.py \
+        tests/test_limits.py \
+        tests/test_mounts.py \
+        tests/test_paths.py \
+        tests/test_pid.py \
+        tests/test_pid_file.py \
+        tests/test_preserve_fds.py \
+        tests/test_uid_gid.py \
+        tests/test_rlimits.py \
+        tests/test_tty.py \
+        tests/test_hooks.py \
+        tests/test_update.py \
+        tests/test_detach.py \
+        tests/test_delete.py \
+        tests/test_resources.py \
+        tests/test_start.py \
+        tests/test_exec.py \
+        tests/test_seccomp.py \
+        $(UNIT_TESTS)
+
+.version:
+        $(AM_V_GEN)echo $(VERSION) > $@-t && mv $@-t $@
+
+git-version.h:
+        @if test -e $(abs_top_srcdir)/.git; then \
+                $(AM__GEN)printf "/* autogenerated.  */\n#ifndef GIT_VERSION\n# define GIT_VERSION \"%s\"\n#endif\n" $(shell
+git --git-dir=$(abs_top_srcdir)/.git rev-parse HEAD) > $@-t && mv $@-t $@; \
+        fi
+
+nixpkgs:
+        @nix run -f channel:nixpkgs-unstable nix-prefetch-git -c nix-prefetch-git \
+                --no-deepClone https://github.com/nixos/nixpkgs > nix/nixpkgs.json
+
+dist-hook:
+        $(AM_V_GEN)echo $(VERSION) > $(distdir)/.tarball-version
+        $(AM__GEN)cp git-version.h $(distdir)/git-version.h
+
+EXTRA_DIST += $(TESTS) tests/Makefile.tests tests/run_all_tests.sh tests/tests_utils.py build-aux/git-version-gen .version 
+git-version.h src/libcrun/signals.perf src/libcrun/mount_flags.perf
+BUILT_SOURCES = .version git-version.h
+
+man1_MANS = crun.1
+
+crun.1: $(abs_srcdir)/crun.1.md
+if HAVE_MD2MAN
+        $(MD2MAN) -in $(abs_srcdir)/crun.1.md -out crun.1
+endif HAVE_MD2MAN
+
+generate-man: crun.1
+
+sync:
+        (cd libocispec; git pull https://github.com/containers/libocispec main)
+
+coverity:
+        $(MAKE) $(AM_MAKEFLAGS) -C libocispec
+        $(MAKE) $(AM_MAKEFLAGS) crun
+
+libcrun.rs: src/libcrun/container.h
+        bindgen src/libcrun/container.h -- -I$(abs_builddir) -I$(abs_builddir)/libocispec/src  > $@
+
+generate-rust-bindings: libcrun.rs
+
+generate-signals.c: src/libcrun/signals.perf
+        ${GPERF} --lookup-function-name libcrun_signal_in_word_set -m 100 --null-strings --pic -tCEG -S1 $< > 
+src/libcrun/signals.c
+
+generate-mount_flags.c: src/libcrun/mount_flags.perf
+        ${GPERF} --lookup-function-name libcrun_mount_flag_in_word_set -m 100 -tCEG -S1 $< > src/libcrun/mount_flags.c
+
+clang-format:
+# do not format files that were copied into the source directory.
+        git ls-files src tests | egrep "\\.[hc]" | grep -v "chroot_realpath.c\|cloned_binary.c\|signals.c\|mount_flags.c" | 
+xargs clang-format -style=file -i
+
+shellcheck:
+        shellcheck tests/*/*.sh contrib/*.sh
+
+.PHONY: coverity sync generate-rust-bindings generate-signals.c generate-mount_flags.c clang-format shellcheck
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 19, $0.00):
+```
+cat .gitmodules
+```
+
+Tool:
+<returncode>
+0
+<output>
+[submodule "libocispec"]
+        path = libocispec
+        url = https://github.com/containers/libocispec.git
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 20, $0.00):
+```
+git submodule update --init
+```
+
+Tool:
+<returncode>
+0
+<output>
+Cloning into '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec'...
+Submodule path 'libocispec': checked out '5fca44a318572cebaa6e06c6ee0ef14dc39f6962'
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 21, $0.00):
+```
+find libocispec -name "*.h" | head -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+libocispec/src/read-file.h
+libocispec/src/json_common.h
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 22, $0.00):
+```
+ls -la libocispec/src/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 216
+drwxrwxr-x 4 aludy aludy  4096 Jun 30 21:44 .
+drwxrwxr-x 9 aludy aludy  4096 Jun 30 21:44 ..
+-rwxrwxr-x 1 aludy aludy 27601 Jun 30 21:44 generate.py
+-rwxrwxr-x 1 aludy aludy 10714 Jun 30 21:44 headers.py
+-rwxrwxr-x 1 aludy aludy  9964 Jun 30 21:44 helpers.py
+drwxrwxr-x 2 aludy aludy  4096 Jun 30 21:44 image
+-rw-rw-r-- 1 aludy aludy 42348 Jun 30 21:44 json_common.c
+-rw-rw-r-- 1 aludy aludy  7638 Jun 30 21:44 json_common.h
+-rw-rw-r-- 1 aludy aludy  1151 Jun 30 21:44 lib.rs
+-rw-rw-r-- 1 aludy aludy  2899 Jun 30 21:44 read-file.c
+-rw-rw-r-- 1 aludy aludy   786 Jun 30 21:44 read-file.h
+drwxrwxr-x 3 aludy aludy  4096 Jun 30 21:44 runtime
+-rw-rw-r-- 1 aludy aludy  1863 Jun 30 21:44 serialize.rs
+-rwxrwxr-x 1 aludy aludy 77671 Jun 30 21:44 sources.py
+-rw-rw-r-- 1 aludy aludy  2380 Jun 30 21:44 validate.c
+lrwxrwxrwx 1 aludy aludy    16 Jun 30 21:44 yajl -> ../yajl/src/api/
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 23, $0.00):
+```
+ls -la libocispec/src/runtime/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 40
+drwxrwxr-x 3 aludy aludy  4096 Jun 30 21:44 .
+drwxrwxr-x 4 aludy aludy  4096 Jun 30 21:44 ..
+-rw-rw-r-- 1 aludy aludy 26323 Jun 30 21:44 mod.rs
+drwxrwxr-x 2 aludy aludy  4096 Jun 30 21:44 test
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 24, $0.00):
+```
+cat libocispec/src/runtime/mod.rs | head -50
+```
+
+Tool:
+<returncode>
+0
+<output>
+// Example code that deserializes and serializes the model.
+// extern crate serde;
+// #[macro_use]
+// extern crate serde_derive;
+// extern crate serde_json;
+//
+// use generated_module::[object Object];
+//
+// fn main() {
+//     let json = r#"{"answer": 42}"#;
+//     let model: [object Object] = serde_json::from_str(&json).unwrap();
+// }
+
+extern crate serde_derive;
+use std::collections::HashMap;
+
+/// Open Container Initiative Runtime Specification Container Configuration Schema
+#[derive(Serialize, Deserialize)]
+pub struct Spec {
+    #[serde(rename = "annotations")]
+    pub annotations: Option<HashMap<String, Option<serde_json::Value>>>,
+
+    #[serde(rename = "hooks")]
+    pub hooks: Option<Hooks>,
+
+    #[serde(rename = "hostname")]
+    pub hostname: Option<String>,
+
+    /// Linux platform-specific configurations
+    #[serde(rename = "linux")]
+    pub linux: Option<Linux>,
+
+    #[serde(rename = "mounts")]
+    pub mounts: Option<Vec<Mount>>,
+
+    /// The version of Open Container Initiative Runtime Specification that the document complies
+    /// with
+    #[serde(rename = "ociVersion")]
+    pub oci_version: String,
+
+    #[serde(rename = "process")]
+    pub process: Option<Process>,
+
+    /// Configures the container's root filesystem.
+    #[serde(rename = "root")]
+    pub root: Option<Root>,
+
+    /// Solaris platform-specific configurations
+    #[serde(rename = "solaris")]
+    pub solaris: Option<Solaris>,
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 25, $0.00):
+```
+grep -n "idle\|Idle\|CPU" libocispec/src/runtime/mod.rs | head -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+734:    #[serde(rename = "cappedCPU")]
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 26, $0.00):
+```
+grep -n "struct.*CPU\|cpu:" libocispec/src/runtime/mod.rs
+```
+
+Tool:
+<returncode>
+0
+<output>
+304:    pub cpu: Option<PurpleCpu>,
+735:    pub capped_cpu: Option<CappedCpu>,
+902:    pub cpu: Option<FluffyCpu>,
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 27, $0.00):
+```
+grep -n "struct FluffyCpu" libocispec/src/runtime/mod.rs
+```
+
+Tool:
+<returncode>
+0
+<output>
+912:pub struct FluffyCpu {
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 28, $0.00):
+```
+sed -n '900,950p' libocispec/src/runtime/mod.rs
+```
+
+Tool:
+<returncode>
+0
+<output>
+pub struct WindowsResources {
+    #[serde(rename = "cpu")]
+    pub cpu: Option<FluffyCpu>,
+
+    #[serde(rename = "memory")]
+    pub memory: Option<FluffyMemory>,
+
+    #[serde(rename = "storage")]
+    pub storage: Option<Storage>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FluffyCpu {
+    #[serde(rename = "count")]
+    pub count: Option<i64>,
+
+    #[serde(rename = "maximum")]
+    pub maximum: Option<i64>,
+
+    #[serde(rename = "shares")]
+    pub shares: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FluffyMemory {
+    #[serde(rename = "limit")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Storage {
+    #[serde(rename = "bps")]
+    pub bps: Option<i64>,
+
+    #[serde(rename = "iops")]
+    pub iops: Option<i64>,
+
+    #[serde(rename = "sandboxSize")]
+    pub sandbox_size: Option<i64>,
+}
+
+/// z/OS platform-specific configurations
+#[derive(Serialize, Deserialize)]
+pub struct Zos {
+    #[serde(rename = "devices")]
+    pub devices: Option<Vec<ZosDevice>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ZosDevice {
+    /// File permissions mode (typically an octal value)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 29, $0.00):
+```
+grep -n "struct.*Cpu\|pub struct.*Cpu" libocispec/src/runtime/mod.rs
+```
+
+Tool:
+<returncode>
+0
+<output>
+426:pub struct PurpleCpu {
+775:pub struct CappedCpu {
+912:pub struct FluffyCpu {
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 30, $0.00):
+```
+sed -n '426,470p' libocispec/src/runtime/mod.rs
+```
+
+Tool:
+<returncode>
+0
+<output>
+pub struct PurpleCpu {
+    #[serde(rename = "cpus")]
+    pub cpus: Option<String>,
+
+    #[serde(rename = "mems")]
+    pub mems: Option<String>,
+
+    #[serde(rename = "period")]
+    pub period: Option<i64>,
+
+    #[serde(rename = "quota")]
+    pub quota: Option<i64>,
+
+    #[serde(rename = "realtimePeriod")]
+    pub realtime_period: Option<i64>,
+
+    #[serde(rename = "realtimeRuntime")]
+    pub realtime_runtime: Option<i64>,
+
+    #[serde(rename = "shares")]
+    pub shares: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ResourcesDevice {
+    #[serde(rename = "access")]
+    pub access: Option<String>,
+
+    #[serde(rename = "allow")]
+    pub allow: bool,
+
+    /// major device number
+    #[serde(rename = "major")]
+    pub major: Option<i64>,
+
+    /// minor device number
+    #[serde(rename = "minor")]
+    pub minor: Option<i64>,
+
+    #[serde(rename = "type")]
+    pub device_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HugepageLimit {
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 31, $0.00):
+```
+find libocispec -name "*.json" -o -name "*.yaml" -o -name "*.yml" | head -20
+```
+
+Tool:
+<returncode>
+0
+<output>
+libocispec/tests/data/image_config.json
+libocispec/tests/data/image_layout_config.json
+libocispec/tests/data/top_double_array_int.json
+libocispec/tests/data/image_manifest.json
+libocispec/tests/data/doublearray.json
+libocispec/tests/data/top_double_array_refobj.json
+libocispec/tests/data/top_array_int.json
+libocispec/tests/data/image_index_config.json
+libocispec/tests/data/top_double_array_obj.json
+libocispec/tests/data/config.json
+libocispec/tests/data/residual_image_layout_config.json
+libocispec/tests/data/null_value_config.json
+libocispec/tests/data/top_array_string.json
+libocispec/tests/data/top_double_array_string.json
+libocispec/tests/data/config.nocwd.json
+libocispec/tests/data/image_config_mapstringobject.json
+libocispec/tests/data/image_manifest_item.json
+libocispec/tests/test-spec/basic/test_top_double_array_string.json
+libocispec/tests/test-spec/basic/test_double_array_item.json
+libocispec/tests/test-spec/basic/test_top_double_array_int.json
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 32, $0.00):
+```
+grep -n "schema\|schema_url\|json\|config" libocispec/src/sources.py | head -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+40:    parse_json_to_c(obj, c_file, prefix)
+42:    get_c_json(obj, c_file, prefix)
+47:    Description: generate c language for parse json map string object
+378:def parse_json_to_c(obj, c_file, prefix):
+380:    Description: generate c language for parse json file
+434:    c_file.write('        yajl_gen_config (g, yajl_gen_beautify, 0);\n')
+458:    c_file.write('        yajl_gen_config (g, yajl_gen_beautify, 1);\n')
+478:        c_file.write('            yajl_gen_config (g, yajl_gen_beautify, 0);\n')
+505:        c_file.write('            yajl_gen_config (g, yajl_gen_beautify, 1);\n')
+562:        c_file.write('            yajl_gen_config (g, yajl_gen_beautify, 0);\n')
+577:            json_value_generator(c_file, 4, "ptr->%s[i][j]" % obj.fixname, 'g', 'ctx', obj.subtyp)
+581:            json_value_generator(c_file, 3, "ptr->%s[i]" % obj.fixname, 'g', 'ctx', obj.subtyp)
+588:        c_file.write('            yajl_gen_config (g, yajl_gen_beautify, 1);\n')
+609:        json_value_generator(c_file, 2, "str", 'g', 'ctx', obj.typ)
+629:        json_value_generator(c_file, 2, "num", 'g', 'ctx', obj.typ)
+648:        json_value_generator(c_file, 2, "num", 'g', 'ctx', numtyp)
+663:        json_value_generator(c_file, 2, "b", 'g', 'ctx', obj.typ)
+700:def get_c_json(obj, c_file, prefix):
+702:    Description: c language generate json file
+728:            c_file.write('        yajl_gen_config (g, yajl_gen_beautify, 0);\n')
+748:            c_file.write('        yajl_gen_config (g, yajl_gen_beautify, 1);\n')
+900:def json_value_generator(c_file, level, src, dst, ptx, typ):
+902:    Description: json value generateor
+1131:def src_reflect(structs, schema_info, c_file, root_typ):
+1138:                 % (schema_info.name.basename))
+1144:    c_file.write('#include "%s"\n\n' % schema_info.header.basename)
+1148:        append_c_code(i, c_file, schema_info.prefix)
+1151:    get_c_epilog(c_file, schema_info.prefix, root_typ, structs[length - 1])
+1447:            json_value_generator(c_file, 4, "ptr->items[i][j]", 'g', 'ctx', obj.subtyp)
+1451:            json_value_generator(c_file, 3, "ptr->items[i]", 'g', 'ctx', obj.subtyp)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 33, $0.00):
+```
+grep -n "schema\|schema_url\|def_schema\|config_schema\|runtime_spec" libocispec/src/generate.py | head -20
+```
+
+Tool:
+<returncode>
+0
+<output>
+58:    Description: Store schema information
+67:        Description: Store schema information
+75:        Description: Store schema information
+104:        raise RuntimeError('schema path \"%s\" is not in scope of root path \"%s\"' \
+121:def schema_from_file(filepath, srcpath):
+127:    schemapath = helpers.FilePath(filepath)
+128:    prefix = get_prefix_from_file(schemapath.name)
+131:    schema_info = helpers.SchemaInfo(schemapath, header, source, prefix, srcpath)
+132:    return schema_info
+205:def get_ref_root(schema_info, src, ref, curfile):
+220:        subschema = schema_from_file(realpath, schema_info.filesdir)
+221:        if schema_info.refs is None:
+222:            schema_info.refs = {}
+223:        schema_info.refs[subschema.header.basename] = subschema
+237:            return get_ref_root(schema_info, src, subcur['$ref'], curfile)
+241:def get_type_pattern_incur(cur, schema_info, src, curfile):
+261:                    schema_info, src, value['$ref'], curfile)
+280:    Description: Store schema information
+284:    def __init__(self, schema_info, name, cur, curfile):
+285:        self.schema_info = schema_info
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 34, $0.01):
+```
+grep -n "schema_url\|config\|runtime" libocispec/src/headers.py | head -20
+```
+
+Tool:
+<returncode>
+0
+<output>
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 35, $0.01):
+```
+head -60 libocispec/src/generate.py
+```
+
+Tool:
+<returncode>
+0
+<output>
+#!/usr/bin/python -Es
+#
+# libocispec - a C library for parsing OCI spec files.
+#
+# Copyright (C) 2017, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+# libocispec is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# libocispec is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with libocispec.  If not, see <http://www.gnu.org/licenses/>.
+#
+# As a special exception, you may create a larger work that contains
+# part or all of the libocispec parser skeleton and distribute that work
+# under terms of your choice, so long as that work isn't itself a
+# parser generator using the skeleton or a modified version thereof
+# as a parser skeleton.  Alternatively, if you modify or redistribute
+# the parser skeleton itself, you may (at your option) remove this
+# special exception, which will cause the skeleton and the resulting
+# libocispec output files to be licensed under the GNU General Public
+# License without this special exception.
+
+import traceback
+import os
+import sys
+import json
+import argparse
+
+from collections import OrderedDict
+import helpers
+import headers
+import sources
+
+# - json suffix
+JSON_SUFFIX = ".json"
+
+'''
+Description: ref suffix
+Interface: ref_suffix
+History: 2019-06-17
+'''
+# - Description: ref suffix
+REF_SUFFIX = "_json"
+
+'''
+Description: root paths
+Interface: rootpaths
+History: 2019-06-17
+'''
+class MyRoot(object):
+    '''
+    Description: Store schema information
+    Interface: None
+    History: 2019-06-17
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 36, $0.01):
+```
+ls -la libocispec/src/runtime/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 40
+drwxrwxr-x 3 aludy aludy  4096 Jun 30 21:44 .
+drwxrwxr-x 4 aludy aludy  4096 Jun 30 21:44 ..
+-rw-rw-r-- 1 aludy aludy 26323 Jun 30 21:44 mod.rs
+drwxrwxr-x 2 aludy aludy  4096 Jun 30 21:44 test
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 37, $0.01):
+```
+ls -la libocispec/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 208
+drwxrwxr-x  9 aludy aludy  4096 Jun 30 21:44 .
+drwxrwxr-x 12 aludy aludy  4096 Jun 30 21:41 ..
+-rw-rw-r--  1 aludy aludy    81 Jun 30 21:44 .git
+drwxrwxr-x  3 aludy aludy  4096 Jun 30 21:44 .github
+-rw-rw-r--  1 aludy aludy  2927 Jun 30 21:44 .gitignore
+-rw-rw-r--  1 aludy aludy   276 Jun 30 21:44 .gitmodules
+-rw-rw-r--  1 aludy aludy   197 Jun 30 21:44 CODE-OF-CONDUCT.md
+-rw-rw-r--  1 aludy aludy 35784 Jun 30 21:44 COPYING
+-rw-rw-r--  1 aludy aludy  7048 Jun 30 21:44 Cargo.lock
+-rw-rw-r--  1 aludy aludy   497 Jun 30 21:44 Cargo.toml
+-rw-rw-r--  1 aludy aludy  4573 Jun 30 21:44 GNUmakefile
+-rw-rw-r--  1 aludy aludy  8258 Jun 30 21:44 Makefile.am
+-rw-rw-r--  1 aludy aludy  2768 Jun 30 21:44 README.md
+-rw-rw-r--  1 aludy aludy   248 Jun 30 21:44 SECURITY.md
+-rwxrwxr-x  1 aludy aludy   422 Jun 30 21:44 autogen.sh
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:44 build-aux
+-rw-rw-r--  1 aludy aludy   546 Jun 30 21:44 cfg.mk
+-rw-rw-r--  1 aludy aludy  1489 Jun 30 21:44 configure.ac
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:44 image-spec
+-rw-rw-r--  1 aludy aludy 63812 Jun 30 21:44 maint.mk
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:44 runtime-spec
+-rw-rw-r--  1 aludy aludy  1976 Jun 30 21:44 rust-gen.js
+drwxrwxr-x  4 aludy aludy  4096 Jun 30 21:44 src
+drwxrwxr-x  4 aludy aludy  4096 Jun 30 21:44 tests
+drwxrwxr-x  2 aludy aludy  4096 Jun 30 21:44 yajl
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 38, $0.01):
+```
+ls -la libocispec/runtime-spec/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 8
+drwxrwxr-x 2 aludy aludy 4096 Jun 30 21:44 .
+drwxrwxr-x 9 aludy aludy 4096 Jun 30 21:44 ..
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 39, $0.01):
+```
+cat libocispec/.gitmodules
+```
+
+Tool:
+<returncode>
+0
+<output>
+[submodule "runtime-spec"]
+        path = runtime-spec
+        url = https://github.com/opencontainers/runtime-spec
+[submodule "image-spec"]
+        path = image-spec
+        url = https://github.com/opencontainers/image-spec
+[submodule "yajl"]
+        path = yajl
+        url = https://github.com/containers/yajl.git
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 40, $0.01):
+```
+cd libocispec && git submodule update --init --recursive
+```
+
+Tool:
+<returncode>
+-1
+<output>
+Submodule 'image-spec' (https://github.com/opencontainers/image-spec) registered for path 'image-spec'
+Submodule 'runtime-spec' (https://github.com/opencontainers/runtime-spec) registered for path 'runtime-spec'
+Submodule 'yajl' (https://github.com/containers/yajl.git) registered for path 'yajl'
+Cloning into 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec'...
+Cloning into 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec'...
+Cloning into '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/yajl'...
+
+<exception_info>
+An error occurred while executing the command: Command 'cd libocispec && git submodule update --init --recursive' timed out 
+after 30 seconds
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 41, $0.01):
+```
+ls -la libocispec/runtime-spec/ && ls -la libocispec/yajl/ && ls -la libocispec/image-spec/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 12
+drwxrwxr-x 2 aludy aludy 4096 Jun 30 21:45 .
+drwxrwxr-x 9 aludy aludy 4096 Jun 30 21:44 ..
+-rw-rw-r-- 1 aludy aludy  105 Jun 30 21:45 .git
+total 12
+drwxrwxr-x 2 aludy aludy 4096 Jun 30 21:45 .
+drwxrwxr-x 9 aludy aludy 4096 Jun 30 21:44 ..
+-rw-rw-r-- 1 aludy aludy  122 Jun 30 21:45 .git
+total 12
+drwxrwxr-x 2 aludy aludy 4096 Jun 30 21:44 .
+drwxrwxr-x 9 aludy aludy 4096 Jun 30 21:44 ..
+-rw-rw-r-- 1 aludy aludy  103 Jun 30 21:45 .git
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 42, $0.01):
+```
+# Let's try building first to see what headers are generated
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876 && ./autogen.sh 2>&1 | tail -20
+```
+
+Tool:
+<returncode>
+0
+<output>
+configure.ac:9: installing 'build-aux/config.sub'
+configure.ac:11: installing 'build-aux/install-sh'
+configure.ac:11: installing 'build-aux/missing'
+Makefile.am: installing 'build-aux/depcomp'
+parallel-tests: installing 'build-aux/test-driver'
+libtoolize: putting auxiliary files in AC_CONFIG_AUX_DIR, 'build-aux'.
+libtoolize: copying file 'build-aux/ltmain.sh'
+libtoolize: putting macros in AC_CONFIG_MACRO_DIRS, 'm4'.
+libtoolize: copying file 'm4/libtool.m4'
+libtoolize: copying file 'm4/ltoptions.m4'
+libtoolize: copying file 'm4/ltsugar.m4'
+libtoolize: copying file 'm4/ltversion.m4'
+libtoolize: copying file 'm4/lt~obsolete.m4'
+configure.ac:11: installing 'build-aux/compile'
+configure.ac:11: installing 'build-aux/config.guess'
+configure.ac:11: installing 'build-aux/config.sub'
+configure.ac:13: installing 'build-aux/install-sh'
+configure.ac:13: installing 'build-aux/missing'
+configure.ac:8: installing 'build-aux/tap-driver.sh'
+Makefile.am: installing 'build-aux/depcomp'
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 43, $0.01):
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876 && ./configure 2>&1 | tail -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+checking whether GID '1000' is supported by ustar format... yes
+checking how to create a ustar tar archive... gnutar
+checking dependency style of gcc... gcc3
+checking whether to enable maintainer-specific portions of Makefiles... yes
+checking whether make supports nested variables... (cached) yes
+checking for pkg-config... /usr/bin/pkg-config
+checking pkg-config is at least version 0.9.0... yes
+checking for yajl >= 2.1.0... yes
+checking for a sed that does not truncate output... (cached) /usr/bin/sed
+checking for gcc... (cached) gcc
+checking whether the compiler supports GNU C... (cached) yes
+checking whether gcc accepts -g... (cached) yes
+checking for gcc option to enable C11 features... (cached) none needed
+checking whether gcc understands -c and -o together... (cached) yes
+checking for a Python interpreter with version >= 3... python
+checking for python... /home/aludy/scires/Cloud_Spec_Exp/.venv/bin/python
+checking for python version... 3.12
+checking for python platform... linux
+checking for GNU default python prefix... ${prefix}
+checking for GNU default python exec_prefix... ${exec_prefix}
+checking for python script directory (pythondir)... ${PYTHON_PREFIX}/lib/python3.12/site-packages
+checking for python extension module directory (pyexecdir)... ${PYTHON_EXEC_PREFIX}/lib/python3.12/site-packages
+checking that generated files are newer than configure... done
+configure: creating ./config.status
+config.status: creating Makefile
+config.status: creating config.h
+config.status: executing libtool commands
+config.status: executing depfiles commands
+=== configuring in yajl 
+(/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/yajl)
+configure: WARNING: no configuration information is in yajl
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 44, $0.01):
+```
+ls -la libocispec/yajl/
+```
+
+Tool:
+<returncode>
+0
+<output>
+total 12
+drwxrwxr-x  2 aludy aludy 4096 Jun 30 21:45 .
+drwxrwxr-x 11 aludy aludy 4096 Jun 30 21:45 ..
+-rw-rw-r--  1 aludy aludy  122 Jun 30 21:45 .git
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 45, $0.01):
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876 && make -j$(nproc) 2>&1 | tail -40
+```
+
+Tool:
+<returncode>
+0
+<output>
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+top_double_array_string.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+double_array_item.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+top_double_array_int.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+top_array_string.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+top_double_array_refobj.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+top_double_array_obj.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+top_array_int.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/tests/test-spec/basic/test_
+double_array.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/defs.json
+[1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/config-sc
+hema.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/image-lay
+out-schema.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/content-d
+escriptor.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/image-man
+ifest-schema.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/image-ind
+ex-schema.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/image-spec/schema/defs-desc
+riptor.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/defs.js
+on [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/defs-zo
+s.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/config-
+solaris.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/config-
+windows.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/config-
+zos.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/config-
+vm.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/config-
+linux.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/defs-wi
+ndows.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/config-
+schema.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/state-s
+chema.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/defs-li
+nux.json [1;32mSuccess[0m
+[1;34mReflection:[0m    
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/runtime-spec/schema/defs-vm
+.json [1;32mSuccess[0m
+make  all-recursive
+make[3]: Entering directory 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec'
+Making all in yajl
+make[4]: Entering directory 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/yajl'
+make[4]: *** No rule to make target 'all'.  Stop.
+make[4]: Leaving directory 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/yajl'
+make[3]: *** [Makefile:1169: all-recursive] Error 1
+make[3]: Leaving directory 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec'
+make[2]: *** [Makefile:848: all] Error 2
+make[2]: Leaving directory 
+'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec'
+make[1]: *** [Makefile:2316: all-recursive] Error 1
+make[1]: Leaving directory '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876'
+make: *** [Makefile:920: all] Error 2
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 46, $0.01):
+```
+# Check if yajl is available on the system
+pkg-config --libs yajl 2>&1 && pkg-config --cflags yajl 2>&1
+```
+
+Tool:
+<returncode>
+0
+<output>
+-lyajl 
+-I/usr/include/yajl 
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 47, $0.01):
+```
+# Let's check if we can configure with system yajl and skip embedded
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876 && ./configure 
+--enable-embedded-yajl=no 2>&1 | tail -10
+```
+
+Tool:
+<returncode>
+0
+<output>
+checking for python extension module directory (pyexecdir)... ${PYTHON_EXEC_PREFIX}/lib/python3.12/site-packages
+checking that generated files are newer than configure... done
+configure: creating ./config.status
+config.status: creating Makefile
+config.status: creating config.h
+config.status: config.h is unchanged
+config.status: executing libtool commands
+config.status: executing depfiles commands
+=== configuring in yajl 
+(/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876/libocispec/yajl)
+configure: WARNING: no configuration information is in yajl
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 48, $0.01):
+```
+cat libocispec/Makefile.am
+```
+
+Tool:
+<returncode>
+0
+<output>
+DIST_SUBDIRS = yajl
+SUBDIRS = yajl
+
+AM_CFLAGS = $(WARN_CFLAGS) -I$(top_srcdir)/src -I$(top_builddir)/src
+
+if HAVE_EMBEDDED_YAJL
+AM_CFLAGS += -I$(top_srcdir)/yajl/src/headers
+endif HAVE_EMBEDDED_YAJL
+
+CLEANFILES = $(man_MANS) src/runtime_spec_stamp src/image_spec_stamp src/image_manifest_stamp src/basic-test_stamp
+
+GITIGNOREFILES = build-aux/ gtk-doc.make config.h.in aclocal.m4
+
+noinst_LTLIBRARIES = libocispec.la
+noinst_LIBRARIES = libocispec.a
+
+SOURCE_FILES = \
+        src/image_spec_schema_config_schema.c \
+        src/image_spec_schema_content_descriptor.c \
+        src/image_spec_schema_defs.c \
+        src/image_spec_schema_defs_descriptor.c \
+        src/image_spec_schema_image_index_schema.c \
+        src/image_spec_schema_image_layout_schema.c \
+        src/image_spec_schema_image_manifest_schema.c \
+        src/runtime_spec_schema_config_linux.c \
+        src/runtime_spec_schema_config_zos.c \
+        src/runtime_spec_schema_config_schema.c \
+        src/runtime_spec_schema_config_solaris.c \
+        src/runtime_spec_schema_config_vm.c \
+        src/runtime_spec_schema_config_windows.c \
+        src/runtime_spec_schema_defs.c \
+        src/runtime_spec_schema_defs_linux.c \
+        src/runtime_spec_schema_defs_zos.c \
+        src/runtime_spec_schema_defs_vm.c \
+        src/runtime_spec_schema_defs_windows.c \
+        src/runtime_spec_schema_state_schema.c \
+        src/image_manifest_items_image_manifest_items_schema.c \
+        src/basic_test_double_array_item.c \
+        src/basic_test_double_array.c \
+        src/basic_test_top_array_int.c \
+        src/basic_test_top_array_string.c \
+        src/basic_test_top_double_array_int.c \
+        src/basic_test_top_double_array_obj.c \
+        src/basic_test_top_double_array_refobj.c \
+        src/basic_test_top_double_array_string.c
+
+HEADER_FILES = $(SOURCE_FILES:.c=.h)
+
+src/runtime_spec_stamp: src/json_common.h src/json_common.c
+        $(PYTHON) $(srcdir)/src/generate.py --gen-ref --root=${srcdir} --out=${builddir}/src ${srcdir}/runtime-spec/schema
+        @touch $@
+
+src/image_spec_stamp: src/json_common.h src/json_common.c
+        $(PYTHON) $(srcdir)/src/generate.py --gen-ref --root=${srcdir} --out=${builddir}/src ${srcdir}/image-spec/schema
+        @touch $@
+
+src/image_manifest_stamp: src/json_common.h src/json_common.c
+        $(PYTHON) $(srcdir)/src/generate.py --gen-ref --root=${srcdir}/tests/test-spec --out=${builddir}/src 
+${srcdir}/tests/test-spec/imageManifestItems
+        @touch $@
+
+src/basic-test_stamp: src/json_common.h src/json_common.c
+        $(PYTHON) $(srcdir)/src/generate.py --gen-ref --root=${srcdir}/tests/test-spec --out=${builddir}/src 
+${srcdir}/tests/test-spec/basic
+        @touch $@
+
+src/image_spec_schema_config_schema.c \
+        src/image_spec_schema_content_descriptor.c \
+        src/image_spec_schema_defs.c \
+        src/image_spec_schema_defs_descriptor.c \
+        src/image_spec_schema_image_index_schema.c \
+        src/image_spec_schema_image_layout_schema.c \
+        src/image_spec_schema_image_manifest_schema.c \
+        src/image_spec_schema_config_schema.h \
+        src/image_spec_schema_content_descriptor.h \
+        src/image_spec_schema_defs.h \
+        src/image_spec_schema_defs_descriptor.h \
+        src/image_spec_schema_image_index_schema.h \
+        src/image_spec_schema_image_layout_schema.h \
+        src/image_spec_schema_image_manifest_schema.h: src/image_spec_stamp
+
+src/runtime_spec_schema_config_linux.h \
+        src/runtime_spec_schema_config_schema.h \
+        src/runtime_spec_schema_config_solaris.h \
+        src/runtime_spec_schema_config_vm.h \
+        src/runtime_spec_schema_config_windows.h \
+        src/runtime_spec_schema_defs.h \
+        src/runtime_spec_schema_defs_linux.h \
+        src/runtime_spec_schema_defs_zos.h \
+        src/runtime_spec_schema_defs_vm.h \
+        src/runtime_spec_schema_defs_windows.h \
+        src/runtime_spec_schema_state_schema.h \
+        src/runtime_spec_schema_config_linux.c \
+        src/runtime_spec_schema_config_zos.c \
+        src/runtime_spec_schema_config_schema.c \
+        src/runtime_spec_schema_config_solaris.c \
+        src/runtime_spec_schema_config_vm.c \
+        src/runtime_spec_schema_config_windows.c \
+        src/runtime_spec_schema_defs.c \
+        src/runtime_spec_schema_defs_linux.c \
+        src/runtime_spec_schema_defs_vm.c \
+        src/runtime_spec_schema_defs_zos.c \
+        src/runtime_spec_schema_defs_windows.c \
+        src/runtime_spec_schema_state_schema.c: src/runtime_spec_stamp
+
+src/image_manifest_items_image_manifest_items_schema.h \
+        src/image_manifest_items_image_manifest_items_schema.c: src/image_manifest_stamp
+
+src/basic_test_double_array_item.h \
+        src/basic_test_double_array.h \
+        src/basic_test_top_array_int.h \
+        src/basic_test_top_array_string.h \
+        src/basic_test_top_double_array_int.h \
+        src/basic_test_top_double_array_obj.h \
+        src/basic_test_top_double_array_refobj.h \
+        src/basic_test_top_double_array_string.h \
+        src/basic_test_double_array_item.c \
+        src/basic_test_double_array.c \
+        src/basic_test_top_array_int.c \
+        src/basic_test_top_array_string.c \
+        src/basic_test_top_double_array_int.c \
+        src/basic_test_top_double_array_obj.c \
+        src/basic_test_top_double_array_refobj.c \
+        src/basic_test_top_double_array_string.c: src/basic-test_stamp
+
+$(HEADER_FILES): %.h: %.c src/generate.py
+
+BUILT_SOURCES = $(HEADER_FILES) $(SOURCE_FILES)
+
+libocispec_la_SOURCES = $(BUILT_SOURCES) \
+        src/read-file.c \
+        src/json_common.c
+
+TMP_H_FILES = $(HEADER_FILES:.h=.h.tmp)
+TMP_C_FILES = $(SOURCE_FILES:.c=.c.tmp)
+
+CLEANFILES += $(HEADER_FILES) $(SOURCE_FILES) $(TMP_H_FILES) $(TMP_C_FILES)
+
+TESTS_LDADD = libocispec.la $(SELINUX_LIBS)
+
+if HAVE_EMBEDDED_YAJL
+TESTS_LDADD += yajl/libyajl.la
+else
+TESTS_LDADD += $(YAJL_LIBS)
+endif
+
+libocispec_a_SOURCES =
+
+libocispec.a: libocispec.la $(BUILT_SOURCES) src/runtime_spec_stamp src/image_spec_stamp src/image_manifest_stamp 
+src/basic-test_stamp
+        $(LIBTOOL) --mode=link $(GCC) libocispec.la -o libocispec.a
+
+tests_test_1_SOURCES = tests/test-1.c
+tests_test_1_LDADD = $(TESTS_LDADD)
+
+tests_test_2_SOURCES = tests/test-2.c
+tests_test_2_LDADD = $(TESTS_LDADD)
+
+tests_test_3_SOURCES = tests/test-3.c
+tests_test_3_LDADD = $(TESTS_LDADD)
+
+tests_test_4_SOURCES = tests/test-4.c
+tests_test_4_LDADD = $(TESTS_LDADD)
+
+tests_test_5_SOURCES = tests/test-5.c
+tests_test_5_LDADD = $(TESTS_LDADD)
+
+tests_test_6_SOURCES = tests/test-6.c
+tests_test_6_LDADD = $(TESTS_LDADD)
+
+tests_test_7_SOURCES = tests/test-7.c
+tests_test_7_LDADD = $(TESTS_LDADD)
+
+tests_test_8_SOURCES = tests/test-8.c
+tests_test_8_LDADD = $(TESTS_LDADD)
+
+tests_test_9_SOURCES = tests/test-9.c
+tests_test_9_LDADD = $(TESTS_LDADD)
+
+tests_test_10_SOURCES = tests/test-10.c
+tests_test_10_LDADD = $(TESTS_LDADD)
+
+tests_test_11_SOURCES = tests/test-11.c
+tests_test_11_LDADD = $(TESTS_LDADD)
+
+src_validate_SOURCES = src/validate.c
+src_validate_LDADD = $(TESTS_LDADD)
+
+TESTS = tests/test-1 \
+        tests/test-2 \
+        tests/test-3 \
+        tests/test-4 \
+        tests/test-5 \
+        tests/test-6 \
+        tests/test-7 \
+        tests/test-8 \
+        tests/test-9 \
+        tests/test-10 \
+        tests/test-11
+
+noinst_PROGRAMS = src/validate $(TESTS)
+
+$(abs_top_builddir)/tests/data: $(abs_top_srcdir)/tests/data
+        if test $(abs_top_srcdir) != $(abs_top_builddir) && test ! -d $@; then rm -f $@; ln -s $< $@; fi
+
+distcheck check: $(abs_top_builddir)/tests/data
+
+-include $(top_srcdir)/git.mk
+
+EXTRA_DIST = autogen.sh \
+        tests/data/image_index_config.json \
+        tests/data/image_layout_config.json \
+        tests/data/image_config_mapstringobject.json \
+        tests/data/config.json \
+        tests/data/image_manifest.json \
+        tests/data/image_config.json \
+        tests/data/config.nocwd.json \
+        tests/data/image_manifest_item.json \
+        tests/data/residual_image_layout_config.json \
+        tests/data/null_value_config.json \
+        tests/data/doublearray.json \
+        tests/data/top_array_int.json \
+        tests/data/top_array_string.json \
+        tests/data/top_double_array_int.json \
+        tests/data/top_double_array_obj.json \
+        tests/data/top_double_array_refobj.json \
+        tests/data/top_double_array_string.json \
+        tests/test-spec \
+        src/generate.py \
+        src/headers.py \
+        src/helpers.py \
+        src/sources.py \
+        $(HEADER_FILES) \
+        src/read-file.h \
+        src/json_common.h \
+        runtime-spec \
+        image-spec \
+        src/json_common.h \
+        src/json_common.c
+
+sync:
+        (cd image-spec; git pull https://github.com/opencontainers/image-spec)
+        (cd runtime-spec; git pull https://github.com/opencontainers/runtime-spec)
+        (cd yajl; git pull https://github.com/containers/yajl main)
+
+generate: src/runtime_spec_stamp src/image_spec_stamp src/image_manifest_stamp src/basic-test_stamp
+
+#Needed by phony: generate-rust
+install-node-deps:
+        (npm install @apidevtools/json-schema-ref-parser)
+        (npm install  quicktype-core)
+
+generate-rust:
+        (node rust-gen.js)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 49, $0.01):
+```
+# Let's create a simple workaround for the yajl subdirectory
+# First, let's just create a fake Makefile in the yajl directory that does nothing
+cat > libocispec/yajl/Makefile << 'EOF'
+all:
+        @true
+
+install:
+        @true
+
+clean:
+        @true
+
+distclean:
+        @true
+EOF
+
+# Now try building again
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876 && make -j$(nproc) 2>&1 | tail -60
+```
+
+Tool:
+<returncode>
+0
+<output>
+  CC       src/crun-run.o
+  CC       src/crun-delete.o
+  CC       src/crun-kill.o
+  CC       src/crun-pause.o
+  CC       src/crun-unpause.o
+  CC       src/crun-spec.o
+  CC       src/crun-exec.o
+  CC       src/crun-list.o
+  CC       src/crun-create.o
+  CC       src/crun-start.o
+  CC       src/crun-state.o
+  CC       src/crun-update.o
+  CC       src/crun-ps.o
+  CC       src/crun-checkpoint.o
+  CC       src/crun-restore.o
+src/libcrun/linux.c: In function 'libcrun_create_keyring':
+src/libcrun/linux.c:656:12: warning: ignoring return value of 'write' declared with attribute 'warn_unused_result' 
+[-Wunused-result]
+  656 |     (void) write (labelfd, "", 0);
+      |            ^~~~~~~~~~~~~~~~~~~~~~
+  CC       src/libcrun/libcrun_la-cloned_binary.lo
+  CC       src/libcrun/libcrun_la-utils.lo
+  CC       src/libcrun/libcrun_la-container.lo
+  CC       src/libcrun/libcrun_la-cgroup.lo
+  CC       src/libcrun/libcrun_la-cgroup-cgroupfs.lo
+  CC       src/libcrun/libcrun_la-cgroup-resources.lo
+  CC       src/libcrun/libcrun_la-cgroup-setup.lo
+  CC       src/libcrun/libcrun_la-cgroup-systemd.lo
+  CC       src/libcrun/libcrun_la-cgroup-utils.lo
+  CC       src/libcrun/libcrun_la-criu.lo
+  CC       src/libcrun/libcrun_la-custom-handler.lo
+  CC       src/libcrun/libcrun_la-linux.lo
+  CC       src/libcrun/libcrun_la-seccomp.lo
+  CC       src/libcrun/libcrun_la-ebpf.lo
+  CC       src/libcrun/libcrun_la-error.lo
+  CC       src/libcrun/libcrun_la-status.lo
+  CC       src/libcrun/libcrun_la-terminal.lo
+  CC       src/libcrun/libcrun_la-chroot_realpath.lo
+  CC       src/libcrun/libcrun_la-signals.lo
+  CC       src/libcrun/libcrun_la-seccomp_notify.lo
+  CC       src/libcrun/handlers/libcrun_la-handler-utils.lo
+  CC       src/libcrun/libcrun_la-mount_flags.lo
+  CC       src/libcrun/handlers/libcrun_la-krun.lo
+  CC       src/libcrun/handlers/libcrun_la-wasmedge.lo
+  CC       src/libcrun/handlers/libcrun_la-wasmer.lo
+  CC       tests/init.o
+  CC       tests/tests_libcrun_utils-tests_libcrun_utils.o
+src/libcrun/linux.c: In function 'libcrun_create_keyring':
+src/libcrun/linux.c:656:12: warning: ignoring return value of 'write' declared with attribute 'warn_unused_result' 
+[-Wunused-result]
+  656 |     (void) write (labelfd, "", 0);
+      |            ^~~~~~~~~~~~~~~~~~~~~~
+  CCLD     tests/init
+  AR       libcrun_testing.a
+ar: `u' modifier ignored since `D' is the default (see `U')
+  CCLD     tests/tests_libcrun_utils
+  CCLD     tests/tests_libcrun_errors
+  CCLD     tests/tests_libcrun_fuzzer
+  CCLD     libcrun.la
+  CCLD     crun
+make[2]: Leaving directory '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876'
+make[1]: Leaving directory '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876'
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 50, $0.01):
+```
+find libocispec -name "*.h" | head -30
+```
+
+Tool:
+<returncode>
+0
+<output>
+libocispec/src/runtime_spec_schema_config_zos.h
+libocispec/src/image_spec_schema_defs_descriptor.h
+libocispec/src/basic_test_top_double_array_string.h
+libocispec/src/basic_test_double_array_item.h
+libocispec/src/image_spec_schema_image_index_schema.h
+libocispec/src/image_spec_schema_config_schema.h
+libocispec/src/read-file.h
+libocispec/src/runtime_spec_schema_defs.h
+libocispec/src/runtime_spec_schema_config_vm.h
+libocispec/src/runtime_spec_schema_defs_zos.h
+libocispec/src/basic_test_top_double_array_int.h
+libocispec/src/runtime_spec_schema_defs_linux.h
+libocispec/src/json_common.h
+libocispec/src/runtime_spec_schema_defs_vm.h
+libocispec/src/basic_test_top_double_array_obj.h
+libocispec/src/basic_test_top_array_int.h
+libocispec/src/runtime_spec_schema_defs_windows.h
+libocispec/src/runtime_spec_schema_config_schema.h
+libocispec/src/image_spec_schema_defs.h
+libocispec/src/runtime_spec_schema_config_linux.h
+libocispec/src/runtime_spec_schema_state_schema.h
+libocispec/src/image_spec_schema_image_layout_schema.h
+libocispec/src/basic_test_top_array_string.h
+libocispec/src/runtime_spec_schema_config_solaris.h
+libocispec/src/image_spec_schema_content_descriptor.h
+libocispec/src/image_manifest_items_image_manifest_items_schema.h
+libocispec/src/basic_test_top_double_array_refobj.h
+libocispec/src/runtime_spec_schema_config_windows.h
+libocispec/src/basic_test_double_array.h
+libocispec/src/image_spec_schema_image_manifest_schema.h
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 51, $0.01):
+```
+cat libocispec/src/runtime_spec_schema_defs_linux.h
+```
+
+Tool:
+<returncode>
+0
+<output>
+// Generated from defs-linux.json. Do not edit!
+#ifndef RUNTIME_SPEC_SCHEMA_DEFS_LINUX_SCHEMA_H
+#define RUNTIME_SPEC_SCHEMA_DEFS_LINUX_SCHEMA_H
+
+#include <sys/types.h>
+#include <stdint.h>
+#include "json_common.h"
+#include "runtime_spec_schema_defs.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    char *domain;
+
+    char **flags;
+    size_t flags_len;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_personality;
+
+void free_runtime_spec_schema_defs_linux_personality (runtime_spec_schema_defs_linux_personality *ptr);
+
+runtime_spec_schema_defs_linux_personality *make_runtime_spec_schema_defs_linux_personality (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_personality (yajl_gen g, const runtime_spec_schema_defs_linux_personality
+*ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    uint32_t index;
+
+    unsigned int index_present : 1;
+    uint64_t value;
+
+    unsigned int value_present : 1;
+    uint64_t value_two;
+
+    unsigned int value_two_present : 1;
+    char *op;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_syscall_arg;
+
+void free_runtime_spec_schema_defs_linux_syscall_arg (runtime_spec_schema_defs_linux_syscall_arg *ptr);
+
+runtime_spec_schema_defs_linux_syscall_arg *make_runtime_spec_schema_defs_linux_syscall_arg (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_syscall_arg (yajl_gen g, const runtime_spec_schema_defs_linux_syscall_arg
+*ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char **names;
+    size_t names_len;
+
+    char *action;
+
+    uint32_t errno_ret;
+
+    unsigned int errno_ret_present : 1;
+    runtime_spec_schema_defs_linux_syscall_arg **args;
+    size_t args_len;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_syscall;
+
+void free_runtime_spec_schema_defs_linux_syscall (runtime_spec_schema_defs_linux_syscall *ptr);
+
+runtime_spec_schema_defs_linux_syscall *make_runtime_spec_schema_defs_linux_syscall (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_syscall (yajl_gen g, const runtime_spec_schema_defs_linux_syscall *ptr, 
+const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *type;
+
+    char *path;
+
+    int file_mode;
+
+    unsigned int file_mode_present : 1;
+    int64_t major;
+
+    unsigned int major_present : 1;
+    int64_t minor;
+
+    unsigned int minor_present : 1;
+    uid_t uid;
+
+    unsigned int uid_present : 1;
+    gid_t gid;
+
+    unsigned int gid_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_device;
+
+void free_runtime_spec_schema_defs_linux_device (runtime_spec_schema_defs_linux_device *ptr);
+
+runtime_spec_schema_defs_linux_device *make_runtime_spec_schema_defs_linux_device (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_device (yajl_gen g, const runtime_spec_schema_defs_linux_device *ptr, 
+const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    int64_t major;
+
+    unsigned int major_present : 1;
+    int64_t minor;
+
+    unsigned int minor_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_block_io_device;
+
+void free_runtime_spec_schema_defs_linux_block_io_device (runtime_spec_schema_defs_linux_block_io_device *ptr);
+
+runtime_spec_schema_defs_linux_block_io_device *make_runtime_spec_schema_defs_linux_block_io_device (yajl_val tree, const 
+struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_block_io_device (yajl_gen g, const 
+runtime_spec_schema_defs_linux_block_io_device *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    int64_t major;
+
+    unsigned int major_present : 1;
+    int64_t minor;
+
+    unsigned int minor_present : 1;
+    uint16_t weight;
+
+    unsigned int weight_present : 1;
+    uint16_t leaf_weight;
+
+    unsigned int leaf_weight_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_block_io_device_weight;
+
+void free_runtime_spec_schema_defs_linux_block_io_device_weight (runtime_spec_schema_defs_linux_block_io_device_weight 
+*ptr);
+
+runtime_spec_schema_defs_linux_block_io_device_weight *make_runtime_spec_schema_defs_linux_block_io_device_weight (yajl_val 
+tree, const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_block_io_device_weight (yajl_gen g, const 
+runtime_spec_schema_defs_linux_block_io_device_weight *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    int64_t major;
+
+    unsigned int major_present : 1;
+    int64_t minor;
+
+    unsigned int minor_present : 1;
+    uint64_t rate;
+
+    unsigned int rate_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_block_io_device_throttle;
+
+void free_runtime_spec_schema_defs_linux_block_io_device_throttle (runtime_spec_schema_defs_linux_block_io_device_throttle 
+*ptr);
+
+runtime_spec_schema_defs_linux_block_io_device_throttle *make_runtime_spec_schema_defs_linux_block_io_device_throttle 
+(yajl_val tree, const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_block_io_device_throttle (yajl_gen g, const 
+runtime_spec_schema_defs_linux_block_io_device_throttle *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    bool allow;
+
+    unsigned int allow_present : 1;
+    char *type;
+
+    int64_t major;
+
+    unsigned int major_present : 1;
+    int64_t minor;
+
+    unsigned int minor_present : 1;
+    char *access;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_device_cgroup;
+
+void free_runtime_spec_schema_defs_linux_device_cgroup (runtime_spec_schema_defs_linux_device_cgroup *ptr);
+
+runtime_spec_schema_defs_linux_device_cgroup *make_runtime_spec_schema_defs_linux_device_cgroup (yajl_val tree, const struct
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_device_cgroup (yajl_gen g, const 
+runtime_spec_schema_defs_linux_device_cgroup *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *name;
+
+    uint32_t priority;
+
+    unsigned int priority_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_network_interface_priority;
+
+void free_runtime_spec_schema_defs_linux_network_interface_priority 
+(runtime_spec_schema_defs_linux_network_interface_priority *ptr);
+
+runtime_spec_schema_defs_linux_network_interface_priority *make_runtime_spec_schema_defs_linux_network_interface_priority 
+(yajl_val tree, const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_network_interface_priority (yajl_gen g, const 
+runtime_spec_schema_defs_linux_network_interface_priority *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    uint32_t hca_handles;
+
+    unsigned int hca_handles_present : 1;
+    uint32_t hca_objects;
+
+    unsigned int hca_objects_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_rdma;
+
+void free_runtime_spec_schema_defs_linux_rdma (runtime_spec_schema_defs_linux_rdma *ptr);
+
+runtime_spec_schema_defs_linux_rdma *make_runtime_spec_schema_defs_linux_rdma (yajl_val tree, const struct parser_context 
+*ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_rdma (yajl_gen g, const runtime_spec_schema_defs_linux_rdma *ptr, const 
+struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *type;
+
+    char *path;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_defs_linux_namespace_reference;
+
+void free_runtime_spec_schema_defs_linux_namespace_reference (runtime_spec_schema_defs_linux_namespace_reference *ptr);
+
+runtime_spec_schema_defs_linux_namespace_reference *make_runtime_spec_schema_defs_linux_namespace_reference (yajl_val tree, 
+const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_defs_linux_namespace_reference (yajl_gen g, const 
+runtime_spec_schema_defs_linux_namespace_reference *ptr, const struct parser_context *ctx, parser_error *err);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 52, $0.01):
+```
+cat libocispec/src/runtime_spec_schema_config_linux.h
+```
+
+Tool:
+<returncode>
+0
+<output_head>
+// Generated from config-linux.json. Do not edit!
+#ifndef RUNTIME_SPEC_SCHEMA_CONFIG_LINUX_SCHEMA_H
+#define RUNTIME_SPEC_SCHEMA_CONFIG_LINUX_SCHEMA_H
+
+#include <sys/types.h>
+#include <stdint.h>
+#include "json_common.h"
+#include "runtime_spec_schema_defs_linux.h"
+#include "runtime_spec_schema_defs.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    int64_t limit;
+
+    unsigned int limit_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_resources_pids;
+
+void free_runtime_spec_schema_config_linux_resources_pids (runtime_spec_schema_config_linux_resources_pids *ptr);
+
+runtime_spec_schema_config_linux_resources_pids *make_runtime_spec_schema_config_linux_resources_pids (yajl_val tree, const 
+struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources_pids (yajl_gen g, const 
+runtime_spec_schema_config_linux_resources_pids *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    uint16_t weight;
+
+    unsigned int weight_present : 1;
+    uint16_t leaf_weight;
+
+    unsigned int leaf_weight_present : 1;
+    runtime_spec_schema_defs_linux_block_io_device_throttle **throttle_read_bps_device;
+    size_t throttle_read_bps_device_len;
+
+    runtime_spec_schema_defs_linux_block_io_device_throttle **throttle_write_bps_device;
+    size_t throttle_write_bps_device_len;
+
+    runtime_spec_schema_defs_linux_block_io_device_throttle **throttle_read_iops_device;
+    size_t throttle_read_iops_device_len;
+
+    runtime_spec_schema_defs_linux_block_io_device_throttle **throttle_write_iops_device;
+    size_t throttle_write_iops_device_len;
+
+    runtime_spec_schema_defs_linux_block_io_device_weight **weight_device;
+    size_t weight_device_len;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_resources_block_io;
+
+void free_runtime_spec_schema_config_linux_resources_block_io (runtime_spec_schema_config_linux_resources_block_io *ptr);
+
+runtime_spec_schema_config_linux_resources_block_io *make_runtime_spec_schema_config_linux_resources_block_io (yajl_val 
+tree, const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources_block_io (yajl_gen g, const 
+runtime_spec_schema_config_linux_resources_block_io *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *cpus;
+
+    char *mems;
+
+    uint64_t period;
+
+    unsigned int period_present : 1;
+    int64_t quota;
+
+    unsigned int quota_present : 1;
+    uint64_t realtime_period;
+
+    unsigned int realtime_period_present : 1;
+    int64_t realtime_runtime;
+
+    unsigned int realtime_runtime_present : 1;
+    uint64_t shares;
+
+    unsigned int shares_present : 1;
+    int64_t idle;
+
+    unsigned int idle_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_resources_cpu;
+
+void free_runtime_spec_schema_config_linux_resources_cpu (runtime_spec_schema_config_linux_resources_cpu *ptr);
+
+runtime_spec_schema_config_linux_resources_cpu *make_runtime_spec_schema_config_linux_resources_cpu (yajl_val tree, const 
+struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources_cpu (yajl_gen g, const 
+runtime_spec_schema_config_linux_resources_cpu *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *page_size;
+    uint64_t limit;
+    unsigned int limit_present : 1;
+}
+runtime_spec_schema_config_linux_resources_hugepage_limits_element;
+
+void free_runtime_spec_schema_config_linux_resources_hugepage_limits_element 
+(runtime_spec_schema_config_linux_resources_hugepage_limits_element *ptr);
+
+runtime_spec_schema_config_linux_resources_hugepage_limits_element 
+*make_runtime_spec_schema_config_linux_resources_hugepage_limits_element (yajl_val tree, const struct parser_context *ctx, 
+parser_error *err);
+
+typedef struct {
+    int64_t kernel;
+
+    unsigned int kernel_present : 1;
+    int64_t kernel_tcp;
+
+    unsigned int kernel_tcp_present : 1;
+    int64_t limit;
+
+    unsigned int limit_present : 1;
+    int64_t reservation;
+
+    unsigned int reservation_present : 1;
+    int64_t swap;
+
+    unsigned int swap_present : 1;
+    uint64_t swappiness;
+
+    unsigned int swappiness_present : 1;
+    bool disable_oom_killer;
+
+    unsigned int disable_oom_killer_present : 1;
+    bool use_hierarchy;
+
+    unsigned int use_hierarchy_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_resources_memory;
+
+void free_runtime_spec_schema_config_linux_resources_memory (runtime_spec_schema_config_linux_resources_memory *ptr);
+
+runtime_spec_schema_config_linux_resources_memory *make_runtime_spec_schema_config_linux_resources_memory (yajl_val tree, 
+const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources_memory (yajl_gen g, const 
+runtime_spec_schema_config_linux_resources_memory *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    uint32_t clas
+<output_tail>
+_network (yajl_val tree, const struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources_network (yajl_gen g, const 
+runtime_spec_schema_config_linux_resources_network *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char unuseful; // unuseful definition to avoid empty struct
+}
+runtime_spec_schema_config_linux_resources_rdma;
+
+void free_runtime_spec_schema_config_linux_resources_rdma (runtime_spec_schema_config_linux_resources_rdma *ptr);
+
+runtime_spec_schema_config_linux_resources_rdma *make_runtime_spec_schema_config_linux_resources_rdma (yajl_val tree, const 
+struct parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources_rdma (yajl_gen g, const 
+runtime_spec_schema_config_linux_resources_rdma *ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    json_map_string_string *unified;
+
+    runtime_spec_schema_defs_linux_device_cgroup **devices;
+    size_t devices_len;
+
+    runtime_spec_schema_config_linux_resources_pids *pids;
+
+    runtime_spec_schema_config_linux_resources_block_io *block_io;
+
+    runtime_spec_schema_config_linux_resources_cpu *cpu;
+
+    runtime_spec_schema_config_linux_resources_hugepage_limits_element **hugepage_limits;
+    size_t hugepage_limits_len;
+
+    runtime_spec_schema_config_linux_resources_memory *memory;
+
+    runtime_spec_schema_config_linux_resources_network *network;
+
+    runtime_spec_schema_config_linux_resources_rdma *rdma;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_resources;
+
+void free_runtime_spec_schema_config_linux_resources (runtime_spec_schema_config_linux_resources *ptr);
+
+runtime_spec_schema_config_linux_resources *make_runtime_spec_schema_config_linux_resources (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_resources (yajl_gen g, const runtime_spec_schema_config_linux_resources
+*ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *default_action;
+
+    uint32_t default_errno_ret;
+
+    unsigned int default_errno_ret_present : 1;
+    char **flags;
+    size_t flags_len;
+
+    char *listener_path;
+
+    char *listener_metadata;
+
+    char **architectures;
+    size_t architectures_len;
+
+    runtime_spec_schema_defs_linux_syscall **syscalls;
+    size_t syscalls_len;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_seccomp;
+
+void free_runtime_spec_schema_config_linux_seccomp (runtime_spec_schema_config_linux_seccomp *ptr);
+
+runtime_spec_schema_config_linux_seccomp *make_runtime_spec_schema_config_linux_seccomp (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_seccomp (yajl_gen g, const runtime_spec_schema_config_linux_seccomp 
+*ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    char *clos_id;
+
+    char *l3cache_schema;
+
+    char *mem_bw_schema;
+
+    bool enable_cmt;
+
+    unsigned int enable_cmt_present : 1;
+    bool enable_mbm;
+
+    unsigned int enable_mbm_present : 1;
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux_intel_rdt;
+
+void free_runtime_spec_schema_config_linux_intel_rdt (runtime_spec_schema_config_linux_intel_rdt *ptr);
+
+runtime_spec_schema_config_linux_intel_rdt *make_runtime_spec_schema_config_linux_intel_rdt (yajl_val tree, const struct 
+parser_context *ctx, parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux_intel_rdt (yajl_gen g, const runtime_spec_schema_config_linux_intel_rdt
+*ptr, const struct parser_context *ctx, parser_error *err);
+
+typedef struct {
+    runtime_spec_schema_defs_linux_device **devices;
+    size_t devices_len;
+
+    runtime_spec_schema_defs_id_mapping **uid_mappings;
+    size_t uid_mappings_len;
+
+    runtime_spec_schema_defs_id_mapping **gid_mappings;
+    size_t gid_mappings_len;
+
+    runtime_spec_schema_defs_linux_namespace_reference **namespaces;
+    size_t namespaces_len;
+
+    runtime_spec_schema_config_linux_resources *resources;
+
+    char *cgroups_path;
+
+    char *rootfs_propagation;
+
+    runtime_spec_schema_config_linux_seccomp *seccomp;
+
+    json_map_string_string *sysctl;
+
+    char **masked_paths;
+    size_t masked_paths_len;
+
+    char **readonly_paths;
+    size_t readonly_paths_len;
+
+    char *mount_label;
+
+    runtime_spec_schema_config_linux_intel_rdt *intel_rdt;
+
+    runtime_spec_schema_defs_linux_personality *personality;
+
+    yajl_val _residual;
+}
+runtime_spec_schema_config_linux;
+
+void free_runtime_spec_schema_config_linux (runtime_spec_schema_config_linux *ptr);
+
+runtime_spec_schema_config_linux *make_runtime_spec_schema_config_linux (yajl_val tree, const struct parser_context *ctx, 
+parser_error *err);
+
+yajl_gen_status gen_runtime_spec_schema_config_linux (yajl_gen g, const runtime_spec_schema_config_linux *ptr, const struct 
+parser_context *ctx, parser_error *err);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+
+<elided_chars>
+449
+<warning>
+Output too long.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 53, $0.01):
+Now I can see the issue. The generated OCI spec already has the `idle` field in the CPU struct, but the 
+`write_cpu_resources` function in `cgroup-resources.c` doesn't handle it. Let me look at the full function and add the idle 
+support.
+
+```
+sed -n '810,870p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+write_cpu_resources (int dirfd_cpu, bool cgroup2, runtime_spec_schema_config_linux_resources_cpu *cpu,
+                     libcrun_error_t *err)
+{
+  size_t len;
+  int ret;
+  char fmt_buf[64];
+  int64_t period = -1;
+  int64_t quota = -1;
+
+  if (cpu->shares)
+    {
+      uint32_t val = cpu->shares;
+
+      if (cgroup2)
+        val = convert_shares_to_weight (val);
+
+      len = sprintf (fmt_buf, "%u", val);
+
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, cgroup2 ? "cpu.weight" : "cpu.shares", fmt_buf,
+                                                 len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (cpu->period)
+    {
+      if (cgroup2)
+        period = cpu->period;
+      else
+        {
+          len = sprintf (fmt_buf, "%" PRIu64, cpu->period);
+          ret = write_cgroup_file (dirfd_cpu, "cpu.cfs_period_us", fmt_buf, len, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+        }
+    }
+  if (cpu->quota)
+    {
+      if (cgroup2)
+        quota = cpu->quota;
+      else
+        {
+          len = sprintf (fmt_buf, "%" PRIu64, cpu->quota);
+          ret = write_cgroup_file (dirfd_cpu, "cpu.cfs_quota_us", fmt_buf, len, err);
+          if (UNLIKELY (ret < 0))
+            return ret;
+        }
+    }
+  if (cpu->realtime_period)
+    {
+      if (cgroup2)
+        return crun_make_error (err, 0, "realtime period not supported on cgroupv2");
+      len = sprintf (fmt_buf, "%" PRIu64, cpu->realtime_period);
+      ret = write_cgroup_file (dirfd_cpu, "cpu.rt_period_us", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (cpu->realtime_runtime)
+    {
+      if (cgroup2)
+        return crun_make_error (err, 0, "realtime runtime not supported on cgroupv2");
+      len = sprintf (fmt_buf, "%" PRIu64, cpu->realtime_runtime);
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 54, $0.01):
+```
+sed -n '870,890p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+      len = sprintf (fmt_buf, "%" PRIu64, cpu->realtime_runtime);
+      ret = write_cgroup_file (dirfd_cpu, "cpu.rt_runtime_us", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+
+  if (cgroup2 && (quota > 0 || period > 0))
+    {
+      if (period < 0)
+        period = 100000;
+      if (quota < 0)
+        len = sprintf (fmt_buf, "max %" PRIi64, period);
+      else
+        len = sprintf (fmt_buf, "%" PRIi64 " %" PRIi64, quota, period);
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.max", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  return 0;
+}
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 55, $0.01):
+Now I need to add support for the `idle` field in the `write_cpu_resources` function. Let me edit the file to add this 
+handling.
+
+```
+sed -n '883,890p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+        len = sprintf (fmt_buf, "%" PRIi64 " %" PRIi64, quota, period);
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.max", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  return 0;
+}
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 56, $0.01):
+```
+# Let me see the exact lines around the end of write_cpu_resources
+sed -n '878,892p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+      if (period < 0)
+        period = 100000;
+      if (quota < 0)
+        len = sprintf (fmt_buf, "max %" PRIi64, period);
+      else
+        len = sprintf (fmt_buf, "%" PRIi64 " %" PRIi64, quota, period);
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.max", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  return 0;
+}
+
+static int
+write_cpuset_resources (int dirfd_cpuset, int cgroup2, runtime_spec_schema_config_linux_resources_cpu *cpu,
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 57, $0.01):
+```
+# Add handling for the cpu.idle field
+# I'll use sed to insert the code before the "return 0;" line
+
+cat <<'SED_SCRIPT' > /tmp/add_idle.sed
+/^  return 0;$/i\
+  if (cpu->idle_present)\
+    {\
+      len = sprintf (fmt_buf, "%" PRId64, cpu->idle);\
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.idle", fmt_buf, len, err);\
+      if (UNLIKELY (ret < 0))\
+        return ret;\
+    }
+SED_SCRIPT
+
+# Show what sed would do
+sed -n '883,892p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+        len = sprintf (fmt_buf, "%" PRIi64 " %" PRIi64, quota, period);
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.max", fmt_buf, len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  return 0;
+}
+
+static int
+write_cpuset_resources (int dirfd_cpuset, int cgroup2, runtime_spec_schema_config_linux_resources_cpu *cpu,
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 58, $0.01):
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-mini/mini-swe-agent/crun-876 && sed -i '/^  return 0;$/i\  if 
+(cpu->idle_present)\
+    {\
+      len = sprintf (fmt_buf, "%" PRId64, cpu->idle);\
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, "cpu.idle", fmt_buf, len, err);\
+      if (UNLIKELY (ret < 0))\
+        return ret;\
+    }' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 59, $0.01):
+```
+sed -n '878,902p' src/libcrun/cgroup-resources.c
+```
+
+Tool:
+<returncode>
+0
+<output>
+  char fmt_buf[64];
+  int64_t period = -1;
+  int64_t quota = -1;
+
+  if (cpu->shares)
+    {
+      uint32_t val = cpu->shares;
+
+      if (cgroup2)
+        val = convert_shares_to_weight (val);
+
+      len = sprintf (fmt_buf, "%u", val);
+
+      ret = write_file_and_check_controllers_at (cgroup2, dirfd_cpu, cgroup2 ? "cpu.weight" : "cpu.shares", fmt_buf,
+                                                 len, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
+    }
+  if (cpu->period)
+    {
+      if (cgroup2)
+        period = cpu->period;
+      else
+        {
+          len = sprintf (fmt_buf, "%" PRIu64, cpu->period);
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
