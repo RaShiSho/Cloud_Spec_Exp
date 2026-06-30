@@ -1,0 +1,61 @@
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/515e1620-c8e5-4611-9431-6f5f62d5fdd7/.git/
+[master (root-commit) 54b6378] initial commit
+ 1 file changed, 1473 insertions(+)
+ create mode 100644 crates/libcontainer/src/process/init/process.rs
+trying the 1-th sample ...
+--- crates/libcontainer/src/process/init/process.rs
++++ crates/libcontainer/src/process/init/process.rs
+@@ -35,7 +35,7 @@
+ use crate::seccomp;
+ use crate::syscall::{Syscall, SyscallError};
+ use crate::user_ns::UserNamespaceConfig;
+-use crate::{apparmor, capabilities, hooks, tty, utils};
++use crate::{apparmor, capabilities, cgroups, hooks, tty, utils};
+ 
+ // Some variables are unused in the case where libseccomp feature is not enabled.
+ #[allow(unused_variables)]
+@@ -94,6 +94,16 @@
+                 tracing::error!(?err, "failed to prepare rootfs");
+                 InitProcessError::RootFS(err)
+             })?;
++
++        // Apply device cgroup rules
++        if let Some(resources) = ctx.linux.resources() {
++            if let Some(devices) = resources.devices() {
++                cgroups::apply_device_rules(devices, ctx.syscall.as_ref()).map_err(|err| {
++                    tracing::error!(?err, "failed to apply device cgroup rules");
++                    InitProcessError::Cgroups(err)
++                })?;
++            }
++        }
+ 
+         if let Some(hooks) = ctx.hooks {
+             // send a request to the main process to run prestart and create_runtime hooks.
+--- crates/libcontainer/src/process/init/process.rs
++++ crates/libcontainer/src/process/init/process.rs
+@@ -35,7 +35,7 @@
+ use crate::seccomp;
+ use crate::syscall::{Syscall, SyscallError};
+ use crate::user_ns::UserNamespaceConfig;
+-use crate::{apparmor, capabilities, hooks, tty, utils};
++use crate::{apparmor, capabilities, cgroups, hooks, tty, utils};
+ 
+ // Some variables are unused in the case where libseccomp feature is not enabled.
+ #[allow(unused_variables)]
+@@ -94,6 +94,16 @@
+                 tracing::error!(?err, "failed to prepare rootfs");
+                 InitProcessError::RootFS(err)
+             })?;
++
++        // Apply device cgroup rules
++        if let Some(resources) = ctx.linux.resources() {
++            if let Some(devices) = resources.devices() {
++                cgroups::apply_device_rules(devices, ctx.syscall.as_ref()).map_err(|err| {
++                    tracing::error!(?err, "failed to apply device cgroup rules");
++                    InitProcessError::Cgroups(err)
++                })?;
++            }
++        }
+ 
+         if let Some(hooks) = ctx.hooks {
+             // send a request to the main process to run prestart and create_runtime hooks.

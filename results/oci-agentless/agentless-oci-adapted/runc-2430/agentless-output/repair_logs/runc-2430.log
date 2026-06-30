@@ -1,0 +1,5922 @@
+2026-06-30 23:59:07,343 - INFO - ================ repairing runc-2430 ================
+2026-06-30 23:59:07,344 - INFO - prompting with message:
+We are currently solving the following issue within our repository. Here is the issue text:
+--- BEGIN ISSUE ---
+Fix OCI runtime bug case runc-2430.
+
+Target runtime: runc
+Title: support seccomp flags such as SECCOMP_FILTER_FLAG_SPEC_ALLOW (OCI Runtime Spec v1.0.2)
+Upstream issue: https://github.com/opencontainers/runc/issues/2430
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2430
+Upstream URL: https://github.com/opencontainers/runc/issues/2430
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo seccomp-flag-ok"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_ALLOW", "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"], "flags": ["SECCOMP_FILTER_FLAG_SPEC_ALLOW"]}
+
+Expected differential behavior:
+Runtimes with OCI v1.0.2 seccomp flag support start and print seccomp-flag-ok. Older runtimes fail while parsing or applying SECCOMP_FILTER_FLAG_SPEC_ALLOW.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-2430
+
+## Upstream Issue Summary
+- Title: support seccomp flags such as SECCOMP_FILTER_FLAG_SPEC_ALLOW (OCI Runtime Spec v1.0.2)
+- URL: https://github.com/opencontainers/runc/issues/2430
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-2430`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo seccomp-flag-ok"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_ALLOW", "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"], "flags": ["SECCOMP_FILTER_FLAG_SPEC_ALLOW"]}
+
+Oracle: Runtimes with OCI v1.0.2 seccomp flag support start and print seccomp-flag-ok. Older runtimes fail while parsing or applying SECCOMP_FILTER_FLAG_SPEC_ALLOW.
+
+--- END ISSUE ---
+
+
+Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
+
+--- BEGIN FILE ---
+```
+### libcontainer/container_linux.go
+// +build linux
+
+package libcontainer
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"time"
+
+	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/intelrdt"
+	"github.com/opencontainers/runc/libcontainer/system"
+	"github.com/opencontainers/runc/libcontainer/utils"
+	"github.com/opencontainers/runtime-spec/specs-go"
+
+	"github.com/checkpoint-restore/go-criu/v4"
+	criurpc "github.com/checkpoint-restore/go-criu/v4/rpc"
+	"github.com/golang/protobuf/proto"
+	"github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink/nl"
+	"golang.org/x/sys/unix"
+)
+
+const stdioFdCount = 3
+
+type linuxContainer struct {
+	id                   string
+	root                 string
+	config               *configs.Config
+	cgroupManager        cgroups.Manager
+	intelRdtManager      intelrdt.Manager
+	initPath             string
+	initArgs             []string
+	initProcess          parentProcess
+	initProcessStartTime uint64
+	criuPath             string
+	newuidmapPath        string
+	newgidmapPath        string
+	m                    sync.Mutex
+	criuVersion          int
+	state                containerState
+	created              time.Time
+}
+
+// State represents a running container's state
+type State struct {
+	BaseState
+
+	// Platform specific fields below here
+
+	// Specified if the container was started under the rootless mode.
+	// Set to true if BaseState.Config.RootlessEUID && BaseState.Config.RootlessCgroups
+	Rootless bool `json:"rootless"`
+
+	// Paths to all the container's cgroups, as returned by (*cgroups.Manager).GetPaths
+	//
+	// For cgroup v1, a key is cgroup subsystem name, and the value is the path
+	// to the cgroup for this subsystem.
+	//
+	// For cgroup v2 unified hierarchy, a key is "", and the value is the unified path.
+	CgroupPaths map[string]string `json:"cgroup_paths"`
+
+	// NamespacePaths are filepaths to the container's namespaces. Key is the namespace type
+	// with the value as the path.
+	NamespacePaths map[configs.NamespaceType]string `json:"namespace_paths"`
+
+	// Container's standard descriptors (std{in,out,err}), needed for checkpoint and restore
+	ExternalDescriptors []string `json:"external_descriptors,omitempty"`
+
+	// Intel RDT "resource control" filesystem path
+	IntelRdtPath string `json:"intel_rdt_path"`
+}
+
+// Container is a libcontainer container object.
+//
+// Each container is thread-safe within the same process. Since a container can
+// be destroyed by a separate process, any function may return that the container
+// was not found.
+type Container interface {
+	BaseContainer
+
+	// Methods below here are platform specific
+
+	// Checkpoint checkpoints the running container's state to disk using the criu(8) utility.
+	//
+	// errors:
+	// Systemerror - System error.
+	Checkpoint(criuOpts *CriuOpts) error
+
+	// Restore restores the checkpointed container to a running state using the criu(8) utility.
+	//
+	// errors:
+	// Systemerror - System error.
+	Restore(process *Process, criuOpts *CriuOpts) error
+
+	// If the Container state is RUNNING or CREATED, sets the Container state to PAUSING and pauses
+	// the execution of any user processes. Asynchronously, when the container finished being paused the
+	// state is changed to PAUSED.
+	// If the Container state is PAUSED, do nothing.
+	//
+	// errors:
+	// ContainerNotExists - Container no longer exists,
+	// ContainerNotRunning - Container not running or created,
+	// Systemerror - System error.
+	Pause() error
+
+	// If the Container state is PAUSED, resumes the execution of any user processes in the
+	// Container before setting the Container state to RUNNING.
+	// If the Container state is RUNNING, do nothing.
+	//
+	// errors:
+	// ContainerNotExists - Container no longer exists,
+	// ContainerNotPaused - Container is not paused,
+	// Systemerror - System error.
+	Resume() error
+
+	// NotifyOOM returns a read-only channel signaling when the container receives an OOM notification.
+	//
+	// errors:
+	// Systemerror - System error.
+	NotifyOOM() (<-chan struct{}, error)
+
+	// NotifyMemoryPressure returns a read-only channel signaling when the container reaches a given pressure level
+	//
+	// errors:
+	// Systemerror - System error.
+	NotifyMemoryPressure(level PressureLevel) (<-chan struct{}, error)
+}
+
+// ID returns the container's unique ID
+func (c *linuxContainer) ID() string {
+	return c.id
+}
+
+// Config returns the container's configuration
+func (c *linuxContainer) Config() configs.Config {
+	return *c.config
+}
+
+func (c *linuxContainer) Status() (Status, error) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.currentStatus()
+}
+
+func (c *linuxContainer) State() (*State, error) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.currentState()
+}
+
+func (c *linuxContainer) OCIState() (*specs.State, error) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.currentOCIState()
+}
+
+func (c *linuxContainer) Processes() ([]int, error) {
+	pids, err := c.cgroupManager.GetAllPids()
+	if err != nil {
+		return nil, newSystemErrorWithCause(err, "getting all container pids from cgroups")
+	}
+	return pids, nil
+}
+
+func (c *linuxContainer) Stats() (*Stats, error) {
+	var (
+		err   error
+		stats = &Stats{}
+	)
+	if stats.CgroupStats, err = c.cgroupManager.GetStats(); err != nil {
+		return stats, newSystemErrorWithCause(err, "getting container stats from cgroups")
+	}
+	if c.intelRdtManager != nil {
+		if stats.IntelRdtStats, err = c.intelRdtManager.GetStats(); err != nil {
+			return stats, newSystemErrorWithCause(err, "getting container's Intel RDT stats")
+		}
+	}
+	for _, iface := range c.config.Networks {
+		switch iface.Type {
+		case "veth":
+			istats, err := getNetworkInterfaceStats(iface.HostInterfaceName)
+			if err != nil {
+				return stats, newSystemErrorWithCausef(err, "getting network stats for interface %q", iface.HostInterfaceName)
+			}
+			stats.Interfaces = append(stats.Interfaces, istats)
+		}
+	}
+	return stats, nil
+}
+
+func (c *linuxContainer) Set(config configs.Config) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	status, err := c.currentStatus()
+	if err != nil {
+		return err
+	}
+	if status == Stopped {
+		return newGenericError(errors.New("container not running"), ContainerNotRunning)
+	}
+	if err := c.cgroupManager.Set(&config); err != nil {
+		// Set configs back
+		if err2 := c.cgroupManager.Set(c.config); err2 != nil {
+			logrus.Warnf("Setting back cgroup configs failed due to error: %v, your state.json and actual configs might be inconsistent.", err2)
+		}
+		return err
+	}
+	if c.intelRdtManager != nil {
+		if err := c.intelRdtManager.Set(&config); err != nil {
+			// Set configs back
+			if err2 := c.intelRdtManager.Set(c.config); err2 != nil {
+				logrus.Warnf("Setting back intelrdt configs failed due to error: %v, your state.json and actual configs might be inconsistent.", err2)
+			}
+			return err
+		}
+	}
+	// After config setting succeed, update config and states
+	c.config = &config
+	_, err = c.updateState(nil)
+	return err
+}
+
+func (c *linuxContainer) Start(process *Process) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	if process.Init {
+		if err := c.createExecFifo(); err != nil {
+			return err
+		}
+	}
+	if err := c.start(process); err != nil {
+		if process.Init {
+			c.deleteExecFifo()
+		}
+		return err
+	}
+	return nil
+}
+
+func (c *linuxContainer) Run(process *Process) error {
+	if err := c.Start(process); err != nil {
+		return err
+	}
+	if process.Init {
+		return c.exec()
+	}
+	return nil
+}
+
+func (c *linuxContainer) Exec() error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.exec()
+}
+
+func (c *linuxContainer) exec() error {
+	path := filepath.Join(c.root, execFifoFilename)
+	pid := c.initProcess.pid()
+	blockingFifoOpenCh := awaitFifoOpen(path)
+	for {
+		select {
+		case result := <-blockingFifoOpenCh:
+			return handleFifoResult(result)
+
+		case <-time.After(time.Millisecond * 100):
+			stat, err := system.Stat(pid)
+			if err != nil || stat.State == system.Zombie {
+				// could be because process started, ran, and completed between our 100ms timeout and our system.Stat() check.
+				// see if the fifo exists and has data (with a non-blocking open, which will succeed if the writing process is complete).
+				if err := handleFifoResult(fifoOpen(path, false)); err != nil {
+					return errors.New("container process is already dead")
+				}
+				return nil
+			}
+		}
+	}
+}
+
+func readFromExecFifo(execFifo io.Reader) error {
+	data, err := ioutil.ReadAll(execFifo)
+	if err != nil {
+		return err
+	}
+	if len(data) <= 0 {
+		return errors.New("cannot start an already running container")
+	}
+	return nil
+}
+
+func awaitFifoOpen(path string) <-chan openResult {
+	fifoOpened := make(chan openResult)
+	go func() {
+		result := fifoOpen(path, true)
+		fifoOpened <- result
+	}()
+	return fifoOpened
+}
+
+func fifoOpen(path string, block bool) openResult {
+	flags := os.O_RDONLY
+	if !block {
+		flags |= unix.O_NONBLOCK
+	}
+	f, err := os.OpenFile(path, flags, 0)
+	if err != nil {
+		return openResult{err: newSystemErrorWithCause(err, "open exec fifo for reading")}
+	}
+	return openResult{file: f}
+}
+
+func handleFifoResult(result openResult) error {
+	if result.err != nil {
+		return result.err
+	}
+	f := result.file
+	defer f.Close()
+	if err := readFromExecFifo(f); err != nil {
+		return err
+	}
+	return os.Remove(f.Name())
+}
+
+type openResult struct {
+	file *os.File
+	err  error
+}
+
+func (c *linuxContainer) start(process *Process) error {
+	parent, err := c.newParentProcess(process)
+	if err != nil {
+		return newSystemErrorWithCause(err, "creating new parent process")
+	}
+	parent.forwardChildLogs()
+	if err := parent.start(); err != nil {
+		// terminate the process to ensure that it properly is reaped.
+		if err := ignoreTerminateErrors(parent.terminate()); err != nil {
+			logrus.Warn(err)
+		}
+		return newSystemErrorWithCause(err, "starting container process")
+	}
+	// generate a timestamp indicating when the container was started
+	c.created = time.Now().UTC()
+	if process.Init {
+		c.state = &createdState{
+			c: c,
+		}
+		state, err := c.updateState(parent)
+		if err != nil {
+			return err
+		}
+		c.initProcessStartTime = state.InitProcessStartTime
+
+		if c.config.Hooks != nil {
+			s, err := c.currentOCIState()
+			if err != nil {
+				return err
+			}
+			for i, hook := range c.config.Hooks.Poststart {
+				if err := hook.Run(s); err != nil {
+					if err := ignoreTerminateErrors(parent.terminate()); err != nil {
+						logrus.Warn(err)
+					}
+					return newSystemErrorWithCausef(err, "running poststart hook %d", i)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *linuxContainer) Signal(s os.Signal, all bool) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	if all {
+		return signalAllProcesses(c.cgroupManager, s)
+	}
+	status, err := c.currentStatus()
+	if err != nil {
+		return err
+	}
+	// to avoid a PID reuse attack
+	if status == Running || status == Created || status == Paused {
+		if err := c.initProcess.signal(s); err != nil {
+			return newSystemErrorWithCause(err, "signaling init process")
+		}
+		return nil
+	}
+	return newGenericError(errors.New("container not running"), ContainerNotRunning)
+}
+
+func (c *linuxContainer) createExecFifo() error {
+	rootuid, err := c.Config().HostRootUID()
+	if err != nil {
+		return err
+	}
+	rootgid, err := c.Config().HostRootGID()
+	if err != nil {
+		return err
+	}
+
+	fifoName := filepath.Join(c.root, execFifoFilename)
+	if _, err := os.Stat(fifoName); err == nil {
+		return fmt.Errorf("exec fifo %s already exists", fifoName)
+	}
+	oldMask := unix.Umask(0000)
+	if err := unix.Mkfifo(fifoName, 0622); err != nil {
+		unix.Umask(oldMask)
+		return err
+	}
+	unix.Umask(oldMask)
+	return os.Chown(fifoName, rootuid, rootgid)
+}
+
+func (c *linuxContainer) deleteExecFifo() {
+	fifoName := filepath.Join(c.root, execFifoFilename)
+	os.Remove(fifoName)
+}
+
+// includeExecFifo opens the container's execfifo as a pathfd, so that the
+// container cannot access the statedir (and the FIFO itself remains
+// un-opened). It then adds the FifoFd to the given exec.Cmd as an inherited
+// fd, with _LIBCONTAINER_FIFOFD set to its fd number.
+func (c *linuxContainer) includeExecFifo(cmd *exec.Cmd) error {
+	fifoName := filepath.Join(c.root, execFifoFilename)
+	fifoFd, err := unix.Open(fifoName, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+
+	cmd.ExtraFiles = append(cmd.ExtraFiles, os.NewFile(uintptr(fifoFd), fifoName))
+	cmd.Env = append(cmd.Env,
+		fmt.Sprintf("_LIBCONTAINER_FIFOFD=%d", stdioFdCount+len(cmd.ExtraFiles)-1))
+	return nil
+}
+
+func (c *linuxContainer) newParentProcess(p *Process) (parentProcess, error) {
+	parentInitPipe, childInitPipe, err := utils.NewSockPair("init")
+	if err != nil {
+		return nil, newSystemErrorWithCause(err, "creating new init pipe")
+	}
+	messageSockPair := filePair{parentInitPipe, childInitPipe}
+
+	parentLogPipe, childLogPipe, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("Unable to create the log pipe:  %s", err)
+	}
+	logFilePair := filePair{parentLogPipe, childLogPipe}
+
+	cmd := c.commandTemplate(p, childInitPipe, childLogPipe)
+	if !p.Init {
+		return c.newSetnsProcess(p, cmd, messageSockPair, logFilePair)
+	}
+
+	// We only set up fifoFd if we're not doing a `runc exec`. The historic
+	// reason for this is that previously we would pass a dirfd that allowed
+	// for container rootfs escape (and not doing it in `runc exec` avoided
+	// that problem), but we no longer do that. However, there's no need to do
+	// this for `runc exec` so we just keep it this way to be safe.
+	if err := c.includeExecFifo(cmd); err != nil {
+		return nil, newSystemErrorWithCause(err, "including execfifo in cmd.Exec setup")
+	}
+	return c.newInitProcess(p, cmd, messageSockPair, logFilePair)
+}
+
+func (c *linuxContainer) commandTemplate(p *Process, childInitPipe *os.File, childLogPipe *os.File) *exec.Cmd {
+	cmd := exec.Command(c.initPath, c.initArgs[1:]...)
+	cmd.Args[0] = c.initArgs[0]
+	cmd.Stdin = p.Stdin
+	cmd.Stdout = p.Stdout
+	cmd.Stderr = p.Stderr
+	cmd.Dir = c.config.Rootfs
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &unix.SysProcAttr{}
+	}
+	cmd.Env = append(cmd.Env, fmt.Sprintf("GOMAXPROCS=%s", os.Getenv("GOMAXPROCS")))
+	cmd.ExtraFiles = append(cmd.ExtraFiles, p.ExtraFiles...)
+	if p.ConsoleSocket != nil {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, p.ConsoleSocket)
+		cmd.Env = append(cmd.Env,
+			fmt.Sprintf("_LIBCONTAINER_CONSOLE=%d", stdioFdCount+len(cmd.ExtraFiles)-1),
+		)
+	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, childInitPipe)
+	cmd.Env = append(cmd.Env,
+		fmt.Sprintf("_LIBCONTAINER_INITPIPE=%d", stdioFdCount+len(cmd.ExtraFiles)-1),
+		fmt.Sprintf("_LIBCONTAINER_STATEDIR=%s", c.root),
+	)
+
+	cmd.ExtraFiles = append(cmd.ExtraFiles, childLogPipe)
+	cmd.Env = append(cmd.Env,
+		fmt.Sprintf("_LIBCONTAINER_LOGPIPE=%d", stdioFdCount+len(cmd.ExtraFiles)-1),
+		fmt.Sprintf("_LIBCONTAINER_LOGLEVEL=%s", p.LogLevel),
+	)
+
+	// NOTE: when running a container with no PID namespace and the parent process spawning the container is
+	// PID1 the pdeathsig is being delivered to the container's init process by the kernel for some reason
+	// even with the parent still running.
+	if c.config.ParentDeathSignal > 0 {
+		cmd.SysProcAttr.Pdeathsig = unix.Signal(c.config.ParentDeathSignal)
+	}
+	return cmd
+}
+
+func (c *linuxContainer) newInitProcess(p *Process, cmd *exec.Cmd, messageSockPair, logFilePair filePair) (*initProcess, error) {
+	cmd.Env = append(cmd.Env, "_LIBCONTAINER_INITTYPE="+string(initStandard))
+	nsMaps := make(map[configs.NamespaceType]string)
+	for _, ns := range c.config.Namespaces {
+		if ns.Path != "" {
+			nsMaps[ns.Type] = ns.Path
+		}
+	}
+	_, sharePidns := nsMaps[configs.NEWPID]
+	data, err := c.bootstrapData(c.config.Namespaces.CloneFlags(), nsMaps)
+	if err != nil {
+		return nil, err
+	}
+	init := &initProcess{
+		cmd:             cmd,
+		messageSockPair: messageSockPair,
+		logFilePair:     logFilePair,
+		manager:         c.cgroupManager,
+		intelRdtManager: c.intelRdtManager,
+		config:          c.newInitConfig(p),
+		container:       c,
+		process:         p,
+		bootstrapData:   data,
+		sharePidns:      sharePidns,
+	}
+	c.initProcess = init
+	return init, nil
+}
+
+func (c *linuxContainer) newSetnsProcess(p *Process, cmd *exec.Cmd, messageSockPair, logFilePair filePair) (*setnsProcess, error) {
+	cmd.Env = append(cmd.Env, "_LIBCONTAINER_INITTYPE="+string(initSetns))
+	state, err := c.currentState()
+	if err != nil {
+		return nil, newSystemErrorWithCause(err, "getting container's current state")
+	}
+	// for setns process, we don't have to set cloneflags as the process namespaces
+	// will only be set via setns syscall
+	data, err := c.bootstrapData(0, state.NamespacePaths)
+	if err != nil {
+		return nil, err
+	}
+	return &setnsProcess{
+		cmd:             cmd,
+		cgroupPaths:     state.CgroupPaths,
+		rootlessCgroups: c.config.RootlessCgroups,
+		intelRdtPath:    state.IntelRdtPath,
+		messageSockPair: messageSockPair,
+		logFilePair:     logFilePair,
+		config:          c.newInitConfig(p),
+		process:         p,
+		bootstrapData:   data,
+	}, nil
+}
+
+func (c *linuxContainer) newInitConfig(process *Process) *initConfig {
+	cfg := &initConfig{
+		Config:           c.config,
+		Args:             process.Args,
+		Env:              process.Env,
+		User:             process.User,
+		AdditionalGroups: process.AdditionalGroups,
+		Cwd:              process.Cwd,
+		Capabilities:     process.Capabilities,
+		PassedFilesCount: len(process.ExtraFiles),
+		ContainerId:      c.ID(),
+		NoNewPrivileges:  c.config.NoNewPrivileges,
+		RootlessEUID:     c.config.RootlessEUID,
+		RootlessCgroups:  c.config.RootlessCgroups,
+		AppArmorProfile:  c.config.AppArmorProfile,
+		ProcessLabel:     c.config.ProcessLabel,
+		Rlimits:          c.config.Rlimits,
+	}
+	if process.NoNewPrivileges != nil {
+		cfg.NoNewPrivileges = *process.NoNewPrivileges
+	}
+	if process.AppArmorProfile != "" {
+		cfg.AppArmorProfile = process.AppArmorProfile
+	}
+	if process.Label != "" {
+		cfg.ProcessLabel = process.Label
+	}
+	if len(process.Rlimits) > 0 {
+		cfg.Rlimits = process.Rlimits
+	}
+	cfg.CreateConsole = process.ConsoleSocket != nil
+	cfg.ConsoleWidth = process.ConsoleWidth
+	cfg.ConsoleHeight = process.ConsoleHeight
+	return cfg
+}
+
+func (c *linuxContainer) Destroy() error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.state.destroy()
+}
+
+func (c *linuxContainer) Pause() error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	status, err := c.currentStatus()
+	if err != nil {
+		return err
+	}
+	switch status {
+	case Running, Created:
+		if err := c.cgroupManager.Freeze(configs.Frozen); err != nil {
+			return err
+		}
+		return c.state.transition(&pausedState{
+			c: c,
+		})
+	}
+	return newGenericError(fmt.Errorf("container not running or created: %s", status), ContainerNotRunning)
+}
+
+func (c *linuxContainer) Resume() error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	status, err := c.currentStatus()
+	if err != nil {
+		return err
+	}
+	if status != Paused {
+		return newGenericError(fmt.Errorf("container not paused"), ContainerNotPaused)
+	}
+	if err := c.cgroupManager.Freeze(configs.Thawed); err != nil {
+		return err
+	}
+	return c.state.transition(&runningState{
+		c: c,
+	})
+}
+
+func (c *linuxContainer) NotifyOOM() (<-chan struct{}, error) {
+	// XXX(cyphar): This requires cgroups.
+	if c.config.RootlessCgroups {
+		logrus.Warn("getting OOM notifications may fail if you don't have the full access to cgroups")
+	}
+	path := c.cgroupManager.Path("memory")
+	if cgroups.IsCgroup2UnifiedMode() {
+		return notifyOnOOMV2(path)
+	}
+	return notifyOnOOM(path)
+}
+
+func (c *linuxContainer) NotifyMemoryPressure(level PressureLevel) (<-chan struct{}, error) {
+	// XXX(cyphar): This requires cgroups.
+	if c.config.RootlessCgroups {
+		logrus.Warn("getting memory pressure notifications may fail if you don't have the full access to cgroups")
+	}
+	return notifyMemoryPressure(c.cgroupManager.Path("memory"), level)
+}
+
+var criuFeatures *criurpc.CriuFeatures
+
+func (c *linuxContainer) checkCriuFeatures(criuOpts *CriuOpts, rpcOpts *criurpc.CriuOpts, criuFeat *criurpc.CriuFeatures) error {
+
+	var t criurpc.CriuReqType
+	t = criurpc.CriuReqType_FEATURE_CHECK
+
+	// make sure the features we are looking for are really not from
+	// some previous check
+	criuFeatures = nil
+
+	req := &criurpc.CriuReq{
+		Type: &t,
+		// Theoretically this should not be necessary but CRIU
+		// segfaults if Opts is empty.
+		// Fixed in CRIU  2.12
+		Opts:     rpcOpts,
+		Features: criuFeat,
+	}
+
+	err := c.criuSwrk(nil, req, criuOpts, false, nil)
+	if err != nil {
+		logrus.Debugf("%s", err)
+		return errors.New("CRIU feature check failed")
+	}
+
+	logrus.Debugf("Feature check says: %s", criuFeatures)
+	missingFeatures := false
+
+	// The outer if checks if the fields actually exist
+	if (criuFeat.MemTrack != nil) &&
+		(criuFeatures.MemTrack != nil) {
+		// The inner if checks if they are set to true
+		if *criuFeat.MemTrack && !*criuFeatures.MemTrack {
+			missingFeatures = true
+			logrus.Debugf("CRIU does not support MemTrack")
+		}
+	}
+
+	// This needs to be repeated for every new feature check.
+	// Is there a way to put this in a function. Reflection?
+	if (criuFeat.LazyPages != nil) &&
+		(criuFeatures.LazyPages != nil) {
+		if *criuFeat.LazyPages && !*criuFeatures.LazyPages {
+			missingFeatures = true
+			logrus.Debugf("CRIU does not support LazyPages")
+		}
+	}
+
+	if missingFeatures {
+		return errors.New("CRIU is missing features")
+	}
+
+	return nil
+}
+
+func compareCriuVersion(criuVersion int, minVersion int) error {
+	// simple function to perform the actual version compare
+	if criuVersion < minVersion {
+		return fmt.Errorf("CRIU version %d must be %d or higher", criuVersion, minVersion)
+	}
+
+	return nil
+}
+
+// checkCriuVersion checks Criu version greater than or equal to minVersion
+func (c *linuxContainer) checkCriuVersion(minVersion int) error {
+
+	// If the version of criu has already been determined there is no need
+	// to ask criu for the version again. Use the value from c.criuVersion.
+	if c.criuVersion != 0 {
+		return compareCriuVersion(c.criuVersion, minVersion)
+	}
+
+	criu := criu.MakeCriu()
+	var err error
+	c.criuVersion, err = criu.GetCriuVersion()
+	if err != nil {
+		return fmt.Errorf("CRIU version check failed: %s", err)
+	}
+
+	return compareCriuVersion(c.criuVersion, minVersion)
+}
+
+const descriptorsFilename = "descriptors.json"
+
+func (c *linuxContainer) addCriuDumpMount(req *criurpc.CriuReq, m *configs.Mount) {
+	mountDest := m.Destination
+	if strings.HasPrefix(mountDest, c.config.Rootfs) {
+		mountDest = mountDest[len(c.config.Rootfs):]
+	}
+
+	extMnt := &criurpc.ExtMountMap{
+		Key: proto.String(mountDest),
+		Val: proto.String(mountDest),
+	}
+	req.Opts.ExtMnt = append(req.Opts.ExtMnt, extMnt)
+}
+
+func (c *linuxContainer) addMaskPaths(req *criurpc.CriuReq) error {
+	for _, path := range c.config.MaskPaths {
+		fi, err := os.Stat(fmt.Sprintf("/proc/%d/root/%s", c.initProcess.pid(), path))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if fi.IsDir() {
+			continue
+		}
+
+		extMnt := &criurpc.ExtMountMap{
+			Key: proto.String(path),
+			Val: proto.String("/dev/null"),
+		}
+		req.Opts.ExtMnt = append(req.Opts.ExtMnt, extMnt)
+	}
+	return nil
+}
+
+func (c *linuxContainer) handleCriuConfigurationFile(rpcOpts *criurpc.CriuOpts) {
+	// CRIU will evaluate a configuration starting with release 3.11.
+	// Settings in the configuration file will overwrite RPC settings.
+	// Look for annotations. The annotation 'org.criu.config'
+	// specifies if CRIU should use a different, container specific
+	// configuration file.
+	_, annotations := utils.Annotations(c.config.Labels)
+	configFile, exists := annotations["org.criu.config"]
+	if exists {
+		// If the annotation 'org.criu.config' exists and is set
+		// to a non-empty string, tell CRIU to use that as a
+		// configuration file. If the file does not exist, CRIU
+		// will just ignore it.
+		if configFile != "" {
+			rpcOpts.ConfigFile = proto.String(configFile)
+		}
+		// If 'org.criu.config' exists and is set to an empty
+		// string, a runc specific CRIU configuration file will
+		// be not set at all.
+	} else {
+		// If the mentioned annotation has not been found, specify
+		// a default CRIU configuration file.
+		rpcOpts.ConfigFile = proto.String("/etc/criu/runc.conf")
+	}
+}
+
+func (c *linuxContainer) Checkpoint(criuOpts *CriuOpts) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	// Checkpoint is unlikely to work if os.Geteuid() != 0 || system.RunningInUserNS().
+	// (CLI prints a warning)
+	// TODO(avagin): Figure out how to make this work nicely. CRIU 2.0 has
+	//               support for doing unprivileged dumps, but the setup of
+	//               rootless containers might make this complicated.
+
+	// We are relying on the CRIU version RPC which was introduced with CRIU 3.0.0
+	if err := c.checkCriuVersion(30000); err != nil {
+		return err
+	}
+
+	if criuOpts.ImagesDirectory == "" {
+		return errors.New("invalid directory to save checkpoint")
+	}
+
+	// Since a container can be C/R'ed multiple times,
+	// the checkpoint directory may already exist.
+	if err := os.Mkdir(criuOpts.ImagesDirectory, 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+
+	if criuOpts.WorkDirectory == "" {
+		criuOpts.WorkDirectory = filepath.Join(c.root, "criu.work")
+	}
+
+	if err := os.Mkdir(criuOpts.WorkDirectory, 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+
+	workDir, err := os.Open(criuOpts.WorkDirectory)
+	if err != nil {
+		return err
+	}
+	defer workDir.Close()
+
+	imageDir, err := os.Open(criuOpts.ImagesDirectory)
+	if err != nil {
+		return err
+	}
+	defer imageDir.Close()
+
+	rpcOpts := criurpc.CriuOpts{
+		ImagesDirFd:     proto.Int32(int32(imageDir.Fd())),
+		WorkDirFd:       proto.Int32(int32(workDir.Fd())),
+		LogLevel:        proto.Int32(4),
+		LogFile:         proto.String("dump.log"),
+		Root:            proto.String(c.config.Rootfs),
+		ManageCgroups:   proto.Bool(true),
+		NotifyScripts:   proto.Bool(true),
+		Pid:             proto.Int32(int32(c.initProcess.pid())),
+		ShellJob:        proto.Bool(criuOpts.ShellJob),
+		LeaveRunning:    proto.Bool(criuOpts.LeaveRunning),
+		TcpEstablished:  proto.Bool(criuOpts.TcpEstablished),
+		ExtUnixSk:       proto.Bool(criuOpts.ExternalUnixConnections),
+		FileLocks:       proto.Bool(criuOpts.FileLocks),
+		EmptyNs:         proto.Uint32(criuOpts.EmptyNs),
+		OrphanPtsMaster: proto.Bool(true),
+		AutoDedup:       proto.Bool(criuOpts.AutoDedup),
+		LazyPages:       proto.Bool(criuOpts.LazyPages),
+	}
+
+	c.handleCriuConfigurationFile(&rpcOpts)
+
+	// If the container is running in a network namespace and has
+	// a path to the network namespace configured, we will dump
+	// that network namespace as an external namespace and we
+	// will expect that the namespace exists during restore.
+	// This basically means that CRIU will ignore the namespace
+	// and expect to be setup correctly.
+	nsPath := c.config.Namespaces.PathOf(configs.NEWNET)
+	if nsPath != "" {
+		// For this to work we need at least criu 3.11.0 => 31100.
+		// As there was already a successful version check we will
+		// not error out if it fails. runc will just behave as it used
+		// to do and ignore external network namespaces.
+		err := c.checkCriuVersion(31100)
+		if err == nil {
+			// CRIU expects the information about an external namespace
+			// like this: --external net[<inode>]:<key>
+			// This <key> is always 'extRootNetNS'.
+			var netns unix.Stat_t
+			err = unix.Stat(nsPath, &netns)
+			if err != nil {
+				return err
+			}
+			criuExternal := fmt.Sprintf("net[%d]:extRootNetNS", netns.Ino)
+			rpcOpts.External = append(rpcOpts.External, criuExternal)
+		}
+	}
+
+	// CRIU can use cgroup freezer; when rpcOpts.FreezeCgroup
+	// is not set, CRIU uses ptrace() to pause the processes.
+	// Note cgroup v2 freezer is only supported since CRIU release 3.14.
+	if !cgroups.IsCgroup2UnifiedMode() || c.checkCriuVersion(31400) == nil {
+		if fcg := c.cgroupManager.Path("freezer"); fcg != "" {
+			rpcOpts.FreezeCgroup = proto.String(fcg)
+		}
+	}
+
+	// append optional criu opts, e.g., page-server and port
+	if criuOpts.PageServer.Address != "" && criuOpts.PageServer.Port != 0 {
+		rpcOpts.Ps = &criurpc.CriuPageServerInfo{
+			Address: proto.String(criuOpts.PageServer.Address),
+			Port:    proto.Int32(criuOpts.PageServer.Port),
+		}
+	}
+
+	//pre-dump may need parentImage param to complete iterative migration
+	if criuOpts.ParentImage != "" {
+		rpcOpts.ParentImg = proto.String(criuOpts.ParentImage)
+		rpcOpts.TrackMem = proto.Bool(true)
+	}
+
+	// append optional manage cgroups mode
+	if criuOpts.ManageCgroupsMode != 0 {
+		mode := criurpc.CriuCgMode(criuOpts.ManageCgroupsMode)
+		rpcOpts.ManageCgroupsMode = &mode
+	}
+
+	var t criurpc.CriuReqType
+	if criuOpts.PreDump {
+		feat := criurpc.CriuFeatures{
+			MemTrack: proto.Bool(true),
+		}
+
+		if err := c.checkCriuFeatures(criuOpts, &rpcOpts, &feat); err != nil {
+			return err
+		}
+
+		t = criurpc.CriuReqType_PRE_DUMP
+	} else {
+		t = criurpc.CriuReqType_DUMP
+	}
+
+	if criuOpts.LazyPages {
+		// lazy migration requested; check if criu supports it
+		feat := criurpc.CriuFeatures{
+			LazyPages: proto.Bool(true),
+		}
+		if err := c.checkCriuFeatures(criuOpts, &rpcOpts, &feat); err != nil {
+			return err
+		}
+
+		if fd := criuOpts.StatusFd; fd != -1 {
+			// check that the FD is valid
+			flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+			if err != nil {
+				return fmt.Errorf("invalid --status-fd argument %d: %w", fd, err)
+			}
+			// and writable
+			if flags&unix.O_WRONLY == 0 {
+				return fmt.Errorf("invalid --status-fd argument %d: not writable", fd)
+			}
+
+			rpcOpts.StatusFd = proto.Int32(int32(fd))
+		}
+	}
+
+	req := &criurpc.CriuReq{
+		Type: &t,
+		Opts: &rpcOpts,
+	}
+
+	// no need to dump all this in pre-dump
+	if !criuOpts.PreDump {
+		hasCgroupns := c.config.Namespaces.Contains(configs.NEWCGROUP)
+		for _, m := range c.config.Mounts {
+			switch m.Device {
+			case "bind":
+				c.addCriuDumpMount(req, m)
+			case "cgroup":
+				if cgroups.IsCgroup2UnifiedMode() || hasCgroupns {
+					// real mount(s)
+					continue
+				}
+				// a set of "external" bind mounts
+				binds, err := getCgroupMounts(m)
+				if err != nil {
+					return err
+				}
+				for _, b := range binds {
+					c.addCriuDumpMount(req, b)
+				}
+			}
+		}
+
+		if err := c.addMaskPaths(req); err != nil {
+			return err
+		}
+
+		for _, node := range c.config.Devices {
+			m := &configs.Mount{Destination: node.Path, Source: node.Path}
+			c.addCriuDumpMount(req, m)
+		}
+
+		// Write the FD info to a file in the image directory
+		fdsJSON, err := json.Marshal(c.initProcess.externalDescriptors())
+		if err != nil {
+			return err
+		}
+
+		err = ioutil.WriteFile(filepath.Join(criuOpts.ImagesDirectory, descriptorsFilename), fdsJSON, 0600)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = c.criuSwrk(nil, req, criuOpts, false, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *linuxContainer) addCriuRestoreMount(req *criurpc.CriuReq, m *configs.Mount) {
+	mountDest := m.Destination
+	if strings.HasPrefix(mountDest, c.config.Rootfs) {
+		mountDest = mountDest[len(c.config.Rootfs):]
+	}
+
+	extMnt := &criurpc.ExtMountMap{
+		Key: proto.String(mountDest),
+		Val: proto.String(m.Source),
+	}
+	req.Opts.ExtMnt = append(req.Opts.ExtMnt, extMnt)
+}
+
+func (c *linuxContainer) restoreNetwork(req *criurpc.CriuReq, criuOpts *CriuOpts) {
+	for _, iface := range c.config.Networks {
+		switch iface.Type {
+		case "veth":
+			veth := new(criurpc.CriuVethPair)
+			veth.IfOut = proto.String(iface.HostInterfaceName)
+			veth.IfIn = proto.String(iface.Name)
+			req.Opts.Veths = append(req.Opts.Veths, veth)
+		case "loopback":
+			// Do nothing
+		}
+	}
+	for _, i := range criuOpts.VethPairs {
+		veth := new(criurpc.CriuVethPair)
+		veth.IfOut = proto.String(i.HostInterfaceName)
+		veth.IfIn = proto.String(i.ContainerInterfaceName)
+		req.Opts.Veths = append(req.Opts.Veths, veth)
+	}
+}
+
+// makeCriuRestoreMountpoints makes the actual mountpoints for the
+// restore using CRIU. This function is inspired from the code in
+// rootfs_linux.go
+func (c *linuxContainer) makeCriuRestoreMountpoints(m *configs.Mount) error {
+	switch m.Device {
+	case "cgroup":
+		// No mount point(s) need to be created:
+		//
+		// * for v1, mount points are saved by CRIU because
+		//   /sys/fs/cgroup is a tmpfs mount
+		//
+		// * for v2, /sys/fs/cgroup is a real mount, but
+		//   the mountpoint appears as soon as /sys is mounted
+		return nil
+	case "bind":
+		// The prepareBindMount() function checks if source
+		// exists. So it cannot be used for other filesystem types.
+		if err := prepareBindMount(m, c.config.Rootfs); err != nil {
+			return err
+		}
+	default:
+		// for all other filesystems just create the mountpoints
+		dest, err := securejoin.SecureJoin(c.config.Rootfs, m.Destination)
+		if err != nil {
+			return err
+		}
+		if err := checkProcMount(c.config.Rootfs, dest, ""); err != nil {
+			return err
+		}
+		m.Destination = dest
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// isPathInPrefixList is a small function for CRIU restore to make sure
+// mountpoints, which are on a tmpfs, are not created in the roofs
+func isPathInPrefixList(path string, prefix []string) bool {
+	for _, p := range prefix {
+		if strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// prepareCriuRestoreMounts tries to set up the rootfs of the
+// container to be restored in the same way runc does it for
+// initial container creation. Even for a read-only rootfs container
+// runc modifies the rootfs to add mountpoints which do not exist.
+// This function also creates missing mountpoints as long as they
+// are not on top of a tmpfs, as CRIU will restore tmpfs content anyway.
+func (c *linuxContainer) prepareCriuRestoreMounts(mounts []*configs.Mount) error {
+	// First get a list of a all tmpfs mounts
+	tmpfs := []string{}
+	for _, m := range mounts {
+		switch m.Device {
+		case "tmpfs":
+			tmpfs = append(tmpfs, m.Destination)
+		}
+	}
+	// Now go through all mounts and create the mountpoints
+	// if the mountpoints are not on a tmpfs, as CRIU will
+	// restore the complete tmpfs content from its checkpoint.
+	for _, m := range mounts {
+		if !isPathInPrefixList(m.Destination, tmpfs) {
+			if err := c.makeCriuRestoreMountpoints(m); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *linuxContainer) Restore(process *Process, criuOpts *CriuOpts) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	var extraFiles []*os.File
+
+	// Restore is unlikely to work if os.Geteuid() != 0 || system.RunningInUserNS().
+	// (CLI prints a warning)
+	// TODO(avagin): Figure out how to make this work nicely. CRIU doesn't have
+	//               support for unprivileged restore at the moment.
+
+	// We are relying on the CRIU version RPC which was introduced with CRIU 3.0.0
+	if err := c.checkCriuVersion(30000); err != nil {
+		return err
+	}
+	if criuOpts.WorkDirectory == "" {
+		criuOpts.WorkDirectory = filepath.Join(c.root, "criu.work")
+	}
+	// Since a container can be C/R'ed multiple times,
+	// the work directory may already exist.
+	if err := os.Mkdir(criuOpts.WorkDirectory, 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	workDir, err := os.Open(criuOpts.WorkDirectory)
+	if err != nil {
+		return err
+	}
+	defer workDir.Close()
+	if criuOpts.ImagesDirectory == "" {
+		return errors.New("invalid directory to restore checkpoint")
+	}
+	imageDir, err := os.Open(criuOpts.ImagesDirectory)
+	if err != nil {
+		return err
+	}
+	defer imageDir.Close()
+	// CRIU has a few requirements for a root directory:
+	// * it must be a mount point
+	// * its parent must not be overmounted
+	// c.config.Rootfs is bind-mounted to a temporary directory
+	// to satisfy these requirements.
+	root := filepath.Join(c.root, "criu-root")
+	if err := os.Mkdir(root, 0755); err != nil {
+		return err
+	}
+	defer os.Remove(root)
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	err = unix.Mount(c.config.Rootfs, root, "", unix.MS_BIND|unix.MS_REC, "")
+	if err != nil {
+		return err
+	}
+	defer unix.Unmount(root, unix.MNT_DETACH)
+	t := criurpc.CriuReqType_RESTORE
+	req := &criurpc.CriuReq{
+		Type: &t,
+		Opts: &criurpc.CriuOpts{
+			ImagesDirFd:     proto.Int32(int32(imageDir.Fd())),
+			WorkDirFd:       proto.Int32(int32(workDir.Fd())),
+			EvasiveDevices:  proto.Bool(true),
+			LogLevel:        proto.Int32(4),
+			LogFile:         proto.String("restore.log"),
+			RstSibling:      proto.Bool(true),
+			Root:            proto.String(root),
+			ManageCgroups:   proto.Bool(true),
+			NotifyScripts:   proto.Bool(true),
+			ShellJob:        proto.Bool(criuOpts.ShellJob),
+			ExtUnixSk:       proto.Bool(criuOpts.ExternalUnixConnections),
+			TcpEstablished:  proto.Bool(criuOpts.TcpEstablished),
+			FileLocks:       proto.Bool(criuOpts.FileLocks),
+			EmptyNs:         proto.Uint32(criuOpts.EmptyNs),
+			OrphanPtsMaster: proto.Bool(true),
+			AutoDedup:       proto.Bool(criuOpts.AutoDedup),
+			LazyPages:       proto.Bool(criuOpts.LazyPages),
+		},
+	}
+
+	c.handleCriuConfigurationFile(req.Opts)
+
+	// Same as during checkpointing. If the container has a specific network namespace
+	// assigned to it, this now expects that the checkpoint will be restored in a
+	// already created network namespace.
+	nsPath := c.config.Namespaces.PathOf(configs.NEWNET)
+	if nsPath != "" {
+		// For this to work we need at least criu 3.11.0 => 31100.
+		// As there was already a successful version check we will
+		// not error out if it fails. runc will just behave as it used
+		// to do and ignore external network namespaces.
+		err := c.checkCriuVersion(31100)
+		if err == nil {
+			// CRIU wants the information about an existing network namespace
+			// like this: --inherit-fd fd[<fd>]:<key>
+			// The <key> needs to be the same as during checkpointing.
+			// We are always using 'extRootNetNS' as the key in this.
+			netns, err := os.Open(nsPath)
+			if err != nil {
+				logrus.Errorf("If a specific network namespace is defined it must exist: %s", err)
+				return fmt.Errorf("Requested network namespace %v does not exist", nsPath)
+			}
+			defer netns.Close()
+			inheritFd := new(criurpc.InheritFd)
+			inheritFd.Key = proto.String("extRootNetNS")
+			// The offset of four is necessary because 0, 1, 2 and 3 is already
+			// used by stdin, stdout, stderr, 'criu swrk' socket.
+			inheritFd.Fd = proto.Int32(int32(4 + len(extraFiles)))
+			req.Opts.InheritFd = append(req.Opts.InheritFd, inheritFd)
+			// All open FDs need to be transferred to CRIU via extraFiles
+			extraFiles = append(extraFiles, netns)
+		}
+	}
+
+	// This will modify the rootfs of the container in the same way runc
+	// modifies the container during initial creation.
+	if err := c.prepareCriuRestoreMounts(c.config.Mounts); err != nil {
+		return err
+	}
+
+	hasCgroupns := c.config.Namespaces.Contains(configs.NEWCGROUP)
+	for _, m := range c.config.Mounts {
+		switch m.Device {
+		case "bind":
+			c.addCriuRestoreMount(req, m)
+		case "cgroup":
+			if cgroups.IsCgroup2UnifiedMode() || hasCgroupns {
+				continue
+			}
+			// cgroup v1 is a set of bind mounts, unless cgroupns is used
+			binds, err := getCgroupMounts(m)
+			if err != nil {
+				return err
+			}
+			for _, b := range binds {
+				c.addCriuRestoreMount(req, b)
+			}
+		}
+	}
+
+	if len(c.config.MaskPaths) > 0 {
+		m := &configs.Mount{Destination: "/dev/null", Source: "/dev/null"}
+		c.addCriuRestoreMount(req, m)
+	}
+
+	for _, node := range c.config.Devices {
+		m := &configs.Mount{Destination: node.Path, Source: node.Path}
+		c.addCriuRestoreMount(req, m)
+	}
+
+	if criuOpts.EmptyNs&unix.CLONE_NEWNET == 0 {
+		c.restoreNetwork(req, criuOpts)
+	}
+
+	// append optional manage cgroups mode
+	if criuOpts.ManageCgroupsMode != 0 {
+		mode := criurpc.CriuCgMode(criuOpts.ManageCgroupsMode)
+		req.Opts.ManageCgroupsMode = &mode
+	}
+
+	var (
+		fds    []string
+		fdJSON []byte
+	)
+	if fdJSON, err = ioutil.ReadFile(filepath.Join(criuOpts.ImagesDirectory, descriptorsFilename)); err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(fdJSON, &fds); err != nil {
+		return err
+	}
+	for i := range fds {
+		if s := fds[i]; strings.Contains(s, "pipe:") {
+			inheritFd := new(criurpc.InheritFd)
+			inheritFd.Key = proto.String(s)
+			inheritFd.Fd = proto.Int32(int32(i))
+			req.Opts.InheritFd = append(req.Opts.InheritFd, inheritFd)
+		}
+	}
+	return c.criuSwrk(process, req, criuOpts, true, extraFiles)
+}
+
+func (c *linuxContainer) criuApplyCgroups(pid int, req *criurpc.CriuReq) error {
+	// XXX: Do we need to deal with this case? AFAIK criu still requires root.
+	if err := c.cgroupManager.Apply(pid); err != nil {
+		return err
+	}
+
+	if err := c.cgroupManager.Set(c.config); err != nil {
+		return newSystemError(err)
+	}
+
+	path := fmt.Sprintf("/proc/%d/cgroup", pid)
+	cgroupsPaths, err := cgroups.ParseCgroupFile(path)
+	if err != nil {
+		return err
+	}
+
+	for c, p := range cgroupsPaths {
+		cgroupRoot := &criurpc.CgroupRoot{
+			Ctrl: proto.String(c),
+			Path: proto.String(p),
+		}
+		req.Opts.CgRoot = append(req.Opts.CgRoot, cgroupRoot)
+	}
+
+	return nil
+}
+
+func (c *linuxContainer) criuSwrk(process *Process, req *criurpc.CriuReq, opts *CriuOpts, applyCgroups bool, extraFiles []*os.File) error {
+	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+
+	var logPath string
+	if opts != nil {
+		logPath = filepath.Join(opts.WorkDirectory, req.GetOpts().GetLogFile())
+	} else {
+		// For the VERSION RPC 'opts' is set to 'nil' and therefore
+		// opts.WorkDirectory does not exist. Set logPath to "".
+		logPath = ""
+	}
+	criuClient := os.NewFile(uintptr(fds[0]), "criu-transport-client")
+	criuClientFileCon, err := net.FileConn(criuClient)
+	criuClient.Close()
+	if err != nil {
+		return err
+	}
+
+	criuClientCon := criuClientFileCon.(*net.UnixConn)
+	defer criuClientCon.Close()
+
+	criuServer := os.NewFile(uintptr(fds[1]), "criu-transport-server")
+	defer criuServer.Close()
+
+	args := []string{"swrk", "3"}
+	if c.criuVersion != 0 {
+		// If the CRIU Version is still '0' then this is probably
+		// the initial CRIU run to detect the version. Skip it.
+		logrus.Debugf("Using CRIU %d at: %s", c.criuVersion, c.criuPath)
+	}
+	logrus.Debugf("Using CRIU with following args: %s", args)
+	cmd := exec.Command(c.criuPath, args...)
+	if process != nil {
+		cmd.Stdin = process.Stdin
+		cmd.Stdout = process.Stdout
+		cmd.Stderr = process.Stderr
+	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, criuServer)
+	if extraFiles != nil {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, extraFiles...)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// we close criuServer so that even if CRIU crashes or unexpectedly exits, runc will not hang.
+	criuServer.Close()
+	// cmd.Process will be replaced by a restored init.
+	criuProcess := cmd.Process
+
+	defer func() {
+		criuClientCon.Close()
+		_, err := criuProcess.Wait()
+		if err != nil {
+			return
+		}
+	}()
+
+	if applyCgroups {
+		err := c.criuApplyCgroups(criuProcess.Pid, req)
+		if err != nil {
+			return err
+		}
+	}
+
+	var extFds []string
+	if process != nil {
+		extFds, err = getPipeFds(criuProcess.Pid)
+		if err != nil {
+			return err
+		}
+	}
+
+	logrus.Debugf("Using CRIU in %s mode", req.GetType().String())
+	// In the case of criurpc.CriuReqType_FEATURE_CHECK req.GetOpts()
+	// should be empty. For older CRIU versions it still will be
+	// available but empty. criurpc.CriuReqType_VERSION actually
+	// has no req.GetOpts().
+	if !(req.GetType() == criurpc.CriuReqType_FEATURE_CHECK ||
+		req.GetType() == criurpc.CriuReqType_VERSION) {
+
+		val := reflect.ValueOf(req.GetOpts())
+		v := reflect.Indirect(val)
+		for i := 0; i < v.NumField(); i++ {
+			st := v.Type()
+			name := st.Field(i).Name
+			if strings.HasPrefix(name, "XXX_") {
+				continue
+			}
+			value := val.MethodByName("Get" + name).Call([]reflect.Value{})
+			logrus.Debugf("CRIU option %s with value %v", name, value[0])
+		}
+	}
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return err
+	}
+	_, err = criuClientCon.Write(data)
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, 10*4096)
+	oob := make([]byte, 4096)
+	for true {
+		n, oobn, _, _, err := criuClientCon.ReadMsgUnix(buf, oob)
+		if req.Opts != nil && req.Opts.StatusFd != nil {
+			// Close status_fd as soon as we got something back from criu,
+			// assuming it has consumed (reopened) it by this time.
+			// Otherwise it will might be left open forever and whoever
+			// is waiting on it will wait forever.
+			fd := int(*req.Opts.StatusFd)
+			_ = unix.Close(fd)
+			req.Opts.StatusFd = nil
+		}
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return errors.New("unexpected EOF")
+		}
+		if n == len(buf) {
+			return errors.New("buffer is too small")
+		}
+
+		resp := new(criurpc.CriuResp)
+		err = proto.Unmarshal(buf[:n], resp)
+		if err != nil {
+			return err
+		}
+		if !resp.GetSuccess() {
+			typeString := req.GetType().String()
+			return fmt.Errorf("criu failed: type %s errno %d\nlog file: %s", typeString, resp.GetCrErrno(), logPath)
+		}
+
+		t := resp.GetType()
+		switch {
+		case t == criurpc.CriuReqType_FEATURE_CHECK:
+			logrus.Debugf("Feature check says: %s", resp)
+			criuFeatures = resp.GetFeatures()
+		case t == criurpc.CriuReqType_NOTIFY:
+			if err := c.criuNotifications(resp, process, cmd, opts, extFds, oob[:oobn]); err != nil {
+				return err
+			}
+			t = criurpc.CriuReqType_NOTIFY
+			req = &criurpc.CriuReq{
+				Type:          &t,
+				NotifySuccess: proto.Bool(true),
+			}
+			data, err = proto.Marshal(req)
+			if err != nil {
+				return err
+			}
+			_, err = criuClientCon.Write(data)
+			if err != nil {
+				return err
+			}
+			continue
+		case t == criurpc.CriuReqType_RESTORE:
+		case t == criurpc.CriuReqType_DUMP:
+		case t == criurpc.CriuReqType_PRE_DUMP:
+		default:
+			return fmt.Errorf("unable to parse the response %s", resp.String())
+		}
+
+		break
+	}
+
+	criuClientCon.CloseWrite()
+	// cmd.Wait() waits cmd.goroutines which are used for proxying file descriptors.
+	// Here we want to wait only the CRIU process.
+	st, err := criuProcess.Wait()
+	if err != nil {
+		return err
+	}
+
+	// In pre-dump mode CRIU is in a loop and waits for
+	// the final DUMP command.
+	// The current runc pre-dump approach, however, is
+	// start criu in PRE_DUMP once for a single pre-dump
+	// and not the whole series of pre-dump, pre-dump, ...m, dump
+	// If we got the message CriuReqType_PRE_DUMP it means
+	// CRIU was successful and we need to forcefully stop CRIU
+	if !st.Success() && *req.Type != criurpc.CriuReqType_PRE_DUMP {
+		return fmt.Errorf("criu failed: %s\nlog file: %s", st.String(), logPath)
+	}
+	return nil
+}
+
+// block any external network activity
+func lockNetwork(config *configs.Config) error {
+	for _, config := range config.Networks {
+		strategy, err := getStrategy(config.Type)
+		if err != nil {
+			return err
+		}
+
+		if err := strategy.detach(config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unlockNetwork(config *configs.Config) error {
+	for _, config := range config.Networks {
+		strategy, err := getStrategy(config.Type)
+		if err != nil {
+			return err
+		}
+		if err = strategy.attach(config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *linuxContainer) criuNotifications(resp *criurpc.CriuResp, process *Process, cmd *exec.Cmd, opts *CriuOpts, fds []string, oob []byte) error {
+	notify := resp.GetNotify()
+	if notify == nil {
+		return fmt.Errorf("invalid response: %s", resp.String())
+	}
+	logrus.Debugf("notify: %s\n", notify.GetScript())
+	switch {
+	case notify.GetScript() == "post-dump":
+		f, err := os.Create(filepath.Join(c.root, "checkpoint"))
+		if err != nil {
+			return err
+		}
+		f.Close()
+	case notify.GetScript() == "network-unlock":
+		if err := unlockNetwork(c.config); err != nil {
+			return err
+		}
+	case notify.GetScript() == "network-lock":
+		if err := lockNetwork(c.config); err != nil {
+			return err
+		}
+	case notify.GetScript() == "setup-namespaces":
+		if c.config.Hooks != nil {
+			s, err := c.currentOCIState()
+			if err != nil {
+				return nil
+			}
+			s.Pid = int(notify.GetPid())
+			for i, hook := range c.config.Hooks.Prestart {
+				if err := hook.Run(s); err != nil {
+					return newSystemErrorWithCausef(err, "running prestart hook %d", i)
+				}
+			}
+		}
+	case notify.GetScript() == "post-restore":
+		pid := notify.GetPid()
+
+		p, err := os.FindProcess(int(pid))
+		if err != nil {
+			return err
+		}
+		cmd.Process = p
+
+		r, err := newRestoredProcess(cmd, fds)
+		if err != nil {
+			return err
+		}
+		process.ops = r
+		if err := c.state.transition(&restoredState{
+			imageDir: opts.ImagesDirectory,
+			c:        c,
+		}); err != nil {
+			return err
+		}
+		// create a timestamp indicating when the restored checkpoint was started
+		c.created = time.Now().UTC()
+		if _, err := c.updateState(r); err != nil {
+			return err
+		}
+		if err := os.Remove(filepath.Join(c.root, "checkpoint")); err != nil {
+			if !os.IsNotExist(err) {
+				logrus.Error(err)
+			}
+		}
+	case notify.GetScript() == "orphan-pts-master":
+		scm, err := unix.ParseSocketControlMessage(oob)
+		if err != nil {
+			return err
+		}
+		fds, err := unix.ParseUnixRights(&scm[0])
+		if err != nil {
+			return err
+		}
+
+		master := os.NewFile(uintptr(fds[0]), "orphan-pts-master")
+		defer master.Close()
+
+		// While we can access console.master, using the API is a good idea.
+		if err := utils.SendFd(process.ConsoleSocket, master.Name(), master.Fd()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *linuxContainer) updateState(process parentProcess) (*State, error) {
+	if process != nil {
+		c.initProcess = process
+	}
+	state, err := c.currentState()
+	if err != nil {
+		return nil, err
+	}
+	err = c.saveState(state)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func (c *linuxContainer) saveState(s *State) error {
+	f, err := os.Create(filepath.Join(c.root, stateFilename))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return utils.WriteJSON(f, s)
+}
+
+func (c *linuxContainer) deleteState() error {
+	return os.Remove(filepath.Join(c.root, stateFilename))
+}
+
+func (c *linuxContainer) currentStatus() (Status, error) {
+	if err := c.refreshState(); err != nil {
+		return -1, err
+	}
+	return c.state.status(), nil
+}
+
+// refreshState needs to be called to verify that the current state on the
+// container is what is true.  Because consumers of libcontainer can use it
+// out of process we need to verify the container's status based on runtime
+// information and not rely on our in process info.
+func (c *linuxContainer) refreshState() error {
+	paused, err := c.isPaused()
+	if err != nil {
+		return err
+	}
+	if paused {
+		return c.state.transition(&pausedState{c: c})
+	}
+	t := c.runType()
+	switch t {
+	case Created:
+		return c.state.transition(&createdState{c: c})
+	case Running:
+		return c.state.transition(&runningState{c: c})
+	}
+	return c.state.transition(&stoppedState{c: c})
+}
+
+func (c *linuxContainer) runType() Status {
+	if c.initProcess == nil {
+		return Stopped
+	}
+	pid := c.initProcess.pid()
+	stat, err := system.Stat(pid)
+	if err != nil {
+		return Stopped
+	}
+	if stat.StartTime != c.initProcessStartTime || stat.State == system.Zombie || stat.State == system.Dead {
+		return Stopped
+	}
+	// We'll create exec fifo and blocking on it after container is created,
+	// and delete it after start container.
+	if _, err := os.Stat(filepath.Join(c.root, execFifoFilename)); err == nil {
+		return Created
+	}
+	return Running
+}
+
+func (c *linuxContainer) isPaused() (bool, error) {
+	state, err := c.cgroupManager.GetFreezerState()
+	if err != nil {
+		return false, err
+	}
+	return state == configs.Frozen, nil
+}
+
+func (c *linuxContainer) currentState() (*State, error) {
+	var (
+		startTime           uint64
+		externalDescriptors []string
+		pid                 = -1
+	)
+	if c.initProcess != nil {
+		pid = c.initProcess.pid()
+		startTime, _ = c.initProcess.startTime()
+		externalDescriptors = c.initProcess.externalDescriptors()
+	}
+	intelRdtPath, err := intelrdt.GetIntelRdtPath(c.ID())
+	if err != nil {
+		intelRdtPath = ""
+	}
+	state := &State{
+		BaseState: BaseState{
+			ID:                   c.ID(),
+			Config:               *c.config,
+			InitProcessPid:       pid,
+			InitProcessStartTime: startTime,
+			Created:              c.created,
+		},
+		Rootless:            c.config.RootlessEUID && c.config.RootlessCgroups,
+		CgroupPaths:         c.cgroupManager.GetPaths(),
+		IntelRdtPath:        intelRdtPath,
+		NamespacePaths:      make(map[configs.NamespaceType]string),
+		ExternalDescriptors: externalDescriptors,
+	}
+	if pid > 0 {
+		for _, ns := range c.config.Namespaces {
+			state.NamespacePaths[ns.Type] = ns.GetPath(pid)
+		}
+		for _, nsType := range configs.NamespaceTypes() {
+			if !configs.IsNamespaceSupported(nsType) {
+				continue
+			}
+			if _, ok := state.NamespacePaths[nsType]; !ok {
+				ns := configs.Namespace{Type: nsType}
+				state.NamespacePaths[ns.Type] = ns.GetPath(pid)
+			}
+		}
+	}
+	return state, nil
+}
+
+func (c *linuxContainer) currentOCIState() (*specs.State, error) {
+	bundle, annotations := utils.Annotations(c.config.Labels)
+	state := &specs.State{
+		Version:     specs.Version,
+		ID:          c.ID(),
+		Bundle:      bundle,
+		Annotations: annotations,
+	}
+	status, err := c.currentStatus()
+	if err != nil {
+		return nil, err
+	}
+	state.Status = status.String()
+	if status != Stopped {
+		if c.initProcess != nil {
+			state.Pid = c.initProcess.pid()
+		}
+	}
+	return state, nil
+}
+
+// orderNamespacePaths sorts namespace paths into a list of paths that we
+// can setns in order.
+func (c *linuxContainer) orderNamespacePaths(namespaces map[configs.NamespaceType]string) ([]string, error) {
+	paths := []string{}
+	for _, ns := range configs.NamespaceTypes() {
+
+		// Remove namespaces that we don't need to join.
+		if !c.config.Namespaces.Contains(ns) {
+			continue
+		}
+
+		if p, ok := namespaces[ns]; ok && p != "" {
+			// check if the requested namespace is supported
+			if !configs.IsNamespaceSupported(ns) {
+				return nil, newSystemError(fmt.Errorf("namespace %s is not supported", ns))
+			}
+			// only set to join this namespace if it exists
+			if _, err := os.Lstat(p); err != nil {
+				return nil, newSystemErrorWithCausef(err, "running lstat on namespace path %q", p)
+			}
+			// do not allow namespace path with comma as we use it to separate
+			// the namespace paths
+			if strings.ContainsRune(p, ',') {
+				return nil, newSystemError(fmt.Errorf("invalid path %s", p))
+			}
+			paths = append(paths, fmt.Sprintf("%s:%s", configs.NsName(ns), p))
+		}
+
+	}
+
+	return paths, nil
+}
+
+func encodeIDMapping(idMap []configs.IDMap) ([]byte, error) {
+	data := bytes.NewBuffer(nil)
+	for _, im := range idMap {
+		line := fmt.Sprintf("%d %d %d\n", im.ContainerID, im.HostID, im.Size)
+		if _, err := data.WriteString(line); err != nil {
+			return nil, err
+		}
+	}
+	return data.Bytes(), nil
+}
+
+// bootstrapData encodes the necessary data in netlink binary format
+// as a io.Reader.
+// Consumer can write the data to a bootstrap program
+// such as one that uses nsenter package to bootstrap the container's
+// init process correctly, i.e. with correct namespaces, uid/gid
+// mapping etc.
+func (c *linuxContainer) bootstrapData(cloneFlags uintptr, nsMaps map[configs.NamespaceType]string) (io.Reader, error) {
+	// create the netlink message
+	r := nl.NewNetlinkRequest(int(InitMsg), 0)
+
+	// write cloneFlags
+	r.AddData(&Int32msg{
+		Type:  CloneFlagsAttr,
+		Value: uint32(cloneFlags),
+	})
+
+	// write custom namespace paths
+	if len(nsMaps) > 0 {
+		nsPaths, err := c.orderNamespacePaths(nsMaps)
+		if err != nil {
+			return nil, err
+		}
+		r.AddData(&Bytemsg{
+			Type:  NsPathsAttr,
+			Value: []byte(strings.Join(nsPaths, ",")),
+		})
+	}
+
+	// write namespace paths only when we are not joining an existing user ns
+	_, joinExistingUser := nsMaps[configs.NEWUSER]
+	if !joinExistingUser {
+		// write uid mappings
+		if len(c.config.UidMappings) > 0 {
+			if c.config.RootlessEUID && c.newuidmapPath != "" {
+				r.AddData(&Bytemsg{
+					Type:  UidmapPathAttr,
+					Value: []byte(c.newuidmapPath),
+				})
+			}
+			b, err := encodeIDMapping(c.config.UidMappings)
+			if err != nil {
+				return nil, err
+			}
+			r.AddData(&Bytemsg{
+				Type:  UidmapAttr,
+				Value: b,
+			})
+		}
+
+		// write gid mappings
+		if len(c.config.GidMappings) > 0 {
+			b, err := encodeIDMapping(c.config.GidMappings)
+			if err != nil {
+				return nil, err
+			}
+			r.AddData(&Bytemsg{
+				Type:  GidmapAttr,
+				Value: b,
+			})
+			if c.config.RootlessEUID && c.newgidmapPath != "" {
+				r.AddData(&Bytemsg{
+					Type:  GidmapPathAttr,
+					Value: []byte(c.newgidmapPath),
+				})
+			}
+			if requiresRootOrMappingTool(c.config) {
+				r.AddData(&Boolmsg{
+					Type:  SetgroupAttr,
+					Value: true,
+				})
+			}
+		}
+	}
+
+	if c.config.OomScoreAdj != nil {
+		// write oom_score_adj
+		r.AddData(&Bytemsg{
+			Type:  OomScoreAdjAttr,
+			Value: []byte(fmt.Sprintf("%d", *c.config.OomScoreAdj)),
+		})
+	}
+
+	// write rootless
+	r.AddData(&Boolmsg{
+		Type:  RootlessEUIDAttr,
+		Value: c.config.RootlessEUID,
+	})
+
+	return bytes.NewReader(r.Serialize()), nil
+}
+
+// ignoreTerminateErrors returns nil if the given err matches an error known
+// to indicate that the terminate occurred successfully or err was nil, otherwise
+// err is returned unaltered.
+func ignoreTerminateErrors(err error) error {
+	if err == nil {
+		return nil
+	}
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "process already finished"), strings.Contains(s, "Wait was already called"):
+		return nil
+	}
+	return err
+}
+
+func requiresRootOrMappingTool(c *configs.Config) bool {
+	gidMap := []configs.IDMap{
+		{ContainerID: 0, HostID: os.Getegid(), Size: 1},
+	}
+	return !reflect.DeepEqual(c.GidMappings, gidMap)
+}
+
+
+
+### libcontainer/rootfs_linux.go
+// +build linux
+
+package libcontainer
+
+import (
+	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/moby/sys/mountinfo"
+	"github.com/mrunalp/fileutils"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/system"
+	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+	"github.com/opencontainers/selinux/go-selinux/label"
+
+	"golang.org/x/sys/unix"
+)
+
+const defaultMountFlags = unix.MS_NOEXEC | unix.MS_NOSUID | unix.MS_NODEV
+
+// needsSetupDev returns true if /dev needs to be set up.
+func needsSetupDev(config *configs.Config) bool {
+	for _, m := range config.Mounts {
+		if m.Device == "bind" && libcontainerUtils.CleanPath(m.Destination) == "/dev" {
+			return false
+		}
+	}
+	return true
+}
+
+// prepareRootfs sets up the devices, mount points, and filesystems for use
+// inside a new mount namespace. It doesn't set anything as ro. You must call
+// finalizeRootfs after this function to finish setting up the rootfs.
+func prepareRootfs(pipe io.ReadWriter, iConfig *initConfig) (err error) {
+	config := iConfig.Config
+	if err := prepareRoot(config); err != nil {
+		return newSystemErrorWithCause(err, "preparing rootfs")
+	}
+
+	hasCgroupns := config.Namespaces.Contains(configs.NEWCGROUP)
+	setupDev := needsSetupDev(config)
+	for _, m := range config.Mounts {
+		for _, precmd := range m.PremountCmds {
+			if err := mountCmd(precmd); err != nil {
+				return newSystemErrorWithCause(err, "running premount command")
+			}
+		}
+		if err := mountToRootfs(m, config.Rootfs, config.MountLabel, hasCgroupns); err != nil {
+			return newSystemErrorWithCausef(err, "mounting %q to rootfs at %q", m.Source, m.Destination)
+		}
+
+		for _, postcmd := range m.PostmountCmds {
+			if err := mountCmd(postcmd); err != nil {
+				return newSystemErrorWithCause(err, "running postmount command")
+			}
+		}
+	}
+
+	if setupDev {
+		if err := createDevices(config); err != nil {
+			return newSystemErrorWithCause(err, "creating device nodes")
+		}
+		if err := setupPtmx(config); err != nil {
+			return newSystemErrorWithCause(err, "setting up ptmx")
+		}
+		if err := setupDevSymlinks(config.Rootfs); err != nil {
+			return newSystemErrorWithCause(err, "setting up /dev symlinks")
+		}
+	}
+
+	// Signal the parent to run the pre-start hooks.
+	// The hooks are run after the mounts are setup, but before we switch to the new
+	// root, so that the old root is still available in the hooks for any mount
+	// manipulations.
+	// Note that iConfig.Cwd is not guaranteed to exist here.
+	if err := syncParentHooks(pipe); err != nil {
+		return err
+	}
+
+	// The reason these operations are done here rather than in finalizeRootfs
+	// is because the console-handling code gets quite sticky if we have to set
+	// up the console before doing the pivot_root(2). This is because the
+	// Console API has to also work with the ExecIn case, which means that the
+	// API must be able to deal with being inside as well as outside the
+	// container. It's just cleaner to do this here (at the expense of the
+	// operation not being perfectly split).
+
+	if err := unix.Chdir(config.Rootfs); err != nil {
+		return newSystemErrorWithCausef(err, "changing dir to %q", config.Rootfs)
+	}
+
+	if config.NoPivotRoot {
+		err = msMoveRoot(config.Rootfs)
+	} else if config.Namespaces.Contains(configs.NEWNS) {
+		err = pivotRoot(config.Rootfs)
+	} else {
+		err = chroot(config.Rootfs)
+	}
+	if err != nil {
+		return newSystemErrorWithCause(err, "jailing process inside rootfs")
+	}
+
+	if setupDev {
+		if err := reOpenDevNull(); err != nil {
+			return newSystemErrorWithCause(err, "reopening /dev/null inside container")
+		}
+	}
+
+	if cwd := iConfig.Cwd; cwd != "" {
+		// Note that spec.Process.Cwd can contain unclean value like  "../../../../foo/bar...".
+		// However, we are safe to call MkDirAll directly because we are in the jail here.
+		if err := os.MkdirAll(cwd, 0755); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// finalizeRootfs sets anything to ro if necessary. You must call
+// prepareRootfs first.
+func finalizeRootfs(config *configs.Config) (err error) {
+	// remount dev as ro if specified
+	for _, m := range config.Mounts {
+		if libcontainerUtils.CleanPath(m.Destination) == "/dev" {
+			if m.Flags&unix.MS_RDONLY == unix.MS_RDONLY {
+				if err := remountReadonly(m); err != nil {
+					return newSystemErrorWithCausef(err, "remounting %q as readonly", m.Destination)
+				}
+			}
+			break
+		}
+	}
+
+	// set rootfs ( / ) as readonly
+	if config.Readonlyfs {
+		if err := setReadonly(); err != nil {
+			return newSystemErrorWithCause(err, "setting rootfs as readonly")
+		}
+	}
+
+	unix.Umask(0022)
+	return nil
+}
+
+// /tmp has to be mounted as private to allow MS_MOVE to work in all situations
+func prepareTmp(topTmpDir string) (string, error) {
+	tmpdir, err := ioutil.TempDir(topTmpDir, "runctop")
+	if err != nil {
+		return "", err
+	}
+	if err := unix.Mount(tmpdir, tmpdir, "bind", unix.MS_BIND, ""); err != nil {
+		return "", err
+	}
+	if err := unix.Mount("", tmpdir, "", uintptr(unix.MS_PRIVATE), ""); err != nil {
+		return "", err
+	}
+	return tmpdir, nil
+}
+
+func cleanupTmp(tmpdir string) error {
+	unix.Unmount(tmpdir, 0)
+	return os.RemoveAll(tmpdir)
+}
+
+func mountCmd(cmd configs.Command) error {
+	command := exec.Command(cmd.Path, cmd.Args[:]...)
+	command.Env = cmd.Env
+	command.Dir = cmd.Dir
+	if out, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("%#v failed: %s: %v", cmd, string(out), err)
+	}
+	return nil
+}
+
+func prepareBindMount(m *configs.Mount, rootfs string) error {
+	stat, err := os.Stat(m.Source)
+	if err != nil {
+		// error out if the source of a bind mount does not exist as we will be
+		// unable to bind anything to it.
+		return err
+	}
+	// ensure that the destination of the bind mount is resolved of symlinks at mount time because
+	// any previous mounts can invalidate the next mount's destination.
+	// this can happen when a user specifies mounts within other mounts to cause breakouts or other
+	// evil stuff to try to escape the container's rootfs.
+	var dest string
+	if dest, err = securejoin.SecureJoin(rootfs, m.Destination); err != nil {
+		return err
+	}
+	if err := checkProcMount(rootfs, dest, m.Source); err != nil {
+		return err
+	}
+	// update the mount with the correct dest after symlinks are resolved.
+	m.Destination = dest
+	if err := createIfNotExists(dest, stat.IsDir()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func mountCgroupV1(m *configs.Mount, rootfs, mountLabel string, enableCgroupns bool) error {
+	binds, err := getCgroupMounts(m)
+	if err != nil {
+		return err
+	}
+	var merged []string
+	for _, b := range binds {
+		ss := filepath.Base(b.Destination)
+		if strings.Contains(ss, ",") {
+			merged = append(merged, ss)
+		}
+	}
+	tmpfs := &configs.Mount{
+		Source:           "tmpfs",
+		Device:           "tmpfs",
+		Destination:      m.Destination,
+		Flags:            defaultMountFlags,
+		Data:             "mode=755",
+		PropagationFlags: m.PropagationFlags,
+	}
+	if err := mountToRootfs(tmpfs, rootfs, mountLabel, enableCgroupns); err != nil {
+		return err
+	}
+	for _, b := range binds {
+		if enableCgroupns {
+			subsystemPath := filepath.Join(rootfs, b.Destination)
+			if err := os.MkdirAll(subsystemPath, 0755); err != nil {
+				return err
+			}
+			flags := defaultMountFlags
+			if m.Flags&unix.MS_RDONLY != 0 {
+				flags = flags | unix.MS_RDONLY
+			}
+			cgroupmount := &configs.Mount{
+				Source:      "cgroup",
+				Device:      "cgroup", // this is actually fstype
+				Destination: subsystemPath,
+				Flags:       flags,
+				Data:        filepath.Base(subsystemPath),
+			}
+			if err := mountNewCgroup(cgroupmount); err != nil {
+				return err
+			}
+		} else {
+			if err := mountToRootfs(b, rootfs, mountLabel, enableCgroupns); err != nil {
+				return err
+			}
+		}
+	}
+	for _, mc := range merged {
+		for _, ss := range strings.Split(mc, ",") {
+			// symlink(2) is very dumb, it will just shove the path into
+			// the link and doesn't do any checks or relative path
+			// conversion. Also, don't error out if the cgroup already exists.
+			if err := os.Symlink(mc, filepath.Join(rootfs, m.Destination, ss)); err != nil && !os.IsExist(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func mountCgroupV2(m *configs.Mount, rootfs, mountLabel string, enableCgroupns bool) error {
+	cgroupPath, err := securejoin.SecureJoin(rootfs, m.Destination)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cgroupPath, 0755); err != nil {
+		return err
+	}
+	if err := unix.Mount(m.Source, cgroupPath, "cgroup2", uintptr(m.Flags), m.Data); err != nil {
+		// when we are in UserNS but CgroupNS is not unshared, we cannot mount cgroup2 (#2158)
+		if err == unix.EPERM || err == unix.EBUSY {
+			return unix.Mount("/sys/fs/cgroup", cgroupPath, "", uintptr(m.Flags)|unix.MS_BIND, "")
+		}
+		return err
+	}
+	return nil
+}
+
+func mountToRootfs(m *configs.Mount, rootfs, mountLabel string, enableCgroupns bool) error {
+	var (
+		dest = m.Destination
+	)
+	if !strings.HasPrefix(dest, rootfs) {
+		dest = filepath.Join(rootfs, dest)
+	}
+
+	switch m.Device {
+	case "proc", "sysfs":
+		// If the destination already exists and is not a directory, we bail
+		// out This is to avoid mounting through a symlink or similar -- which
+		// has been a "fun" attack scenario in the past.
+		// TODO: This won't be necessary once we switch to libpathrs and we can
+		//       stop all of these symlink-exchange attacks.
+		if fi, err := os.Lstat(dest); err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
+		} else if fi.Mode()&os.ModeDir == 0 {
+			return fmt.Errorf("filesystem %q must be mounted on ordinary directory", m.Device)
+		}
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			return err
+		}
+		// Selinux kernels do not support labeling of /proc or /sys
+		return mountPropagate(m, rootfs, "")
+	case "mqueue":
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			return err
+		}
+		if err := mountPropagate(m, rootfs, mountLabel); err != nil {
+			// older kernels do not support labeling of /dev/mqueue
+			if err := mountPropagate(m, rootfs, ""); err != nil {
+				return err
+			}
+			return label.SetFileLabel(dest, mountLabel)
+		}
+		return nil
+	case "tmpfs":
+		copyUp := m.Extensions&configs.EXT_COPYUP == configs.EXT_COPYUP
+		tmpDir := ""
+		stat, err := os.Stat(dest)
+		if err != nil {
+			if err := os.MkdirAll(dest, 0755); err != nil {
+				return err
+			}
+		}
+		if copyUp {
+			tmpdir, err := prepareTmp("/tmp")
+			if err != nil {
+				return newSystemErrorWithCause(err, "tmpcopyup: failed to setup tmpdir")
+			}
+			defer cleanupTmp(tmpdir)
+			tmpDir, err = ioutil.TempDir(tmpdir, "runctmpdir")
+			if err != nil {
+				return newSystemErrorWithCause(err, "tmpcopyup: failed to create tmpdir")
+			}
+			defer os.RemoveAll(tmpDir)
+			m.Destination = tmpDir
+		}
+		if err := mountPropagate(m, rootfs, mountLabel); err != nil {
+			return err
+		}
+		if copyUp {
+			if err := fileutils.CopyDirectory(dest, tmpDir); err != nil {
+				errMsg := fmt.Errorf("tmpcopyup: failed to copy %s to %s: %v", dest, tmpDir, err)
+				if err1 := unix.Unmount(tmpDir, unix.MNT_DETACH); err1 != nil {
+					return newSystemErrorWithCausef(err1, "tmpcopyup: %v: failed to unmount", errMsg)
+				}
+				return errMsg
+			}
+			if err := unix.Mount(tmpDir, dest, "", unix.MS_MOVE, ""); err != nil {
+				errMsg := fmt.Errorf("tmpcopyup: failed to move mount %s to %s: %v", tmpDir, dest, err)
+				if err1 := unix.Unmount(tmpDir, unix.MNT_DETACH); err1 != nil {
+					return newSystemErrorWithCausef(err1, "tmpcopyup: %v: failed to unmount", errMsg)
+				}
+				return errMsg
+			}
+		}
+		if stat != nil {
+			if err = os.Chmod(dest, stat.Mode()); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "bind":
+		if err := prepareBindMount(m, rootfs); err != nil {
+			return err
+		}
+		if err := mountPropagate(m, rootfs, mountLabel); err != nil {
+			return err
+		}
+		// bind mount won't change mount options, we need remount to make mount options effective.
+		// first check that we have non-default options required before attempting a remount
+		if m.Flags&^(unix.MS_REC|unix.MS_REMOUNT|unix.MS_BIND) != 0 {
+			// only remount if unique mount options are set
+			if err := remount(m, rootfs); err != nil {
+				return err
+			}
+		}
+
+		if m.Relabel != "" {
+			if err := label.Validate(m.Relabel); err != nil {
+				return err
+			}
+			shared := label.IsShared(m.Relabel)
+			if err := label.Relabel(m.Source, mountLabel, shared); err != nil {
+				return err
+			}
+		}
+	case "cgroup":
+		if cgroups.IsCgroup2UnifiedMode() {
+			return mountCgroupV2(m, rootfs, mountLabel, enableCgroupns)
+		}
+		return mountCgroupV1(m, rootfs, mountLabel, enableCgroupns)
+	default:
+		// ensure that the destination of the mount is resolved of symlinks at mount time because
+		// any previous mounts can invalidate the next mount's destination.
+		// this can happen when a user specifies mounts within other mounts to cause breakouts or other
+		// evil stuff to try to escape the container's rootfs.
+		var err error
+		if dest, err = securejoin.SecureJoin(rootfs, m.Destination); err != nil {
+			return err
+		}
+		if err := checkProcMount(rootfs, dest, m.Source); err != nil {
+			return err
+		}
+		// update the mount with the correct dest after symlinks are resolved.
+		m.Destination = dest
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			return err
+		}
+		return mountPropagate(m, rootfs, mountLabel)
+	}
+	return nil
+}
+
+func getCgroupMounts(m *configs.Mount) ([]*configs.Mount, error) {
+	mounts, err := cgroups.GetCgroupMounts(false)
+	if err != nil {
+		return nil, err
+	}
+
+	cgroupPaths, err := cgroups.ParseCgroupFile("/proc/self/cgroup")
+	if err != nil {
+		return nil, err
+	}
+
+	var binds []*configs.Mount
+
+	for _, mm := range mounts {
+		dir, err := mm.GetOwnCgroup(cgroupPaths)
+		if err != nil {
+			return nil, err
+		}
+		relDir, err := filepath.Rel(mm.Root, dir)
+		if err != nil {
+			return nil, err
+		}
+		binds = append(binds, &configs.Mount{
+			Device:           "bind",
+			Source:           filepath.Join(mm.Mountpoint, relDir),
+			Destination:      filepath.Join(m.Destination, filepath.Base(mm.Mountpoint)),
+			Flags:            unix.MS_BIND | unix.MS_REC | m.Flags,
+			PropagationFlags: m.PropagationFlags,
+		})
+	}
+
+	return binds, nil
+}
+
+// checkProcMount checks to ensure that the mount destination is not over the top of /proc.
+// dest is required to be an abs path and have any symlinks resolved before calling this function.
+//
+// if source is nil, don't stat the filesystem.  This is used for restore of a checkpoint.
+func checkProcMount(rootfs, dest, source string) error {
+	const procPath = "/proc"
+	// White list, it should be sub directories of invalid destinations
+	validDestinations := []string{
+		// These entries can be bind mounted by files emulated by fuse,
+		// so commands like top, free displays stats in container.
+		"/proc/cpuinfo",
+		"/proc/diskstats",
+		"/proc/meminfo",
+		"/proc/stat",
+		"/proc/swaps",
+		"/proc/uptime",
+		"/proc/loadavg",
+		"/proc/net/dev",
+	}
+	for _, valid := range validDestinations {
+		path, err := filepath.Rel(filepath.Join(rootfs, valid), dest)
+		if err != nil {
+			return err
+		}
+		if path == "." {
+			return nil
+		}
+	}
+	path, err := filepath.Rel(filepath.Join(rootfs, procPath), dest)
+	if err != nil {
+		return err
+	}
+	// pass if the mount path is located outside of /proc
+	if strings.HasPrefix(path, "..") {
+		return nil
+	}
+	if path == "." {
+		// an empty source is pasted on restore
+		if source == "" {
+			return nil
+		}
+		// only allow a mount on-top of proc if it's source is "proc"
+		isproc, err := isProc(source)
+		if err != nil {
+			return err
+		}
+		// pass if the mount is happening on top of /proc and the source of
+		// the mount is a proc filesystem
+		if isproc {
+			return nil
+		}
+		return fmt.Errorf("%q cannot be mounted because it is not of type proc", dest)
+	}
+	return fmt.Errorf("%q cannot be mounted because it is inside /proc", dest)
+}
+
+func isProc(path string) (bool, error) {
+	var s unix.Statfs_t
+	if err := unix.Statfs(path, &s); err != nil {
+		return false, err
+	}
+	return s.Type == unix.PROC_SUPER_MAGIC, nil
+}
+
+func setupDevSymlinks(rootfs string) error {
+	var links = [][2]string{
+		{"/proc/self/fd", "/dev/fd"},
+		{"/proc/self/fd/0", "/dev/stdin"},
+		{"/proc/self/fd/1", "/dev/stdout"},
+		{"/proc/self/fd/2", "/dev/stderr"},
+	}
+	// kcore support can be toggled with CONFIG_PROC_KCORE; only create a symlink
+	// in /dev if it exists in /proc.
+	if _, err := os.Stat("/proc/kcore"); err == nil {
+		links = append(links, [2]string{"/proc/kcore", "/dev/core"})
+	}
+	for _, link := range links {
+		var (
+			src = link[0]
+			dst = filepath.Join(rootfs, link[1])
+		)
+		if err := os.Symlink(src, dst); err != nil && !os.IsExist(err) {
+			return fmt.Errorf("symlink %s %s %s", src, dst, err)
+		}
+	}
+	return nil
+}
+
+// If stdin, stdout, and/or stderr are pointing to `/dev/null` in the parent's rootfs
+// this method will make them point to `/dev/null` in this container's rootfs.  This
+// needs to be called after we chroot/pivot into the container's rootfs so that any
+// symlinks are resolved locally.
+func reOpenDevNull() error {
+	var stat, devNullStat unix.Stat_t
+	file, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("Failed to open /dev/null - %s", err)
+	}
+	defer file.Close()
+	if err := unix.Fstat(int(file.Fd()), &devNullStat); err != nil {
+		return err
+	}
+	for fd := 0; fd < 3; fd++ {
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return err
+		}
+		if stat.Rdev == devNullStat.Rdev {
+			// Close and re-open the fd.
+			if err := unix.Dup3(int(file.Fd()), fd, 0); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Create the device nodes in the container.
+func createDevices(config *configs.Config) error {
+	useBindMount := system.RunningInUserNS() || config.Namespaces.Contains(configs.NEWUSER)
+	oldMask := unix.Umask(0000)
+	for _, node := range config.Devices {
+		// containers running in a user namespace are not allowed to mknod
+		// devices so we can just bind mount it from the host.
+		if err := createDeviceNode(config.Rootfs, node, useBindMount); err != nil {
+			unix.Umask(oldMask)
+			return err
+		}
+	}
+	unix.Umask(oldMask)
+	return nil
+}
+
+func bindMountDeviceNode(dest string, node *configs.Device) error {
+	f, err := os.Create(dest)
+	if err != nil && !os.IsExist(err) {
+		return err
+	}
+	if f != nil {
+		f.Close()
+	}
+	return unix.Mount(node.Path, dest, "bind", unix.MS_BIND, "")
+}
+
+// Creates the device node in the rootfs of the container.
+func createDeviceNode(rootfs string, node *configs.Device, bind bool) error {
+	if node.Path == "" {
+		// The node only exists for cgroup reasons, ignore it here.
+		return nil
+	}
+	dest := filepath.Join(rootfs, node.Path)
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+	if bind {
+		return bindMountDeviceNode(dest, node)
+	}
+	if err := mknodDevice(dest, node); err != nil {
+		if os.IsExist(err) {
+			return nil
+		} else if os.IsPermission(err) {
+			return bindMountDeviceNode(dest, node)
+		}
+		return err
+	}
+	return nil
+}
+
+func mknodDevice(dest string, node *configs.Device) error {
+	fileMode := node.FileMode
+	switch node.Type {
+	case configs.BlockDevice:
+		fileMode |= unix.S_IFBLK
+	case configs.CharDevice:
+		fileMode |= unix.S_IFCHR
+	case configs.FifoDevice:
+		fileMode |= unix.S_IFIFO
+	default:
+		return fmt.Errorf("%c is not a valid device type for device %s", node.Type, node.Path)
+	}
+	dev, err := node.Mkdev()
+	if err != nil {
+		return err
+	}
+	if err := unix.Mknod(dest, uint32(fileMode), int(dev)); err != nil {
+		return err
+	}
+	return unix.Chown(dest, int(node.Uid), int(node.Gid))
+}
+
+// Get the parent mount point of directory passed in as argument. Also return
+// optional fields.
+func getParentMount(rootfs string) (string, string, error) {
+	mi, err := mountinfo.GetMounts(mountinfo.ParentsFilter(rootfs))
+	if err != nil {
+		return "", "", err
+	}
+	if len(mi) < 1 {
+		return "", "", fmt.Errorf("could not find parent mount of %s", rootfs)
+	}
+
+	// find the longest mount point
+	var idx, maxlen int
+	for i := range mi {
+		if len(mi[i].Mountpoint) > maxlen {
+			maxlen = len(mi[i].Mountpoint)
+			idx = i
+		}
+	}
+	return mi[idx].Mountpoint, mi[idx].Optional, nil
+}
+
+// Make parent mount private if it was shared
+func rootfsParentMountPrivate(rootfs string) error {
+	sharedMount := false
+
+	parentMount, optionalOpts, err := getParentMount(rootfs)
+	if err != nil {
+		return err
+	}
+
+	optsSplit := strings.Split(optionalOpts, " ")
+	for _, opt := range optsSplit {
+		if strings.HasPrefix(opt, "shared:") {
+			sharedMount = true
+			break
+		}
+	}
+
+	// Make parent mount PRIVATE if it was shared. It is needed for two
+	// reasons. First of all pivot_root() will fail if parent mount is
+	// shared. Secondly when we bind mount rootfs it will propagate to
+	// parent namespace and we don't want that to happen.
+	if sharedMount {
+		return unix.Mount("", parentMount, "", unix.MS_PRIVATE, "")
+	}
+
+	return nil
+}
+
+func prepareRoot(config *configs.Config) error {
+	flag := unix.MS_SLAVE | unix.MS_REC
+	if config.RootPropagation != 0 {
+		flag = config.RootPropagation
+	}
+	if err := unix.Mount("", "/", "", uintptr(flag), ""); err != nil {
+		return err
+	}
+
+	// Make parent mount private to make sure following bind mount does
+	// not propagate in other namespaces. Also it will help with kernel
+	// check pass in pivot_root. (IS_SHARED(new_mnt->mnt_parent))
+	if err := rootfsParentMountPrivate(config.Rootfs); err != nil {
+		return err
+	}
+
+	return unix.Mount(config.Rootfs, config.Rootfs, "bind", unix.MS_BIND|unix.MS_REC, "")
+}
+
+func setReadonly() error {
+	return unix.Mount("/", "/", "bind", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY|unix.MS_REC, "")
+}
+
+func setupPtmx(config *configs.Config) error {
+	ptmx := filepath.Join(config.Rootfs, "dev/ptmx")
+	if err := os.Remove(ptmx); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Symlink("pts/ptmx", ptmx); err != nil {
+		return fmt.Errorf("symlink dev ptmx %s", err)
+	}
+	return nil
+}
+
+// pivotRoot will call pivot_root such that rootfs becomes the new root
+// filesystem, and everything else is cleaned up.
+func pivotRoot(rootfs string) error {
+	// While the documentation may claim otherwise, pivot_root(".", ".") is
+	// actually valid. What this results in is / being the new root but
+	// /proc/self/cwd being the old root. Since we can play around with the cwd
+	// with pivot_root this allows us to pivot without creating directories in
+	// the rootfs. Shout-outs to the LXC developers for giving us this idea.
+
+	oldroot, err := unix.Open("/", unix.O_DIRECTORY|unix.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(oldroot)
+
+	newroot, err := unix.Open(rootfs, unix.O_DIRECTORY|unix.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(newroot)
+
+	// Change to the new root so that the pivot_root actually acts on it.
+	if err := unix.Fchdir(newroot); err != nil {
+		return err
+	}
+
+	if err := unix.PivotRoot(".", "."); err != nil {
+		return fmt.Errorf("pivot_root %s", err)
+	}
+
+	// Currently our "." is oldroot (according to the current kernel code).
+	// However, purely for safety, we will fchdir(oldroot) since there isn't
+	// really any guarantee from the kernel what /proc/self/cwd will be after a
+	// pivot_root(2).
+
+	if err := unix.Fchdir(oldroot); err != nil {
+		return err
+	}
+
+	// Make oldroot rslave to make sure our unmounts don't propagate to the
+	// host (and thus bork the machine). We don't use rprivate because this is
+	// known to cause issues due to races where we still have a reference to a
+	// mount while a process in the host namespace are trying to operate on
+	// something they think has no mounts (devicemapper in particular).
+	if err := unix.Mount("", ".", "", unix.MS_SLAVE|unix.MS_REC, ""); err != nil {
+		return err
+	}
+	// Preform the unmount. MNT_DETACH allows us to unmount /proc/self/cwd.
+	if err := unix.Unmount(".", unix.MNT_DETACH); err != nil {
+		return err
+	}
+
+	// Switch back to our shiny new root.
+	if err := unix.Chdir("/"); err != nil {
+		return fmt.Errorf("chdir / %s", err)
+	}
+	return nil
+}
+
+func msMoveRoot(rootfs string) error {
+	mountinfos, err := mountinfo.GetMounts(func(info *mountinfo.Info) (skip, stop bool) {
+		skip = false
+		stop = false
+		// Collect every sysfs and proc file systems, except those under the container rootfs
+		if (info.Fstype != "proc" && info.Fstype != "sysfs") || strings.HasPrefix(info.Mountpoint, rootfs) {
+			skip = true
+			return
+		}
+		return
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, info := range mountinfos {
+		p := info.Mountpoint
+		// Be sure umount events are not propagated to the host.
+		if err := unix.Mount("", p, "", unix.MS_SLAVE|unix.MS_REC, ""); err != nil {
+			return err
+		}
+		if err := unix.Unmount(p, unix.MNT_DETACH); err != nil {
+			if err != unix.EINVAL && err != unix.EPERM {
+				return err
+			} else {
+				// If we have not privileges for umounting (e.g. rootless), then
+				// cover the path.
+				if err := unix.Mount("tmpfs", p, "tmpfs", 0, ""); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if err := unix.Mount(rootfs, "/", "", unix.MS_MOVE, ""); err != nil {
+		return err
+	}
+	return chroot(rootfs)
+}
+
+func chroot(rootfs string) error {
+	if err := unix.Chroot("."); err != nil {
+		return err
+	}
+	return unix.Chdir("/")
+}
+
+// createIfNotExists creates a file or a directory only if it does not already exist.
+func createIfNotExists(path string, isDir bool) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			if isDir {
+				return os.MkdirAll(path, 0755)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return err
+			}
+			f, err := os.OpenFile(path, os.O_CREATE, 0755)
+			if err != nil {
+				return err
+			}
+			f.Close()
+		}
+	}
+	return nil
+}
+
+// readonlyPath will make a path read only.
+func readonlyPath(path string) error {
+	if err := unix.Mount(path, path, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return unix.Mount(path, path, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY|unix.MS_REC, "")
+}
+
+// remountReadonly will remount an existing mount point and ensure that it is read-only.
+func remountReadonly(m *configs.Mount) error {
+	var (
+		dest  = m.Destination
+		flags = m.Flags
+	)
+	for i := 0; i < 5; i++ {
+		// There is a special case in the kernel for
+		// MS_REMOUNT | MS_BIND, which allows us to change only the
+		// flags even as an unprivileged user (i.e. user namespace)
+		// assuming we don't drop any security related flags (nodev,
+		// nosuid, etc.). So, let's use that case so that we can do
+		// this re-mount without failing in a userns.
+		flags |= unix.MS_REMOUNT | unix.MS_BIND | unix.MS_RDONLY
+		if err := unix.Mount("", dest, "", uintptr(flags), ""); err != nil {
+			switch err {
+			case unix.EBUSY:
+				time.Sleep(100 * time.Millisecond)
+				continue
+			default:
+				return err
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("unable to mount %s as readonly max retries reached", dest)
+}
+
+// maskPath masks the top of the specified path inside a container to avoid
+// security issues from processes reading information from non-namespace aware
+// mounts ( proc/kcore ).
+// For files, maskPath bind mounts /dev/null over the top of the specified path.
+// For directories, maskPath mounts read-only tmpfs over the top of the specified path.
+func maskPath(path string, mountLabel string) error {
+	if err := unix.Mount("/dev/null", path, "", unix.MS_BIND, ""); err != nil && !os.IsNotExist(err) {
+		if err == unix.ENOTDIR {
+			return unix.Mount("tmpfs", path, "tmpfs", unix.MS_RDONLY, label.FormatMountLabel("", mountLabel))
+		}
+		return err
+	}
+	return nil
+}
+
+// writeSystemProperty writes the value to a path under /proc/sys as determined from the key.
+// For e.g. net.ipv4.ip_forward translated to /proc/sys/net/ipv4/ip_forward.
+func writeSystemProperty(key, value string) error {
+	keyPath := strings.Replace(key, ".", "/", -1)
+	return ioutil.WriteFile(path.Join("/proc/sys", keyPath), []byte(value), 0644)
+}
+
+func remount(m *configs.Mount, rootfs string) error {
+	var (
+		dest = m.Destination
+	)
+	if !strings.HasPrefix(dest, rootfs) {
+		dest = filepath.Join(rootfs, dest)
+	}
+	return unix.Mount(m.Source, dest, m.Device, uintptr(m.Flags|unix.MS_REMOUNT), "")
+}
+
+// Do the mount operation followed by additional mounts required to take care
+// of propagation flags.
+func mountPropagate(m *configs.Mount, rootfs string, mountLabel string) error {
+	var (
+		dest  = m.Destination
+		data  = label.FormatMountLabel(m.Data, mountLabel)
+		flags = m.Flags
+	)
+	if libcontainerUtils.CleanPath(dest) == "/dev" {
+		flags &= ^unix.MS_RDONLY
+	}
+
+	copyUp := m.Extensions&configs.EXT_COPYUP == configs.EXT_COPYUP
+	if !(copyUp || strings.HasPrefix(dest, rootfs)) {
+		dest = filepath.Join(rootfs, dest)
+	}
+
+	if err := unix.Mount(m.Source, dest, m.Device, uintptr(flags), data); err != nil {
+		return err
+	}
+
+	for _, pflag := range m.PropagationFlags {
+		if err := unix.Mount("", dest, "", uintptr(pflag), ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mountNewCgroup(m *configs.Mount) error {
+	var (
+		data   = m.Data
+		source = m.Source
+	)
+	if data == "systemd" {
+		data = cgroups.CgroupNamePrefix + data
+		source = "systemd"
+	}
+	if err := unix.Mount(source, m.Destination, m.Device, uintptr(m.Flags), data); err != nil {
+		return err
+	}
+	return nil
+}
+
+
+
+### libcontainer/integration/exec_test.go
+package integration
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/opencontainers/runc/libcontainer"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
+	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runtime-spec/specs-go"
+
+	"golang.org/x/sys/unix"
+)
+
+func TestExecPS(t *testing.T) {
+	testExecPS(t, false)
+}
+
+func TestUsernsExecPS(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+		t.Skip("userns is unsupported")
+	}
+	testExecPS(t, true)
+}
+
+func testExecPS(t *testing.T, userns bool) {
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+	config := newTemplateConfig(rootfs)
+	if userns {
+		config.UidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+		config.GidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+		config.Namespaces = append(config.Namespaces, configs.Namespace{Type: configs.NEWUSER})
+	}
+
+	buffers, exitCode, err := runContainer(config, "", "ps", "-o", "pid,user,comm")
+	if err != nil {
+		t.Fatalf("%s: %s", buffers, err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+	lines := strings.Split(buffers.Stdout.String(), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("more than one process running for output %q", buffers.Stdout.String())
+	}
+	expected := `1 root     ps`
+	actual := strings.Trim(lines[1], "\n ")
+	if actual != expected {
+		t.Fatalf("expected output %q but received %q", expected, actual)
+	}
+}
+
+func TestIPCPrivate(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/ipc")
+	ok(t, err)
+
+	config := newTemplateConfig(rootfs)
+	buffers, exitCode, err := runContainer(config, "", "readlink", "/proc/self/ns/ipc")
+	ok(t, err)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual == l {
+		t.Fatalf("ipc link should be private to the container but equals host %q %q", actual, l)
+	}
+}
+
+func TestIPCHost(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/ipc")
+	ok(t, err)
+
+	config := newTemplateConfig(rootfs)
+	config.Namespaces.Remove(configs.NEWIPC)
+	buffers, exitCode, err := runContainer(config, "", "readlink", "/proc/self/ns/ipc")
+	ok(t, err)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
+		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
+	}
+}
+
+func TestIPCJoinPath(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/ipc")
+	ok(t, err)
+
+	config := newTemplateConfig(rootfs)
+	config.Namespaces.Add(configs.NEWIPC, "/proc/1/ns/ipc")
+
+	buffers, exitCode, err := runContainer(config, "", "readlink", "/proc/self/ns/ipc")
+	ok(t, err)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
+		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
+	}
+}
+
+func TestIPCBadPath(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	config.Namespaces.Add(configs.NEWIPC, "/proc/1/ns/ipcc")
+
+	_, _, err = runContainer(config, "", "true")
+	if err == nil {
+		t.Fatal("container succeeded with bad ipc path")
+	}
+}
+
+func TestRlimit(t *testing.T) {
+	testRlimit(t, false)
+}
+
+func TestUsernsRlimit(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+		t.Skip("userns is unsupported")
+	}
+
+	testRlimit(t, true)
+}
+
+func testRlimit(t *testing.T, userns bool) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	if userns {
+		config.UidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+		config.GidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+		config.Namespaces = append(config.Namespaces, configs.Namespace{Type: configs.NEWUSER})
+	}
+
+	// ensure limit is lower than what the config requests to test that in a user namespace
+	// the Setrlimit call happens early enough that we still have permissions to raise the limit.
+	ok(t, unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{
+		Max: 1024,
+		Cur: 1024,
+	}))
+
+	out, _, err := runContainer(config, "", "/bin/sh", "-c", "ulimit -n")
+	ok(t, err)
+	if limit := strings.TrimSpace(out.Stdout.String()); limit != "1025" {
+		t.Fatalf("expected rlimit to be 1025, got %s", limit)
+	}
+}
+
+func TestEnter(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		t.Skip("cgroup v2 is not supported")
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	// Execute a first process in the container
+	stdinR, stdinW, err := os.Pipe()
+	ok(t, err)
+
+	var stdout, stdout2 bytes.Buffer
+
+	pconfig := libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"sh", "-c", "cat && readlink /proc/self/ns/pid"},
+		Env:    standardEnvironment,
+		Stdin:  stdinR,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	stdinR.Close()
+	defer stdinW.Close()
+	ok(t, err)
+	pid, err := pconfig.Pid()
+	ok(t, err)
+
+	// Execute another process in the container
+	stdinR2, stdinW2, err := os.Pipe()
+	ok(t, err)
+	pconfig2 := libcontainer.Process{
+		Cwd: "/",
+		Env: standardEnvironment,
+	}
+	pconfig2.Args = []string{"sh", "-c", "cat && readlink /proc/self/ns/pid"}
+	pconfig2.Stdin = stdinR2
+	pconfig2.Stdout = &stdout2
+
+	err = container.Run(&pconfig2)
+	stdinR2.Close()
+	defer stdinW2.Close()
+	ok(t, err)
+
+	pid2, err := pconfig2.Pid()
+	ok(t, err)
+
+	processes, err := container.Processes()
+	ok(t, err)
+
+	n := 0
+	for i := range processes {
+		if processes[i] == pid || processes[i] == pid2 {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatal("unexpected number of processes", processes, pid, pid2)
+	}
+
+	// Wait processes
+	stdinW2.Close()
+	waitProcess(&pconfig2, t)
+
+	stdinW.Close()
+	waitProcess(&pconfig, t)
+
+	// Check that both processes live in the same pidns
+	pidns := string(stdout.Bytes())
+	ok(t, err)
+
+	pidns2 := string(stdout2.Bytes())
+	ok(t, err)
+
+	if pidns != pidns2 {
+		t.Fatal("The second process isn't in the required pid namespace", pidns, pidns2)
+	}
+}
+
+func TestProcessEnv(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:  "/",
+		Args: []string{"sh", "-c", "env"},
+		Env: []string{
+			"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+			"HOSTNAME=integration",
+			"TERM=xterm",
+			"FOO=BAR",
+		},
+		Stdin:  nil,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	outputEnv := string(stdout.Bytes())
+
+	// Check that the environment has the key/value pair we added
+	if !strings.Contains(outputEnv, "FOO=BAR") {
+		t.Fatal("Environment doesn't have the expected FOO=BAR key/value pair: ", outputEnv)
+	}
+
+	// Make sure that HOME is set
+	if !strings.Contains(outputEnv, "HOME=/root") {
+		t.Fatal("Environment doesn't have HOME set: ", outputEnv)
+	}
+}
+
+func TestProcessEmptyCaps(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	config.Capabilities = nil
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"sh", "-c", "cat /proc/self/status"},
+		Env:    standardEnvironment,
+		Stdin:  nil,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	outputStatus := string(stdout.Bytes())
+
+	lines := strings.Split(outputStatus, "\n")
+
+	effectiveCapsLine := ""
+	for _, l := range lines {
+		line := strings.TrimSpace(l)
+		if strings.Contains(line, "CapEff:") {
+			effectiveCapsLine = line
+			break
+		}
+	}
+
+	if effectiveCapsLine == "" {
+		t.Fatal("Couldn't find effective caps: ", outputStatus)
+	}
+}
+
+func TestProcessCaps(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:          "/",
+		Args:         []string{"sh", "-c", "cat /proc/self/status"},
+		Env:          standardEnvironment,
+		Stdin:        nil,
+		Stdout:       &stdout,
+		Capabilities: &configs.Capabilities{},
+		Init:         true,
+	}
+	pconfig.Capabilities.Bounding = append(config.Capabilities.Bounding, "CAP_NET_ADMIN")
+	pconfig.Capabilities.Permitted = append(config.Capabilities.Permitted, "CAP_NET_ADMIN")
+	pconfig.Capabilities.Effective = append(config.Capabilities.Effective, "CAP_NET_ADMIN")
+	pconfig.Capabilities.Inheritable = append(config.Capabilities.Inheritable, "CAP_NET_ADMIN")
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	outputStatus := string(stdout.Bytes())
+
+	lines := strings.Split(outputStatus, "\n")
+
+	effectiveCapsLine := ""
+	for _, l := range lines {
+		line := strings.TrimSpace(l)
+		if strings.Contains(line, "CapEff:") {
+			effectiveCapsLine = line
+			break
+		}
+	}
+
+	if effectiveCapsLine == "" {
+		t.Fatal("Couldn't find effective caps: ", outputStatus)
+	}
+
+	parts := strings.Split(effectiveCapsLine, ":")
+	effectiveCapsStr := strings.TrimSpace(parts[1])
+
+	effectiveCaps, err := strconv.ParseUint(effectiveCapsStr, 16, 64)
+	if err != nil {
+		t.Fatal("Could not parse effective caps", err)
+	}
+
+	var netAdminMask uint64
+	var netAdminBit uint
+	netAdminBit = 12 // from capability.h
+	netAdminMask = 1 << netAdminBit
+	if effectiveCaps&netAdminMask != netAdminMask {
+		t.Fatal("CAP_NET_ADMIN is not set as expected")
+	}
+}
+
+func TestAdditionalGroups(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:              "/",
+		Args:             []string{"sh", "-c", "id", "-Gn"},
+		Env:              standardEnvironment,
+		Stdin:            nil,
+		Stdout:           &stdout,
+		AdditionalGroups: []string{"plugdev", "audio"},
+		Init:             true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	outputGroups := string(stdout.Bytes())
+
+	// Check that the groups output has the groups that we specified
+	if !strings.Contains(outputGroups, "audio") {
+		t.Fatalf("Listed groups do not contain the audio group as expected: %v", outputGroups)
+	}
+
+	if !strings.Contains(outputGroups, "plugdev") {
+		t.Fatalf("Listed groups do not contain the plugdev group as expected: %v", outputGroups)
+	}
+}
+
+func TestFreeze(t *testing.T) {
+	testFreeze(t, false)
+}
+
+func TestSystemdFreeze(t *testing.T) {
+	if !systemd.IsRunningSystemd() {
+		t.Skip("Systemd is unsupported")
+	}
+	testFreeze(t, true)
+}
+
+func testFreeze(t *testing.T, systemd bool) {
+	if testing.Short() {
+		return
+	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		t.Skip("cgroup v2 is not supported")
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	stdinR, stdinW, err := os.Pipe()
+	ok(t, err)
+
+	pconfig := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR,
+		Init:  true,
+	}
+	err = container.Run(pconfig)
+	stdinR.Close()
+	defer stdinW.Close()
+	ok(t, err)
+
+	err = container.Pause()
+	ok(t, err)
+	state, err := container.Status()
+	ok(t, err)
+	err = container.Resume()
+	ok(t, err)
+	if state != libcontainer.Paused {
+		t.Fatal("Unexpected state: ", state)
+	}
+
+	stdinW.Close()
+	waitProcess(pconfig, t)
+}
+
+func TestCpuShares(t *testing.T) {
+	testCpuShares(t, false)
+}
+
+func TestCpuSharesSystemd(t *testing.T) {
+	if !systemd.IsRunningSystemd() {
+		t.Skip("Systemd is unsupported")
+	}
+	testCpuShares(t, true)
+}
+
+func testCpuShares(t *testing.T, systemd bool) {
+	if testing.Short() {
+		return
+	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		t.Skip("cgroup v2 is not supported")
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	if systemd {
+		config.Cgroups.Parent = "system.slice"
+	}
+	config.Cgroups.Resources.CpuShares = 1
+
+	_, _, err = runContainer(config, "", "ps")
+	if err == nil {
+		t.Fatalf("runContainer should failed with invalid CpuShares")
+	}
+}
+
+func TestPids(t *testing.T) {
+	testPids(t, false)
+}
+
+func TestPidsSystemd(t *testing.T) {
+	if !systemd.IsRunningSystemd() {
+		t.Skip("Systemd is unsupported")
+	}
+	testPids(t, true)
+}
+
+func testPids(t *testing.T, systemd bool) {
+	if testing.Short() {
+		return
+	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		t.Skip("cgroup v2 is not supported")
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	if systemd {
+		config.Cgroups.Parent = "system.slice"
+	}
+	config.Cgroups.Resources.PidsLimit = -1
+
+	// Running multiple processes.
+	_, ret, err := runContainer(config, "", "/bin/sh", "-c", "/bin/true | /bin/true | /bin/true | /bin/true")
+	if err != nil && strings.Contains(err.Error(), "no such directory for pids.max") {
+		t.Skip("PIDs cgroup is unsupported")
+	}
+	ok(t, err)
+
+	if ret != 0 {
+		t.Fatalf("expected fork() to succeed with no pids limit")
+	}
+
+	// Enforce a permissive limit. This needs to be fairly hand-wavey due to the
+	// issues with running Go binaries with pids restrictions (see below).
+	config.Cgroups.Resources.PidsLimit = 64
+	_, ret, err = runContainer(config, "", "/bin/sh", "-c", `
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true`)
+	if err != nil && strings.Contains(err.Error(), "no such directory for pids.max") {
+		t.Skip("PIDs cgroup is unsupported")
+	}
+	ok(t, err)
+
+	if ret != 0 {
+		t.Fatalf("expected fork() to succeed with permissive pids limit")
+	}
+
+	// Enforce a restrictive limit. 64 * /bin/true + 1 * shell should cause this
+	// to fail reliability.
+	config.Cgroups.Resources.PidsLimit = 64
+	out, _, err := runContainer(config, "", "/bin/sh", "-c", `
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
+	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true`)
+	if err != nil && strings.Contains(err.Error(), "no such directory for pids.max") {
+		t.Skip("PIDs cgroup is unsupported")
+	}
+	if err != nil && !strings.Contains(out.String(), "sh: can't fork") {
+		ok(t, err)
+	}
+
+	if err == nil {
+		t.Fatalf("expected fork() to fail with restrictive pids limit")
+	}
+
+	// Minimal restrictions are not really supported, due to quirks in using Go
+	// due to the fact that it spawns random processes. While we do our best with
+	// late setting cgroup values, it's just too unreliable with very small pids.max.
+	// As such, we don't test that case. YMMV.
+}
+
+func TestRunWithKernelMemory(t *testing.T) {
+	testRunWithKernelMemory(t, false)
+}
+
+func TestRunWithKernelMemorySystemd(t *testing.T) {
+	if !systemd.IsRunningSystemd() {
+		t.Skip("Systemd is unsupported")
+	}
+	testRunWithKernelMemory(t, true)
+}
+
+func testRunWithKernelMemory(t *testing.T, systemd bool) {
+	if testing.Short() {
+		return
+	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		t.Skip("cgroup v2 is not supported")
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	if systemd {
+		config.Cgroups.Parent = "system.slice"
+	}
+	config.Cgroups.Resources.KernelMemory = 52428800
+
+	_, _, err = runContainer(config, "", "ps")
+	if err != nil {
+		t.Fatalf("runContainer failed with kernel memory limit: %v", err)
+	}
+}
+
+func TestContainerState(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/ipc")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := newTemplateConfig(rootfs)
+	config.Namespaces = configs.Namespaces([]configs.Namespace{
+		{Type: configs.NEWNS},
+		{Type: configs.NEWUTS},
+		// host for IPC
+		//{Type: configs.NEWIPC},
+		{Type: configs.NEWPID},
+		{Type: configs.NEWNET},
+	})
+
+	container, err := newContainerWithName("test", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer container.Destroy()
+
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR,
+		Init:  true,
+	}
+	err = container.Run(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinR.Close()
+	defer stdinW.Close()
+
+	st, err := container.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	l1, err := os.Readlink(st.NamespacePaths[configs.NEWIPC])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l1 != l {
+		t.Fatal("Container using non-host ipc namespace")
+	}
+	stdinW.Close()
+	waitProcess(p, t)
+}
+
+func TestPassExtraFiles(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+
+	container, err := newContainerWithName("test", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pipeout1, pipein1, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeout2, pipein2, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := libcontainer.Process{
+		Cwd:        "/",
+		Args:       []string{"sh", "-c", "cd /proc/$$/fd; echo -n *; echo -n 1 >3; echo -n 2 >4"},
+		Env:        []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+		ExtraFiles: []*os.File{pipein1, pipein2},
+		Stdin:      nil,
+		Stdout:     &stdout,
+		Init:       true,
+	}
+	err = container.Run(&process)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitProcess(&process, t)
+
+	out := string(stdout.Bytes())
+	// fd 5 is the directory handle for /proc/$$/fd
+	if out != "0 1 2 3 4 5" {
+		t.Fatalf("expected to have the file descriptors '0 1 2 3 4 5' passed to init, got '%s'", out)
+	}
+	var buf = []byte{0}
+	_, err = pipeout1.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out1 := string(buf)
+	if out1 != "1" {
+		t.Fatalf("expected first pipe to receive '1', got '%s'", out1)
+	}
+
+	_, err = pipeout2.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2 := string(buf)
+	if out2 != "2" {
+		t.Fatalf("expected second pipe to receive '2', got '%s'", out2)
+	}
+}
+
+func TestMountCmds(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove(rootfs)
+
+	tmpDir, err := ioutil.TempDir("", "tmpdir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	config := newTemplateConfig(rootfs)
+	config.Mounts = append(config.Mounts, &configs.Mount{
+		Source:      tmpDir,
+		Destination: "/tmp",
+		Device:      "bind",
+		Flags:       unix.MS_BIND | unix.MS_REC,
+		PremountCmds: []configs.Command{
+			{Path: "touch", Args: []string{filepath.Join(tmpDir, "hello")}},
+			{Path: "touch", Args: []string{filepath.Join(tmpDir, "world")}},
+		},
+		PostmountCmds: []configs.Command{
+			{Path: "cp", Args: []string{filepath.Join(rootfs, "tmp", "hello"), filepath.Join(rootfs, "tmp", "hello-backup")}},
+			{Path: "cp", Args: []string{filepath.Join(rootfs, "tmp", "world"), filepath.Join(rootfs, "tmp", "world-backup")}},
+		},
+	})
+
+	container, err := newContainerWithName("test", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer container.Destroy()
+
+	pconfig := libcontainer.Process{
+		Cwd:  "/",
+		Args: []string{"sh", "-c", "env"},
+		Env:  standardEnvironment,
+		Init: true,
+	}
+	err = container.Run(&pconfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	entries, err := ioutil.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{"hello", "hello-backup", "world", "world-backup"}
+	for i, e := range entries {
+		if e.Name() != expected[i] {
+			t.Errorf("Got(%s), expect %s", e.Name(), expected[i])
+		}
+	}
+}
+
+func TestSysctl(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	config.Sysctl = map[string]string{
+		"kernel.shmmni": "8192",
+	}
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"sh", "-c", "cat /proc/sys/kernel/shmmni"},
+		Env:    standardEnvironment,
+		Stdin:  nil,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	shmmniOutput := strings.TrimSpace(string(stdout.Bytes()))
+	if shmmniOutput != "8192" {
+		t.Fatalf("kernel.shmmni property expected to be 8192, but is %s", shmmniOutput)
+	}
+}
+
+func TestMountCgroupRO(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+	config := newTemplateConfig(rootfs)
+
+	config.Mounts = append(config.Mounts, &configs.Mount{
+		Destination: "/sys/fs/cgroup",
+		Device:      "cgroup",
+		Flags:       defaultMountFlags | unix.MS_RDONLY,
+	})
+
+	buffers, exitCode, err := runContainer(config, "", "mount")
+	if err != nil {
+		t.Fatalf("%s: %s", buffers, err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+	mountInfo := buffers.Stdout.String()
+	lines := strings.Split(mountInfo, "\n")
+	for _, l := range lines {
+		if strings.HasPrefix(l, "tmpfs on /sys/fs/cgroup") {
+			if !strings.Contains(l, "ro") ||
+				!strings.Contains(l, "nosuid") ||
+				!strings.Contains(l, "nodev") ||
+				!strings.Contains(l, "noexec") {
+				t.Fatalf("Mode expected to contain 'ro,nosuid,nodev,noexec': %s", l)
+			}
+			if !strings.Contains(l, "mode=755") {
+				t.Fatalf("Mode expected to contain 'mode=755': %s", l)
+			}
+			continue
+		}
+		if !strings.HasPrefix(l, "cgroup") {
+			continue
+		}
+		if !strings.Contains(l, "ro") ||
+			!strings.Contains(l, "nosuid") ||
+			!strings.Contains(l, "nodev") ||
+			!strings.Contains(l, "noexec") {
+			t.Fatalf("Mode expected to contain 'ro,nosuid,nodev,noexec': %s", l)
+		}
+	}
+}
+
+func TestMountCgroupRW(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+	config := newTemplateConfig(rootfs)
+
+	config.Mounts = append(config.Mounts, &configs.Mount{
+		Destination: "/sys/fs/cgroup",
+		Device:      "cgroup",
+		Flags:       defaultMountFlags,
+	})
+
+	buffers, exitCode, err := runContainer(config, "", "mount")
+	if err != nil {
+		t.Fatalf("%s: %s", buffers, err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+	mountInfo := buffers.Stdout.String()
+	lines := strings.Split(mountInfo, "\n")
+	for _, l := range lines {
+		if strings.HasPrefix(l, "tmpfs on /sys/fs/cgroup") {
+			if !strings.Contains(l, "rw") ||
+				!strings.Contains(l, "nosuid") ||
+				!strings.Contains(l, "nodev") ||
+				!strings.Contains(l, "noexec") {
+				t.Fatalf("Mode expected to contain 'rw,nosuid,nodev,noexec': %s", l)
+			}
+			if !strings.Contains(l, "mode=755") {
+				t.Fatalf("Mode expected to contain 'mode=755': %s", l)
+			}
+			continue
+		}
+		if !strings.HasPrefix(l, "cgroup") {
+			continue
+		}
+		if !strings.Contains(l, "rw") ||
+			!strings.Contains(l, "nosuid") ||
+			!strings.Contains(l, "nodev") ||
+			!strings.Contains(l, "noexec") {
+			t.Fatalf("Mode expected to contain 'rw,nosuid,nodev,noexec': %s", l)
+		}
+	}
+}
+
+func TestOomScoreAdj(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	config.OomScoreAdj = ptrInt(200)
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"sh", "-c", "cat /proc/self/oom_score_adj"},
+		Env:    standardEnvironment,
+		Stdin:  nil,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+	outputOomScoreAdj := strings.TrimSpace(string(stdout.Bytes()))
+
+	// Check that the oom_score_adj matches the value that was set as part of config.
+	if outputOomScoreAdj != strconv.Itoa(*config.OomScoreAdj) {
+		t.Fatalf("Expected oom_score_adj %d; got %q", *config.OomScoreAdj, outputOomScoreAdj)
+	}
+}
+
+func TestHook(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	bundle, err := newTestBundle()
+	ok(t, err)
+	defer remove(bundle)
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+	expectedBundle := bundle
+	config.Labels = append(config.Labels, fmt.Sprintf("bundle=%s", expectedBundle))
+
+	getRootfsFromBundle := func(bundle string) (string, error) {
+		f, err := os.Open(filepath.Join(bundle, "config.json"))
+		if err != nil {
+			return "", err
+		}
+
+		var config configs.Config
+		if err = json.NewDecoder(f).Decode(&config); err != nil {
+			return "", err
+		}
+		return config.Rootfs, nil
+	}
+
+	config.Hooks = &configs.Hooks{
+		Prestart: []configs.Hook{
+			configs.NewFunctionHook(func(s *specs.State) error {
+				if s.Bundle != expectedBundle {
+					t.Fatalf("Expected prestart hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
+				}
+
+				root, err := getRootfsFromBundle(s.Bundle)
+				if err != nil {
+					return err
+				}
+				f, err := os.Create(filepath.Join(root, "test"))
+				if err != nil {
+					return err
+				}
+				return f.Close()
+			}),
+		},
+		Poststart: []configs.Hook{
+			configs.NewFunctionHook(func(s *specs.State) error {
+				if s.Bundle != expectedBundle {
+					t.Fatalf("Expected poststart hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
+				}
+
+				root, err := getRootfsFromBundle(s.Bundle)
+				if err != nil {
+					return err
+				}
+				return ioutil.WriteFile(filepath.Join(root, "test"), []byte("hello world"), 0755)
+			}),
+		},
+		Poststop: []configs.Hook{
+			configs.NewFunctionHook(func(s *specs.State) error {
+				if s.Bundle != expectedBundle {
+					t.Fatalf("Expected poststop hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
+				}
+
+				root, err := getRootfsFromBundle(s.Bundle)
+				if err != nil {
+					return err
+				}
+				return os.RemoveAll(filepath.Join(root, "test"))
+			}),
+		},
+	}
+
+	// write config of json format into config.json under bundle
+	f, err := os.OpenFile(filepath.Join(bundle, "config.json"), os.O_CREATE|os.O_RDWR, 0644)
+	ok(t, err)
+	ok(t, json.NewEncoder(f).Encode(config))
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"sh", "-c", "ls /test"},
+		Env:    standardEnvironment,
+		Stdin:  nil,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	outputLs := string(stdout.Bytes())
+
+	// Check that the ls output has the expected file touched by the prestart hook
+	if !strings.Contains(outputLs, "/test") {
+		container.Destroy()
+		t.Fatalf("ls output doesn't have the expected file: %s", outputLs)
+	}
+
+	// Check that the file is written by the poststart hook
+	testFilePath := filepath.Join(rootfs, "test")
+	contents, err := ioutil.ReadFile(testFilePath)
+	if err != nil {
+		t.Fatalf("cannot read file '%s': %s", testFilePath, err)
+	}
+	if string(contents) != "hello world" {
+		t.Fatalf("Expected test file to contain 'hello world'; got '%s'", string(contents))
+	}
+
+	if err := container.Destroy(); err != nil {
+		t.Fatalf("container destroy %s", err)
+	}
+	fi, err := os.Stat(filepath.Join(rootfs, "test"))
+	if err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected file to not exist, got %s", fi.Name())
+	}
+}
+
+func TestSTDIOPermissions(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+	config := newTemplateConfig(rootfs)
+	buffers, exitCode, err := runContainer(config, "", "sh", "-c", "echo hi > /dev/stderr")
+	ok(t, err)
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stderr.String(), "\n"); actual != "hi" {
+		t.Fatalf("stderr should equal be equal %q %q", actual, "hi")
+	}
+}
+
+func unmountOp(path string) error {
+	return unix.Unmount(path, unix.MNT_DETACH)
+}
+
+// Launch container with rootfsPropagation in rslave mode. Also
+// bind mount a volume /mnt1host at /mnt1cont at the time of launch. Now do
+// another mount on host (/mnt1host/mnt2host) and this new mount should
+// propagate to container (/mnt1cont/mnt2host)
+func TestRootfsPropagationSlaveMount(t *testing.T) {
+	var mountPropagated bool
+	var dir1cont string
+	var dir2cont string
+
+	dir1cont = "/root/mnt1cont"
+
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+	config := newTemplateConfig(rootfs)
+
+	config.RootPropagation = unix.MS_SLAVE | unix.MS_REC
+
+	// Bind mount a volume
+	dir1host, err := ioutil.TempDir("", "mnt1host")
+	ok(t, err)
+	defer os.RemoveAll(dir1host)
+
+	// Make this dir a "shared" mount point. This will make sure a
+	// slave relationship can be established in container.
+	err = unix.Mount(dir1host, dir1host, "bind", unix.MS_BIND|unix.MS_REC, "")
+	ok(t, err)
+	err = unix.Mount("", dir1host, "", unix.MS_SHARED|unix.MS_REC, "")
+	ok(t, err)
+	defer unmountOp(dir1host)
+
+	config.Mounts = append(config.Mounts, &configs.Mount{
+		Source:      dir1host,
+		Destination: dir1cont,
+		Device:      "bind",
+		Flags:       unix.MS_BIND | unix.MS_REC})
+
+	container, err := newContainerWithName("testSlaveMount", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	stdinR, stdinW, err := os.Pipe()
+	ok(t, err)
+
+	pconfig := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR,
+		Init:  true,
+	}
+
+	err = container.Run(pconfig)
+	stdinR.Close()
+	defer stdinW.Close()
+	ok(t, err)
+
+	// Create mnt1host/mnt2host and bind mount itself on top of it. This
+	// should be visible in container.
+	dir2host, err := ioutil.TempDir(dir1host, "mnt2host")
+	ok(t, err)
+	defer os.RemoveAll(dir2host)
+
+	err = unix.Mount(dir2host, dir2host, "bind", unix.MS_BIND, "")
+	defer unmountOp(dir2host)
+	ok(t, err)
+
+	// Run "cat /proc/self/mountinfo" in container and look at mount points.
+	var stdout2 bytes.Buffer
+
+	stdinR2, stdinW2, err := os.Pipe()
+	ok(t, err)
+
+	pconfig2 := &libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"cat", "/proc/self/mountinfo"},
+		Env:    standardEnvironment,
+		Stdin:  stdinR2,
+		Stdout: &stdout2,
+	}
+
+	err = container.Run(pconfig2)
+	stdinR2.Close()
+	defer stdinW2.Close()
+	ok(t, err)
+
+	stdinW2.Close()
+	waitProcess(pconfig2, t)
+	stdinW.Close()
+	waitProcess(pconfig, t)
+
+	mountPropagated = false
+	dir2cont = filepath.Join(dir1cont, filepath.Base(dir2host))
+
+	propagationInfo := string(stdout2.Bytes())
+	lines := strings.Split(propagationInfo, "\n")
+	for _, l := range lines {
+		linefields := strings.Split(l, " ")
+		if len(linefields) < 5 {
+			continue
+		}
+
+		if linefields[4] == dir2cont {
+			mountPropagated = true
+			break
+		}
+	}
+
+	if mountPropagated != true {
+		t.Fatalf("Mount on host %s did not propagate in container at %s\n", dir2host, dir2cont)
+	}
+}
+
+// Launch container with rootfsPropagation 0 so no propagation flags are
+// applied. Also bind mount a volume /mnt1host at /mnt1cont at the time of
+// launch. Now do a mount in container (/mnt1cont/mnt2cont) and this new
+// mount should propagate to host (/mnt1host/mnt2cont)
+
+func TestRootfsPropagationSharedMount(t *testing.T) {
+	var dir1cont string
+	var dir2cont string
+
+	dir1cont = "/root/mnt1cont"
+
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+	config := newTemplateConfig(rootfs)
+	config.RootPropagation = unix.MS_PRIVATE
+
+	// Bind mount a volume
+	dir1host, err := ioutil.TempDir("", "mnt1host")
+	ok(t, err)
+	defer os.RemoveAll(dir1host)
+
+	// Make this dir a "shared" mount point. This will make sure a
+	// shared relationship can be established in container.
+	err = unix.Mount(dir1host, dir1host, "bind", unix.MS_BIND|unix.MS_REC, "")
+	ok(t, err)
+	err = unix.Mount("", dir1host, "", unix.MS_SHARED|unix.MS_REC, "")
+	ok(t, err)
+	defer unmountOp(dir1host)
+
+	config.Mounts = append(config.Mounts, &configs.Mount{
+		Source:      dir1host,
+		Destination: dir1cont,
+		Device:      "bind",
+		Flags:       unix.MS_BIND | unix.MS_REC})
+
+	container, err := newContainerWithName("testSharedMount", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	stdinR, stdinW, err := os.Pipe()
+	ok(t, err)
+
+	pconfig := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR,
+		Init:  true,
+	}
+
+	err = container.Run(pconfig)
+	stdinR.Close()
+	defer stdinW.Close()
+	ok(t, err)
+
+	// Create mnt1host/mnt2cont.  This will become visible inside container
+	// at mnt1cont/mnt2cont. Bind mount itself on top of it. This
+	// should be visible on host now.
+	dir2host, err := ioutil.TempDir(dir1host, "mnt2cont")
+	ok(t, err)
+	defer os.RemoveAll(dir2host)
+
+	dir2cont = filepath.Join(dir1cont, filepath.Base(dir2host))
+
+	// Mount something in container and see if it is visible on host.
+	var stdout2 bytes.Buffer
+
+	stdinR2, stdinW2, err := os.Pipe()
+	ok(t, err)
+
+	pconfig2 := &libcontainer.Process{
+		Cwd:          "/",
+		Args:         []string{"mount", "--bind", dir2cont, dir2cont},
+		Env:          standardEnvironment,
+		Stdin:        stdinR2,
+		Stdout:       &stdout2,
+		Capabilities: &configs.Capabilities{},
+	}
+
+	// Provide CAP_SYS_ADMIN
+	pconfig2.Capabilities.Bounding = append(config.Capabilities.Bounding, "CAP_SYS_ADMIN")
+	pconfig2.Capabilities.Permitted = append(config.Capabilities.Permitted, "CAP_SYS_ADMIN")
+	pconfig2.Capabilities.Effective = append(config.Capabilities.Effective, "CAP_SYS_ADMIN")
+	pconfig2.Capabilities.Inheritable = append(config.Capabilities.Inheritable, "CAP_SYS_ADMIN")
+
+	err = container.Run(pconfig2)
+	stdinR2.Close()
+	defer stdinW2.Close()
+	ok(t, err)
+
+	// Wait for process
+	stdinW2.Close()
+	waitProcess(pconfig2, t)
+	stdinW.Close()
+	waitProcess(pconfig, t)
+
+	defer unmountOp(dir2host)
+
+	// Check if mount is visible on host or not.
+	out, err := exec.Command("findmnt", "-n", "-f", "-oTARGET", dir2host).CombinedOutput()
+	outtrim := strings.TrimSpace(string(out))
+	if err != nil {
+		t.Logf("findmnt error %q: %q", err, outtrim)
+	}
+
+	if string(outtrim) != dir2host {
+		t.Fatalf("Mount in container on %s did not propagate to host on %s. finmnt output=%s", dir2cont, dir2host, outtrim)
+	}
+}
+
+func TestPIDHost(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/pid")
+	ok(t, err)
+
+	config := newTemplateConfig(rootfs)
+	config.Namespaces.Remove(configs.NEWPID)
+	buffers, exitCode, err := runContainer(config, "", "readlink", "/proc/self/ns/pid")
+	ok(t, err)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
+		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
+	}
+}
+
+func TestInitJoinPID(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	// Execute a long-running container
+	container1, err := newContainer(newTemplateConfig(rootfs))
+	ok(t, err)
+	defer container1.Destroy()
+
+	stdinR1, stdinW1, err := os.Pipe()
+	ok(t, err)
+	init1 := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR1,
+		Init:  true,
+	}
+	err = container1.Run(init1)
+	stdinR1.Close()
+	defer stdinW1.Close()
+	ok(t, err)
+
+	// get the state of the first container
+	state1, err := container1.State()
+	ok(t, err)
+	pidns1 := state1.NamespacePaths[configs.NEWPID]
+
+	// Run a container inside the existing pidns but with different cgroups
+	config2 := newTemplateConfig(rootfs)
+	config2.Namespaces.Add(configs.NEWPID, pidns1)
+	config2.Cgroups.Path = "integration/test2"
+	container2, err := newContainerWithName("testCT2", config2)
+	ok(t, err)
+	defer container2.Destroy()
+
+	stdinR2, stdinW2, err := os.Pipe()
+	ok(t, err)
+	init2 := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR2,
+		Init:  true,
+	}
+	err = container2.Run(init2)
+	stdinR2.Close()
+	defer stdinW2.Close()
+	ok(t, err)
+	// get the state of the second container
+	state2, err := container2.State()
+	ok(t, err)
+
+	ns1, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/pid", state1.InitProcessPid))
+	ok(t, err)
+	ns2, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/pid", state2.InitProcessPid))
+	ok(t, err)
+	if ns1 != ns2 {
+		t.Errorf("pidns(%s), wanted %s", ns2, ns1)
+	}
+
+	// check that namespaces are not the same
+	if reflect.DeepEqual(state2.NamespacePaths, state1.NamespacePaths) {
+		t.Errorf("Namespaces(%v), original %v", state2.NamespacePaths,
+			state1.NamespacePaths)
+	}
+	// check that pidns is joined correctly. The initial container process list
+	// should contain the second container's init process
+	buffers := newStdBuffers()
+	ps := &libcontainer.Process{
+		Cwd:    "/",
+		Args:   []string{"ps"},
+		Env:    standardEnvironment,
+		Stdout: buffers.Stdout,
+	}
+	err = container1.Run(ps)
+	ok(t, err)
+	waitProcess(ps, t)
+
+	// Stop init processes one by one. Stop the second container should
+	// not stop the first.
+	stdinW2.Close()
+	waitProcess(init2, t)
+	stdinW1.Close()
+	waitProcess(init1, t)
+
+	out := strings.TrimSpace(buffers.Stdout.String())
+	// output of ps inside the initial PID namespace should have
+	// 1 line of header,
+	// 2 lines of init processes,
+	// 1 line of ps process
+	if len(strings.Split(out, "\n")) != 4 {
+		t.Errorf("unexpected running process, output %q", out)
+	}
+}
+
+func TestInitJoinNetworkAndUser(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+		t.Skip("userns is unsupported")
+	}
+	if testing.Short() {
+		return
+	}
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	// Execute a long-running container
+	config1 := newTemplateConfig(rootfs)
+	config1.UidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+	config1.GidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+	config1.Namespaces = append(config1.Namespaces, configs.Namespace{Type: configs.NEWUSER})
+	container1, err := newContainer(config1)
+	ok(t, err)
+	defer container1.Destroy()
+
+	stdinR1, stdinW1, err := os.Pipe()
+	ok(t, err)
+	init1 := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR1,
+		Init:  true,
+	}
+	err = container1.Run(init1)
+	stdinR1.Close()
+	defer stdinW1.Close()
+	ok(t, err)
+
+	// get the state of the first container
+	state1, err := container1.State()
+	ok(t, err)
+	netns1 := state1.NamespacePaths[configs.NEWNET]
+	userns1 := state1.NamespacePaths[configs.NEWUSER]
+
+	// Run a container inside the existing pidns but with different cgroups
+	rootfs2, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs2)
+
+	config2 := newTemplateConfig(rootfs2)
+	config2.UidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+	config2.GidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+	config2.Namespaces.Add(configs.NEWNET, netns1)
+	config2.Namespaces.Add(configs.NEWUSER, userns1)
+	config2.Cgroups.Path = "integration/test2"
+	container2, err := newContainerWithName("testCT2", config2)
+	ok(t, err)
+	defer container2.Destroy()
+
+	stdinR2, stdinW2, err := os.Pipe()
+	ok(t, err)
+	init2 := &libcontainer.Process{
+		Cwd:   "/",
+		Args:  []string{"cat"},
+		Env:   standardEnvironment,
+		Stdin: stdinR2,
+		Init:  true,
+	}
+	err = container2.Run(init2)
+	stdinR2.Close()
+	defer stdinW2.Close()
+	ok(t, err)
+
+	// get the state of the second container
+	state2, err := container2.State()
+	ok(t, err)
+
+	for _, ns := range []string{"net", "user"} {
+		ns1, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/%s", state1.InitProcessPid, ns))
+		ok(t, err)
+		ns2, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/%s", state2.InitProcessPid, ns))
+		ok(t, err)
+		if ns1 != ns2 {
+			t.Errorf("%s(%s), wanted %s", ns, ns2, ns1)
+		}
+	}
+
+	// check that namespaces are not the same
+	if reflect.DeepEqual(state2.NamespacePaths, state1.NamespacePaths) {
+		t.Errorf("Namespaces(%v), original %v", state2.NamespacePaths,
+			state1.NamespacePaths)
+	}
+	// Stop init processes one by one. Stop the second container should
+	// not stop the first.
+	stdinW2.Close()
+	waitProcess(init2, t)
+	stdinW1.Close()
+	waitProcess(init1, t)
+}
+
+func TestTmpfsCopyUp(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	config := newTemplateConfig(rootfs)
+
+	config.Mounts = append(config.Mounts, &configs.Mount{
+		Source:      "tmpfs",
+		Destination: "/etc",
+		Device:      "tmpfs",
+		Extensions:  configs.EXT_COPYUP,
+	})
+
+	container, err := newContainerWithName("test", config)
+	ok(t, err)
+	defer container.Destroy()
+
+	var stdout bytes.Buffer
+	pconfig := libcontainer.Process{
+		Args:   []string{"ls", "/etc/passwd"},
+		Env:    standardEnvironment,
+		Stdin:  nil,
+		Stdout: &stdout,
+		Init:   true,
+	}
+	err = container.Run(&pconfig)
+	ok(t, err)
+
+	// Wait for process
+	waitProcess(&pconfig, t)
+
+	outputLs := string(stdout.Bytes())
+
+	// Check that the ls output has /etc/passwd
+	if !strings.Contains(outputLs, "/etc/passwd") {
+		t.Fatalf("/etc/passwd not copied up as expected: %v", outputLs)
+	}
+}
+
+func TestCGROUPPrivate(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/cgroup"); os.IsNotExist(err) {
+		t.Skip("cgroupns is unsupported")
+	}
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/cgroup")
+	ok(t, err)
+
+	config := newTemplateConfig(rootfs)
+	config.Namespaces.Add(configs.NEWCGROUP, "")
+	buffers, exitCode, err := runContainer(config, "", "readlink", "/proc/self/ns/cgroup")
+	ok(t, err)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual == l {
+		t.Fatalf("cgroup link should be private to the container but equals host %q %q", actual, l)
+	}
+}
+
+func TestCGROUPHost(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/cgroup"); os.IsNotExist(err) {
+		t.Skip("cgroupns is unsupported")
+	}
+	if testing.Short() {
+		return
+	}
+
+	rootfs, err := newRootfs()
+	ok(t, err)
+	defer remove(rootfs)
+
+	l, err := os.Readlink("/proc/1/ns/cgroup")
+	ok(t, err)
+
+	config := newTemplateConfig(rootfs)
+	buffers, exitCode, err := runContainer(config, "", "readlink", "/proc/self/ns/cgroup")
+	ok(t, err)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code not 0. code %d stderr %q", exitCode, buffers.Stderr)
+	}
+
+	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
+		t.Fatalf("cgroup link not equal to host link %q %q", actual, l)
+	}
+}
+
+
+
+### libcontainer/init_linux.go
+// +build linux
+
+package libcontainer
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"os"
+	"strings"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/containerd/console"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/system"
+	"github.com/opencontainers/runc/libcontainer/user"
+	"github.com/opencontainers/runc/libcontainer/utils"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
+)
+
+type initType string
+
+const (
+	initSetns    initType = "setns"
+	initStandard initType = "standard"
+)
+
+type pid struct {
+	Pid           int `json:"pid"`
+	PidFirstChild int `json:"pid_first"`
+}
+
+// network is an internal struct used to setup container networks.
+type network struct {
+	configs.Network
+
+	// TempVethPeerName is a unique temporary veth peer name that was placed into
+	// the container's namespace.
+	TempVethPeerName string `json:"temp_veth_peer_name"`
+}
+
+// initConfig is used for transferring parameters from Exec() to Init()
+type initConfig struct {
+	Args             []string              `json:"args"`
+	Env              []string              `json:"env"`
+	Cwd              string                `json:"cwd"`
+	Capabilities     *configs.Capabilities `json:"capabilities"`
+	ProcessLabel     string                `json:"process_label"`
+	AppArmorProfile  string                `json:"apparmor_profile"`
+	NoNewPrivileges  bool                  `json:"no_new_privileges"`
+	User             string                `json:"user"`
+	AdditionalGroups []string              `json:"additional_groups"`
+	Config           *configs.Config       `json:"config"`
+	Networks         []*network            `json:"network"`
+	PassedFilesCount int                   `json:"passed_files_count"`
+	ContainerId      string                `json:"containerid"`
+	Rlimits          []configs.Rlimit      `json:"rlimits"`
+	CreateConsole    bool                  `json:"create_console"`
+	ConsoleWidth     uint16                `json:"console_width"`
+	ConsoleHeight    uint16                `json:"console_height"`
+	RootlessEUID     bool                  `json:"rootless_euid,omitempty"`
+	RootlessCgroups  bool                  `json:"rootless_cgroups,omitempty"`
+}
+
+type initer interface {
+	Init() error
+}
+
+func newContainerInit(t initType, pipe *os.File, consoleSocket *os.File, fifoFd int) (initer, error) {
+	var config *initConfig
+	if err := json.NewDecoder(pipe).Decode(&config); err != nil {
+		return nil, err
+	}
+	if err := populateProcessEnvironment(config.Env); err != nil {
+		return nil, err
+	}
+	switch t {
+	case initSetns:
+		return &linuxSetnsInit{
+			pipe:          pipe,
+			consoleSocket: consoleSocket,
+			config:        config,
+		}, nil
+	case initStandard:
+		return &linuxStandardInit{
+			pipe:          pipe,
+			consoleSocket: consoleSocket,
+			parentPid:     unix.Getppid(),
+			config:        config,
+			fifoFd:        fifoFd,
+		}, nil
+	}
+	return nil, fmt.Errorf("unknown init type %q", t)
+}
+
+// populateProcessEnvironment loads the provided environment variables into the
+// current processes's environment.
+func populateProcessEnvironment(env []string) error {
+	for _, pair := range env {
+		p := strings.SplitN(pair, "=", 2)
+		if len(p) < 2 {
+			return fmt.Errorf("invalid environment '%v'", pair)
+		}
+		if err := os.Setenv(p[0], p[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// finalizeNamespace drops the caps, sets the correct user
+// and working dir, and closes any leaked file descriptors
+// before executing the command inside the namespace
+func finalizeNamespace(config *initConfig) error {
+	// Ensure that all unwanted fds we may have accidentally
+	// inherited are marked close-on-exec so they stay out of the
+	// container
+	if err := utils.CloseExecFrom(config.PassedFilesCount + 3); err != nil {
+		return errors.Wrap(err, "close exec fds")
+	}
+
+	if config.Cwd != "" {
+		if err := unix.Chdir(config.Cwd); err != nil {
+			return fmt.Errorf("chdir to cwd (%q) set in config.json failed: %v", config.Cwd, err)
+		}
+	}
+
+	capabilities := &configs.Capabilities{}
+	if config.Capabilities != nil {
+		capabilities = config.Capabilities
+	} else if config.Config.Capabilities != nil {
+		capabilities = config.Config.Capabilities
+	}
+	w, err := newContainerCapList(capabilities)
+	if err != nil {
+		return err
+	}
+	// drop capabilities in bounding set before changing user
+	if err := w.ApplyBoundingSet(); err != nil {
+		return errors.Wrap(err, "apply bounding set")
+	}
+	// preserve existing capabilities while we change users
+	if err := system.SetKeepCaps(); err != nil {
+		return errors.Wrap(err, "set keep caps")
+	}
+	if err := setupUser(config); err != nil {
+		return errors.Wrap(err, "setup user")
+	}
+	if err := system.ClearKeepCaps(); err != nil {
+		return errors.Wrap(err, "clear keep caps")
+	}
+	if err := w.ApplyCaps(); err != nil {
+		return errors.Wrap(err, "apply caps")
+	}
+	return nil
+}
+
+// setupConsole sets up the console from inside the container, and sends the
+// master pty fd to the config.Pipe (using cmsg). This is done to ensure that
+// consoles are scoped to a container properly (see runc#814 and the many
+// issues related to that). This has to be run *after* we've pivoted to the new
+// rootfs (and the users' configuration is entirely set up).
+func setupConsole(socket *os.File, config *initConfig, mount bool) error {
+	defer socket.Close()
+	// At this point, /dev/ptmx points to something that we would expect. We
+	// used to change the owner of the slave path, but since the /dev/pts mount
+	// can have gid=X set (at the users' option). So touching the owner of the
+	// slave PTY is not necessary, as the kernel will handle that for us. Note
+	// however, that setupUser (specifically fixStdioPermissions) *will* change
+	// the UID owner of the console to be the user the process will run as (so
+	// they can actually control their console).
+
+	pty, slavePath, err := console.NewPty()
+	if err != nil {
+		return err
+	}
+
+	if config.ConsoleHeight != 0 && config.ConsoleWidth != 0 {
+		err = pty.Resize(console.WinSize{
+			Height: config.ConsoleHeight,
+			Width:  config.ConsoleWidth,
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	// After we return from here, we don't need the console anymore.
+	defer pty.Close()
+
+	// Mount the console inside our rootfs.
+	if mount {
+		if err := mountConsole(slavePath); err != nil {
+			return err
+		}
+	}
+	// While we can access console.master, using the API is a good idea.
+	if err := utils.SendFd(socket, pty.Name(), pty.Fd()); err != nil {
+		return err
+	}
+	// Now, dup over all the things.
+	return dupStdio(slavePath)
+}
+
+// syncParentReady sends to the given pipe a JSON payload which indicates that
+// the init is ready to Exec the child process. It then waits for the parent to
+// indicate that it is cleared to Exec.
+func syncParentReady(pipe io.ReadWriter) error {
+	// Tell parent.
+	if err := writeSync(pipe, procReady); err != nil {
+		return err
+	}
+
+	// Wait for parent to give the all-clear.
+	return readSync(pipe, procRun)
+}
+
+// syncParentHooks sends to the given pipe a JSON payload which indicates that
+// the parent should execute pre-start hooks. It then waits for the parent to
+// indicate that it is cleared to resume.
+func syncParentHooks(pipe io.ReadWriter) error {
+	// Tell parent.
+	if err := writeSync(pipe, procHooks); err != nil {
+		return err
+	}
+
+	// Wait for parent to give the all-clear.
+	return readSync(pipe, procResume)
+}
+
+// setupUser changes the groups, gid, and uid for the user inside the container
+func setupUser(config *initConfig) error {
+	// Set up defaults.
+	defaultExecUser := user.ExecUser{
+		Uid:  0,
+		Gid:  0,
+		Home: "/",
+	}
+
+	passwdPath, err := user.GetPasswdPath()
+	if err != nil {
+		return err
+	}
+
+	groupPath, err := user.GetGroupPath()
+	if err != nil {
+		return err
+	}
+
+	execUser, err := user.GetExecUserPath(config.User, &defaultExecUser, passwdPath, groupPath)
+	if err != nil {
+		return err
+	}
+
+	var addGroups []int
+	if len(config.AdditionalGroups) > 0 {
+		addGroups, err = user.GetAdditionalGroupsPath(config.AdditionalGroups, groupPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Rather than just erroring out later in setuid(2) and setgid(2), check
+	// that the user is mapped here.
+	if _, err := config.Config.HostUID(execUser.Uid); err != nil {
+		return errors.New("cannot set uid to unmapped user in user namespace")
+	}
+	if _, err := config.Config.HostGID(execUser.Gid); err != nil {
+		return errors.New("cannot set gid to unmapped user in user namespace")
+	}
+
+	if config.RootlessEUID {
+		// We cannot set any additional groups in a rootless container and thus
+		// we bail if the user asked us to do so. TODO: We currently can't do
+		// this check earlier, but if libcontainer.Process.User was typesafe
+		// this might work.
+		if len(addGroups) > 0 {
+			return errors.New("cannot set any additional groups in a rootless container")
+		}
+	}
+
+	// Before we change to the container's user make sure that the processes
+	// STDIO is correctly owned by the user that we are switching to.
+	if err := fixStdioPermissions(config, execUser); err != nil {
+		return err
+	}
+
+	setgroups, err := ioutil.ReadFile("/proc/self/setgroups")
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// This isn't allowed in an unprivileged user namespace since Linux 3.19.
+	// There's nothing we can do about /etc/group entries, so we silently
+	// ignore setting groups here (since the user didn't explicitly ask us to
+	// set the group).
+	allowSupGroups := !config.RootlessEUID && strings.TrimSpace(string(setgroups)) != "deny"
+
+	if allowSupGroups {
+		suppGroups := append(execUser.Sgids, addGroups...)
+		if err := unix.Setgroups(suppGroups); err != nil {
+			return err
+		}
+	}
+
+	if err := system.Setgid(execUser.Gid); err != nil {
+		return err
+	}
+	if err := system.Setuid(execUser.Uid); err != nil {
+		return err
+	}
+
+	// if we didn't get HOME already, set it based on the user's HOME
+	if envHome := os.Getenv("HOME"); envHome == "" {
+		if err := os.Setenv("HOME", execUser.Home); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fixStdioPermissions fixes the permissions of PID 1's STDIO within the container to the specified user.
+// The ownership needs to match because it is created outside of the container and needs to be
+// localized.
+func fixStdioPermissions(config *initConfig, u *user.ExecUser) error {
+	var null unix.Stat_t
+	if err := unix.Stat("/dev/null", &null); err != nil {
+		return err
+	}
+	for _, fd := range []uintptr{
+		os.Stdin.Fd(),
+		os.Stderr.Fd(),
+		os.Stdout.Fd(),
+	} {
+		var s unix.Stat_t
+		if err := unix.Fstat(int(fd), &s); err != nil {
+			return err
+		}
+
+		// Skip chown of /dev/null if it was used as one of the STDIO fds.
+		if s.Rdev == null.Rdev {
+			continue
+		}
+
+		// We only change the uid owner (as it is possible for the mount to
+		// prefer a different gid, and there's no reason for us to change it).
+		// The reason why we don't just leave the default uid=X mount setup is
+		// that users expect to be able to actually use their console. Without
+		// this code, you couldn't effectively run as a non-root user inside a
+		// container and also have a console set up.
+		if err := unix.Fchown(int(fd), u.Uid, int(s.Gid)); err != nil {
+			// If we've hit an EINVAL then s.Gid isn't mapped in the user
+			// namespace. If we've hit an EPERM then the inode's current owner
+			// is not mapped in our user namespace (in particular,
+			// privileged_wrt_inode_uidgid() has failed). In either case, we
+			// are in a configuration where it's better for us to just not
+			// touch the stdio rather than bail at this point.
+			if err == unix.EINVAL || err == unix.EPERM {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// setupNetwork sets up and initializes any network interface inside the container.
+func setupNetwork(config *initConfig) error {
+	for _, config := range config.Networks {
+		strategy, err := getStrategy(config.Type)
+		if err != nil {
+			return err
+		}
+		if err := strategy.initialize(config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setupRoute(config *configs.Config) error {
+	for _, config := range config.Routes {
+		_, dst, err := net.ParseCIDR(config.Destination)
+		if err != nil {
+			return err
+		}
+		src := net.ParseIP(config.Source)
+		if src == nil {
+			return fmt.Errorf("Invalid source for route: %s", config.Source)
+		}
+		gw := net.ParseIP(config.Gateway)
+		if gw == nil {
+			return fmt.Errorf("Invalid gateway for route: %s", config.Gateway)
+		}
+		l, err := netlink.LinkByName(config.InterfaceName)
+		if err != nil {
+			return err
+		}
+		route := &netlink.Route{
+			Scope:     netlink.SCOPE_UNIVERSE,
+			Dst:       dst,
+			Src:       src,
+			Gw:        gw,
+			LinkIndex: l.Attrs().Index,
+		}
+		if err := netlink.RouteAdd(route); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setupRlimits(limits []configs.Rlimit, pid int) error {
+	for _, rlimit := range limits {
+		if err := system.Prlimit(pid, rlimit.Type, unix.Rlimit{Max: rlimit.Hard, Cur: rlimit.Soft}); err != nil {
+			return fmt.Errorf("error setting rlimit type %v: %v", rlimit.Type, err)
+		}
+	}
+	return nil
+}
+
+const _P_PID = 1
+
+type siginfo struct {
+	si_signo int32
+	si_errno int32
+	si_code  int32
+	// below here is a union; si_pid is the only field we use
+	si_pid int32
+	// Pad to 128 bytes as detailed in blockUntilWaitable
+	pad [96]byte
+}
+
+// isWaitable returns true if the process has exited false otherwise.
+// Its based off blockUntilWaitable in src/os/wait_waitid.go
+func isWaitable(pid int) (bool, error) {
+	si := &siginfo{}
+	_, _, e := unix.Syscall6(unix.SYS_WAITID, _P_PID, uintptr(pid), uintptr(unsafe.Pointer(si)), unix.WEXITED|unix.WNOWAIT|unix.WNOHANG, 0, 0)
+	if e != 0 {
+		return false, os.NewSyscallError("waitid", e)
+	}
+
+	return si.si_pid != 0, nil
+}
+
+// isNoChildren returns true if err represents a unix.ECHILD (formerly syscall.ECHILD) false otherwise
+func isNoChildren(err error) bool {
+	switch err := err.(type) {
+	case unix.Errno:
+		if err == unix.ECHILD {
+			return true
+		}
+	case *os.SyscallError:
+		if err.Err == unix.ECHILD {
+			return true
+		}
+	}
+	return false
+}
+
+// signalAllProcesses freezes then iterates over all the processes inside the
+// manager's cgroups sending the signal s to them.
+// If s is SIGKILL then it will wait for each process to exit.
+// For all other signals it will check if the process is ready to report its
+// exit status and only if it is will a wait be performed.
+func signalAllProcesses(m cgroups.Manager, s os.Signal) error {
+	var procs []*os.Process
+	if err := m.Freeze(configs.Frozen); err != nil {
+		logrus.Warn(err)
+	}
+	pids, err := m.GetAllPids()
+	if err != nil {
+		m.Freeze(configs.Thawed)
+		return err
+	}
+	for _, pid := range pids {
+		p, err := os.FindProcess(pid)
+		if err != nil {
+			logrus.Warn(err)
+			continue
+		}
+		procs = append(procs, p)
+		if err := p.Signal(s); err != nil {
+			logrus.Warn(err)
+		}
+	}
+	if err := m.Freeze(configs.Thawed); err != nil {
+		logrus.Warn(err)
+	}
+
+	subreaper, err := system.GetSubreaper()
+	if err != nil {
+		// The error here means that PR_GET_CHILD_SUBREAPER is not
+		// supported because this code might run on a kernel older
+		// than 3.4. We don't want to throw an error in that case,
+		// and we simplify things, considering there is no subreaper
+		// set.
+		subreaper = 0
+	}
+
+	for _, p := range procs {
+		if s != unix.SIGKILL {
+			if ok, err := isWaitable(p.Pid); err != nil {
+				if !isNoChildren(err) {
+					logrus.Warn("signalAllProcesses: ", p.Pid, err)
+				}
+				continue
+			} else if !ok {
+				// Not ready to report so don't wait
+				continue
+			}
+		}
+
+		// In case a subreaper has been setup, this code must not
+		// wait for the process. Otherwise, we cannot be sure the
+		// current process will be reaped by the subreaper, while
+		// the subreaper might be waiting for this process in order
+		// to retrieve its exit code.
+		if subreaper == 0 {
+			if _, err := p.Wait(); err != nil {
+				if !isNoChildren(err) {
+					logrus.Warn("wait: ", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+
+
+### libcontainer/configs/config.go
+package configs
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os/exec"
+	"time"
+
+	"github.com/opencontainers/runtime-spec/specs-go"
+
+	"github.com/sirupsen/logrus"
+)
+
+type Rlimit struct {
+	Type int    `json:"type"`
+	Hard uint64 `json:"hard"`
+	Soft uint64 `json:"soft"`
+}
+
+// IDMap represents UID/GID Mappings for User Namespaces.
+type IDMap struct {
+	ContainerID int `json:"container_id"`
+	HostID      int `json:"host_id"`
+	Size        int `json:"size"`
+}
+
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+}
+
+// Action is taken upon rule match in Seccomp
+type Action int
+
+const (
+	Kill Action = iota + 1
+	Errno
+	Trap
+	Allow
+	Trace
+	Log
+)
+
+// Operator is a comparison operator to be used when matching syscall arguments in Seccomp
+type Operator int
+
+const (
+	EqualTo Operator = iota + 1
+	NotEqualTo
+	GreaterThan
+	GreaterThanOrEqualTo
+	LessThan
+	LessThanOrEqualTo
+	MaskEqualTo
+)
+
+// Arg is a rule to match a specific syscall argument in Seccomp
+type Arg struct {
+	Index    uint     `json:"index"`
+	Value    uint64   `json:"value"`
+	ValueTwo uint64   `json:"value_two"`
+	Op       Operator `json:"op"`
+}
+
+// Syscall is a rule to match a syscall in Seccomp
+type Syscall struct {
+	Name     string `json:"name"`
+	Action   Action `json:"action"`
+	ErrnoRet *uint  `json:"errnoRet"`
+	Args     []*Arg `json:"args"`
+}
+
+// TODO Windows. Many of these fields should be factored out into those parts
+// which are common across platforms, and those which are platform specific.
+
+// Config defines configuration options for executing a process inside a contained environment.
+type Config struct {
+	// NoPivotRoot will use MS_MOVE and a chroot to jail the process into the container's rootfs
+	// This is a common option when the container is running in ramdisk
+	NoPivotRoot bool `json:"no_pivot_root"`
+
+	// ParentDeathSignal specifies the signal that is sent to the container's process in the case
+	// that the parent process dies.
+	ParentDeathSignal int `json:"parent_death_signal"`
+
+	// Path to a directory containing the container's root filesystem.
+	Rootfs string `json:"rootfs"`
+
+	// Readonlyfs will remount the container's rootfs as readonly where only externally mounted
+	// bind mounts are writtable.
+	Readonlyfs bool `json:"readonlyfs"`
+
+	// Specifies the mount propagation flags to be applied to /.
+	RootPropagation int `json:"rootPropagation"`
+
+	// Mounts specify additional source and destination paths that will be mounted inside the container's
+	// rootfs and mount namespace if specified
+	Mounts []*Mount `json:"mounts"`
+
+	// The device nodes that should be automatically created within the container upon container start.  Note, make sure that the node is marked as allowed in the cgroup as well!
+	Devices []*Device `json:"devices"`
+
+	MountLabel string `json:"mount_label"`
+
+	// Hostname optionally sets the container's hostname if provided
+	Hostname string `json:"hostname"`
+
+	// Namespaces specifies the container's namespaces that it should setup when cloning the init process
+	// If a namespace is not provided that namespace is shared from the container's parent process
+	Namespaces Namespaces `json:"namespaces"`
+
+	// Capabilities specify the capabilities to keep when executing the process inside the container
+	// All capabilities not specified will be dropped from the processes capability mask
+	Capabilities *Capabilities `json:"capabilities"`
+
+	// Networks specifies the container's network setup to be created
+	Networks []*Network `json:"networks"`
+
+	// Routes can be specified to create entries in the route table as the container is started
+	Routes []*Route `json:"routes"`
+
+	// Cgroups specifies specific cgroup settings for the various subsystems that the container is
+	// placed into to limit the resources the container has available
+	Cgroups *Cgroup `json:"cgroups"`
+
+	// AppArmorProfile specifies the profile to apply to the process running in the container and is
+	// change at the time the process is execed
+	AppArmorProfile string `json:"apparmor_profile,omitempty"`
+
+	// ProcessLabel specifies the label to apply to the process running in the container.  It is
+	// commonly used by selinux
+	ProcessLabel string `json:"process_label,omitempty"`
+
+	// Rlimits specifies the resource limits, such as max open files, to set in the container
+	// If Rlimits are not set, the container will inherit rlimits from the parent process
+	Rlimits []Rlimit `json:"rlimits,omitempty"`
+
+	// OomScoreAdj specifies the adjustment to be made by the kernel when calculating oom scores
+	// for a process. Valid values are between the range [-1000, '1000'], where processes with
+	// higher scores are preferred for being killed. If it is unset then we don't touch the current
+	// value.
+	// More information about kernel oom score calculation here: https://lwn.net/Articles/317814/
+	OomScoreAdj *int `json:"oom_score_adj,omitempty"`
+
+	// UidMappings is an array of User ID mappings for User Namespaces
+	UidMappings []IDMap `json:"uid_mappings"`
+
+	// GidMappings is an array of Group ID mappings for User Namespaces
+	GidMappings []IDMap `json:"gid_mappings"`
+
+	// MaskPaths specifies paths within the container's rootfs to mask over with a bind
+	// mount pointing to /dev/null as to prevent reads of the file.
+	MaskPaths []string `json:"mask_paths"`
+
+	// ReadonlyPaths specifies paths within the container's rootfs to remount as read-only
+	// so that these files prevent any writes.
+	ReadonlyPaths []string `json:"readonly_paths"`
+
+	// Sysctl is a map of properties and their values. It is the equivalent of using
+	// sysctl -w my.property.name value in Linux.
+	Sysctl map[string]string `json:"sysctl"`
+
+	// Seccomp allows actions to be taken whenever a syscall is made within the container.
+	// A number of rules are given, each having an action to be taken if a syscall matches it.
+	// A default action to be taken if no rules match is also given.
+	Seccomp *Seccomp `json:"seccomp"`
+
+	// NoNewPrivileges controls whether processes in the container can gain additional privileges.
+	NoNewPrivileges bool `json:"no_new_privileges,omitempty"`
+
+	// Hooks are a collection of actions to perform at various container lifecycle events.
+	// CommandHooks are serialized to JSON, but other hooks are not.
+	Hooks *Hooks
+
+	// Version is the version of opencontainer specification that is supported.
+	Version string `json:"version"`
+
+	// Labels are user defined metadata that is stored in the config and populated on the state
+	Labels []string `json:"labels"`
+
+	// NoNewKeyring will not allocated a new session keyring for the container.  It will use the
+	// callers keyring in this case.
+	NoNewKeyring bool `json:"no_new_keyring"`
+
+	// IntelRdt specifies settings for Intel RDT group that the container is placed into
+	// to limit the resources (e.g., L3 cache, memory bandwidth) the container has available
+	IntelRdt *IntelRdt `json:"intel_rdt,omitempty"`
+
+	// RootlessEUID is set when the runc was launched with non-zero EUID.
+	// Note that RootlessEUID is set to false when launched with EUID=0 in userns.
+	// When RootlessEUID is set, runc creates a new userns for the container.
+	// (config.json needs to contain userns settings)
+	RootlessEUID bool `json:"rootless_euid,omitempty"`
+
+	// RootlessCgroups is set when unlikely to have the full access to cgroups.
+	// When RootlessCgroups is set, cgroups errors are ignored.
+	RootlessCgroups bool `json:"rootless_cgroups,omitempty"`
+}
+
+type Hooks struct {
+	// Prestart commands are executed after the container namespaces are created,
+	// but before the user supplied command is executed from init.
+	Prestart []Hook
+
+	// Poststart commands are executed after the container init process starts.
+	Poststart []Hook
+
+	// Poststop commands are executed after the container init process exits.
+	Poststop []Hook
+}
+
+type Capabilities struct {
+	// Bounding is the set of capabilities checked by the kernel.
+	Bounding []string
+	// Effective is the set of capabilities checked by the kernel.
+	Effective []string
+	// Inheritable is the capabilities preserved across execve.
+	Inheritable []string
+	// Permitted is the limiting superset for effective capabilities.
+	Permitted []string
+	// Ambient is the ambient set of capabilities that are kept.
+	Ambient []string
+}
+
+func (hooks *Hooks) UnmarshalJSON(b []byte) error {
+	var state struct {
+		Prestart  []CommandHook
+		Poststart []CommandHook
+		Poststop  []CommandHook
+	}
+
+	if err := json.Unmarshal(b, &state); err != nil {
+		return err
+	}
+
+	deserialize := func(shooks []CommandHook) (hooks []Hook) {
+		for _, shook := range shooks {
+			hooks = append(hooks, shook)
+		}
+
+		return hooks
+	}
+
+	hooks.Prestart = deserialize(state.Prestart)
+	hooks.Poststart = deserialize(state.Poststart)
+	hooks.Poststop = deserialize(state.Poststop)
+	return nil
+}
+
+func (hooks Hooks) MarshalJSON() ([]byte, error) {
+	serialize := func(hooks []Hook) (serializableHooks []CommandHook) {
+		for _, hook := range hooks {
+			switch chook := hook.(type) {
+			case CommandHook:
+				serializableHooks = append(serializableHooks, chook)
+			default:
+				logrus.Warnf("cannot serialize hook of type %T, skipping", hook)
+			}
+		}
+
+		return serializableHooks
+	}
+
+	return json.Marshal(map[string]interface{}{
+		"prestart":  serialize(hooks.Prestart),
+		"poststart": serialize(hooks.Poststart),
+		"poststop":  serialize(hooks.Poststop),
+	})
+}
+
+type Hook interface {
+	// Run executes the hook with the provided state.
+	Run(*specs.State) error
+}
+
+// NewFunctionHook will call the provided function when the hook is run.
+func NewFunctionHook(f func(*specs.State) error) FuncHook {
+	return FuncHook{
+		run: f,
+	}
+}
+
+type FuncHook struct {
+	run func(*specs.State) error
+}
+
+func (f FuncHook) Run(s *specs.State) error {
+	return f.run(s)
+}
+
+type Command struct {
+	Path    string         `json:"path"`
+	Args    []string       `json:"args"`
+	Env     []string       `json:"env"`
+	Dir     string         `json:"dir"`
+	Timeout *time.Duration `json:"timeout"`
+}
+
+// NewCommandHook will execute the provided command when the hook is run.
+func NewCommandHook(cmd Command) CommandHook {
+	return CommandHook{
+		Command: cmd,
+	}
+}
+
+type CommandHook struct {
+	Command
+}
+
+func (c Command) Run(s *specs.State) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Cmd{
+		Path:   c.Path,
+		Args:   c.Args,
+		Env:    c.Env,
+		Stdin:  bytes.NewReader(b),
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	errC := make(chan error, 1)
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			err = fmt.Errorf("error running hook: %v, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+		}
+		errC <- err
+	}()
+	var timerCh <-chan time.Time
+	if c.Timeout != nil {
+		timer := time.NewTimer(*c.Timeout)
+		defer timer.Stop()
+		timerCh = timer.C
+	}
+	select {
+	case err := <-errC:
+		return err
+	case <-timerCh:
+		cmd.Process.Kill()
+		cmd.Wait()
+		return fmt.Errorf("hook ran past specified timeout of %.1fs", c.Timeout.Seconds())
+	}
+}
+```
+--- END FILE ---
+
+Please first localize the bug based on the issue statement, and then generate *SEARCH/REPLACE* edits to fix the issue.
+
+Every *SEARCH/REPLACE* edit must use this format:
+1. The file path
+2. The start of search block: <<<<<<< SEARCH
+3. A contiguous chunk of lines to search for in the existing source code
+4. The dividing line: =======
+5. The lines to replace into the source code
+6. The end of the replace block: >>>>>>> REPLACE
+
+Here is an example:
+
+```python
+### mathweb/flask/app.py
+<<<<<<< SEARCH
+from flask import Flask
+=======
+import math
+from flask import Flask
+>>>>>>> REPLACE
+```
+
+Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
+Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
+2026-06-30 23:59:07,345 - INFO - Initializing a decoder model: deepseek-coder ...
+2026-06-30 23:59:07,357 - INFO - Creating API request
+2026-06-30 23:59:11,936 - INFO - API response ChatCompletion(id='25481af8-fb55-48c0-9e62-e3b0830bd9fa', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Looking at the issue, the problem is that the `Seccomp` struct in `libcontainer/configs/config.go` doesn\'t have a `Flags` field to support seccomp flags like `SECCOMP_FILTER_FLAG_SPEC_ALLOW`. The OCI runtime spec v1.0.2 added support for seccomp flags, but the current code doesn\'t parse or pass them through.\n\nThe fix needs to:\n1. Add a `Flags` field to the `Seccomp` struct in `config.go`\n2. Ensure the flags are properly serialized/deserialized\n\nHere\'s the fix:\n\n```python\n### libcontainer/configs/config.go\n<<<<<<< SEARCH\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:"default_action"`\n\tArchitectures []string   `json:"architectures"`\n\tSyscalls      []*Syscall `json:"syscalls"`\n}\n=======\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:"default_action"`\n\tArchitectures []string   `json:"architectures"`\n\tSyscalls      []*Syscall `json:"syscalls"`\n\tFlags         []string   `json:"flags"`\n}\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1782835147, model='deepseek-v4-flash', object='chat.completion', moderation=None, service_tier=None, system_fingerprint='fp_8b330d02d0_prod0820_fp8_kvcache_20260402', usage=CompletionUsage(completion_tokens=355, prompt_tokens=49610, total_tokens=49965, completion_tokens_details=None, prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0), prompt_cache_hit_tokens=0, prompt_cache_miss_tokens=49610))
+2026-06-30 23:59:11,936 - INFO - Initializing a decoder model: deepseek-coder ...
+2026-06-30 23:59:11,936 - INFO - raw output:
+Looking at the issue, the problem is that the `Seccomp` struct in `libcontainer/configs/config.go` doesn't have a `Flags` field to support seccomp flags like `SECCOMP_FILTER_FLAG_SPEC_ALLOW`. The OCI runtime spec v1.0.2 added support for seccomp flags, but the current code doesn't parse or pass them through.
+
+The fix needs to:
+1. Add a `Flags` field to the `Seccomp` struct in `config.go`
+2. Ensure the flags are properly serialized/deserialized
+
+Here's the fix:
+
+```python
+### libcontainer/configs/config.go
+<<<<<<< SEARCH
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+}
+=======
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+	Flags         []string   `json:"flags"`
+}
+>>>>>>> REPLACE
+```
+2026-06-30 23:59:11,936 - INFO - === file_to_commands: ===
+2026-06-30 23:59:11,936 - INFO - {
+  "'libcontainer/configs/config.go'": [
+    "<<<<<<< SEARCH\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:\"default_action\"`\n\tArchitectures []string   `json:\"architectures\"`\n\tSyscalls      []*Syscall `json:\"syscalls\"`\n}\n=======\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:\"default_action\"`\n\tArchitectures []string   `json:\"architectures\"`\n\tSyscalls      []*Syscall `json:\"syscalls\"`\n\tFlags         []string   `json:\"flags\"`\n}\n>>>>>>> REPLACE"
+  ]
+}
+2026-06-30 23:59:11,936 - INFO - === edited_file: 'libcontainer/configs/config.go' ===
+2026-06-30 23:59:11,937 - INFO - === edit_commands: ===
+2026-06-30 23:59:11,937 - INFO - <<<<<<< SEARCH
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+}
+=======
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+	Flags         []string   `json:"flags"`
+}
+>>>>>>> REPLACE
+2026-06-30 23:59:11,937 - INFO - 
+----------------------------------------
+2026-06-30 23:59:11,937 - ERROR - parse_diff_edit_commands failed for libcontainer/configs/config.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-06-30 23:59:11,937 - INFO - extracted patch:
+2026-06-30 23:59:11,937 - INFO - --- libcontainer/configs/config.go
++++ libcontainer/configs/config.go
+@@ -33,6 +33,7 @@
+ 	DefaultAction Action     `json:"default_action"`
+ 	Architectures []string   `json:"architectures"`
+ 	Syscalls      []*Syscall `json:"syscalls"`
++	Flags         []string   `json:"flags"`
+ }
+ 
+ // Action is taken upon rule match in Seccomp
+2026-06-30 23:59:11,939 - INFO - === file_to_commands: ===
+2026-06-30 23:59:11,939 - INFO - === file_to_commands: ===
+2026-06-30 23:59:11,939 - INFO - {
+  "'libcontainer/configs/config.go'": [
+    "<<<<<<< SEARCH\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:\"default_action\"`\n\tArchitectures []string   `json:\"architectures\"`\n\tSyscalls      []*Syscall `json:\"syscalls\"`\n}\n=======\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:\"default_action\"`\n\tArchitectures []string   `json:\"architectures\"`\n\tSyscalls      []*Syscall `json:\"syscalls\"`\n\tFlags         []string   `json:\"flags\"`\n}\n>>>>>>> REPLACE"
+  ]
+}
+2026-06-30 23:59:11,939 - INFO - {
+  "'libcontainer/configs/config.go'": [
+    "<<<<<<< SEARCH\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:\"default_action\"`\n\tArchitectures []string   `json:\"architectures\"`\n\tSyscalls      []*Syscall `json:\"syscalls\"`\n}\n=======\n// Seccomp represents syscall restrictions\n// By default, only the native architecture of the kernel is allowed to be used\n// for syscalls. Additional architectures can be added by specifying them in\n// Architectures.\ntype Seccomp struct {\n\tDefaultAction Action     `json:\"default_action\"`\n\tArchitectures []string   `json:\"architectures\"`\n\tSyscalls      []*Syscall `json:\"syscalls\"`\n\tFlags         []string   `json:\"flags\"`\n}\n>>>>>>> REPLACE"
+  ]
+}
+2026-06-30 23:59:11,939 - INFO - === edited_file: 'libcontainer/configs/config.go' ===
+2026-06-30 23:59:11,939 - INFO - === edited_file: 'libcontainer/configs/config.go' ===
+2026-06-30 23:59:11,939 - INFO - === edit_commands: ===
+2026-06-30 23:59:11,939 - INFO - === edit_commands: ===
+2026-06-30 23:59:11,939 - INFO - <<<<<<< SEARCH
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+}
+=======
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+	Flags         []string   `json:"flags"`
+}
+>>>>>>> REPLACE
+2026-06-30 23:59:11,939 - INFO - <<<<<<< SEARCH
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+}
+=======
+// Seccomp represents syscall restrictions
+// By default, only the native architecture of the kernel is allowed to be used
+// for syscalls. Additional architectures can be added by specifying them in
+// Architectures.
+type Seccomp struct {
+	DefaultAction Action     `json:"default_action"`
+	Architectures []string   `json:"architectures"`
+	Syscalls      []*Syscall `json:"syscalls"`
+	Flags         []string   `json:"flags"`
+}
+>>>>>>> REPLACE
+2026-06-30 23:59:11,939 - INFO - 
+----------------------------------------
+2026-06-30 23:59:11,939 - INFO - 
+----------------------------------------
+2026-06-30 23:59:11,939 - ERROR - parse_diff_edit_commands failed for libcontainer/configs/config.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-06-30 23:59:11,939 - ERROR - parse_diff_edit_commands failed for libcontainer/configs/config.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-06-30 23:59:11,940 - INFO - extracted patch:
+2026-06-30 23:59:11,940 - INFO - extracted patch:
+2026-06-30 23:59:11,940 - INFO - --- libcontainer/configs/config.go
++++ libcontainer/configs/config.go
+@@ -33,6 +33,7 @@
+ 	DefaultAction Action     `json:"default_action"`
+ 	Architectures []string   `json:"architectures"`
+ 	Syscalls      []*Syscall `json:"syscalls"`
++	Flags         []string   `json:"flags"`
+ }
+ 
+ // Action is taken upon rule match in Seccomp
+2026-06-30 23:59:11,940 - INFO - --- libcontainer/configs/config.go
++++ libcontainer/configs/config.go
+@@ -33,6 +33,7 @@
+ 	DefaultAction Action     `json:"default_action"`
+ 	Architectures []string   `json:"architectures"`
+ 	Syscalls      []*Syscall `json:"syscalls"`
++	Flags         []string   `json:"flags"`
+ }
+ 
+ // Action is taken upon rule match in Seccomp
+2026-06-30 23:59:11,978 - INFO - differ_by_empty_lines = False
+2026-06-30 23:59:11,978 - INFO - differ_by_empty_lines = False
