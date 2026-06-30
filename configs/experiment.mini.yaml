@@ -1,39 +1,31 @@
-# Copy this file to configs/experiment.full.local.yaml before running.
-#
-# This config selects the whole OCI differential dataset. It keeps the
-# less-integrated baselines disabled until their OCI wrapper scripts are ready.
-
 experiment:
   name: oci-full
   output_dir: results/oci-full
   worktree_root: external/worktrees
   timeout_seconds: 1800
   keep_failed_workdirs: true
-
 model:
   provider: deepseek
   name: deepseek/deepseek-v4-flash
   temperature: 0
-
 paths:
   dataset_dir: external/oci-differential-dataset
   baselines_dir: external/baselines
   subjects_dir: external/subjects
-
 benchmark:
   metadata_file: external/oci-differential-dataset/metadata.json
   cases_dir: external/oci-differential-dataset/cases
   rootfs_tar: external/oci-differential-dataset/alpine-base.tar.gz
   selection:
     mode: all
-
 runtimes:
   runc:
     source_dir: external/subjects/runc
-    build_command: "make runc"
+    build_command: make runc
     runtime_path: runc
     reference_runtime: runc
-    source_extensions: [".go"]
+    source_extensions:
+    - .go
     buggy_ref_by_case:
       runc-2430: 7673bee6bfbc28c8cfbc64165eea29b83e9957f0
       runc-2928: d279ebd97d8832020e2c6f50cc3a11d0499a4690
@@ -45,10 +37,12 @@ runtimes:
       runc-5182: 3cdda464fa1f1eb0d5774acacf73bb446df5f3d8^
   crun:
     source_dir: external/subjects/crun
-    build_command: "./autogen.sh && ./configure && make -j$(nproc)"
+    build_command: ./autogen.sh && ./configure && make -j$(nproc)
     runtime_path: crun
     reference_runtime: runc
-    source_extensions: [".c", ".h"]
+    source_extensions:
+    - .c
+    - .h
     buggy_ref_by_case:
       crun-13: c047a49b8d798e210054e411a999e83f6c05bdbf^
       crun-129: 3d28553bd97cbd077dd9612c3c931a6b49d92fe2
@@ -64,58 +58,65 @@ runtimes:
       crun-1943: 8e8186b3f0879b3cf11dccb21505d1ff6d809633^
   youki:
     source_dir: external/subjects/youki
-    build_command: "cargo build --release"
+    build_command: cargo build --release
     runtime_path: target/release/youki
     reference_runtime: runc
-    source_extensions: [".rs"]
-    buggy_ref_by_case: {}
-
+    source_extensions:
+    - .rs
+    buggy_ref_by_case:
+      youki-3198: 532ea307f70ae0fa874f31d9299bda6b708c713e^
+      youki-3199: 532ea307f70ae0fa874f31d9299bda6b708c713e^
+      youki-3293: ed3d6f6ffd82381bede18820aa822a609f2b88eb^
+      youki-3428: 76b913d4d63eb356d4ec66b5bd383ce9358dfda0^
 oracle:
-  command: "python oracles/run_oci_oracle.py"
+  command: python oracles/run_oci_oracle.py
   timeout_seconds: 300
-
 baselines:
-  - name: mini-swe-agent
-    enabled: true
-    kind: mini_swe_agent
-    repo_dir: external/baselines/mini-swe-agent
-    trajectory_name: trajectory.json
-    command: "mini -y -m {model} -t {task_text} -o {trajectory_file} --exit-immediately"
-
-  - name: agentless-oci-adapted
-    enabled: true
-    kind: agentless_oci
-    model: deepseek-coder
-    repo_dir: external/baselines/Agentless
-    adapter_patch: baselines/agentless-oci-adapted/agentless_oci_dataset.patch
-    output_dir_name: agentless-output
-    top_n_files: 5
-    max_samples: 1
-    command: "PYTHONPATH={baseline_repo_dir}:$PYTHONPATH GIT_AUTHOR_NAME='Agentless Runner' GIT_AUTHOR_EMAIL='agentless@example.com' GIT_COMMITTER_NAME='Agentless Runner' GIT_COMMITTER_EMAIL='agentless@example.com' python agentless/repair/repair.py --oci_task_file {task_jsonl} --loc_file {loc_jsonl} --output_folder {agentless_output_dir} --target_id {case_id} --top_n {top_n_files} --model {model} --backend deepseek --diff_format --cot --gen_and_process --num_threads 1 --max_samples {max_samples}"
-
-  - name: autocoderover
-    enabled: false
-    kind: generic_repair_agent
-    repo_dir: external/baselines/AutoCodeRover
-    cwd: repo_dir
-    output_dir_name: autocoderover-output
-    adapter: wrapper_required
-    command: "bash {baseline_repo_dir}/run_oci_repair.sh --repo {worktree_dir} --task-file {task_file} --output-dir {baseline_output_dir} --model {model}"
-
-  - name: metagpt
-    enabled: false
-    kind: generic_repair_agent
-    repo_dir: external/baselines/MetaGPT
-    cwd: repo_dir
-    output_dir_name: metagpt-output
-    adapter: wrapper_required
-    command: "bash {baseline_repo_dir}/run_oci_repair.sh --repo {worktree_dir} --task-file {task_file} --output-dir {baseline_output_dir} --model {model}"
-
-  - name: repairagent
-    enabled: true
-    kind: generic_repair_agent
-    repo_dir: external/baselines/RepairAgent
-    cwd: repo_dir
-    output_dir_name: repairagent-output
-    adapter: wrapper_required
-    command: "bash {baseline_repo_dir}/run_oci_repair.sh --repo {worktree_dir} --task-file {task_file} --output-dir {baseline_output_dir} --model {model}"
+- name: mini-swe-agent
+  enabled: true
+  kind: mini_swe_agent
+  repo_dir: external/baselines/mini-swe-agent
+  trajectory_name: trajectory.json
+  command: mini -y -m {model} -t {task_text} -o {trajectory_file} --exit-immediately
+- name: agentless-oci-adapted
+  enabled: true
+  kind: agentless_oci
+  model: deepseek-coder
+  repo_dir: external/baselines/Agentless
+  adapter_patch: baselines/agentless-oci-adapted/agentless_oci_dataset.patch
+  output_dir_name: agentless-output
+  top_n_files: 5
+  max_samples: 1
+  command: PYTHONPATH={baseline_repo_dir}:$PYTHONPATH GIT_AUTHOR_NAME='Agentless Runner'
+    GIT_AUTHOR_EMAIL='agentless@example.com' GIT_COMMITTER_NAME='Agentless Runner'
+    GIT_COMMITTER_EMAIL='agentless@example.com' python agentless/repair/repair.py
+    --oci_task_file {task_jsonl} --loc_file {loc_jsonl} --output_folder {agentless_output_dir}
+    --target_id {case_id} --top_n {top_n_files} --model {model} --backend deepseek
+    --diff_format --cot --gen_and_process --num_threads 1 --max_samples {max_samples}
+- name: autocoderover
+  enabled: false
+  kind: generic_repair_agent
+  repo_dir: external/baselines/AutoCodeRover
+  cwd: repo_dir
+  output_dir_name: autocoderover-output
+  adapter: wrapper_required
+  command: bash {baseline_repo_dir}/run_oci_repair.sh --repo {worktree_dir} --task-file
+    {task_file} --output-dir {baseline_output_dir} --model {model}
+- name: metagpt
+  enabled: false
+  kind: generic_repair_agent
+  repo_dir: external/baselines/MetaGPT
+  cwd: repo_dir
+  output_dir_name: metagpt-output
+  adapter: wrapper_required
+  command: bash {baseline_repo_dir}/run_oci_repair.sh --repo {worktree_dir} --task-file
+    {task_file} --output-dir {baseline_output_dir} --model {model}
+- name: repairagent
+  enabled: true
+  kind: generic_repair_agent
+  repo_dir: external/baselines/RepairAgent
+  cwd: repo_dir
+  output_dir_name: repairagent-output
+  adapter: wrapper_required
+  command: bash {baseline_repo_dir}/run_oci_repair.sh --repo {worktree_dir} --task-file
+    {task_file} --output-dir {baseline_output_dir} --model {model}
