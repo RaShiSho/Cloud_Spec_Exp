@@ -7,6 +7,7 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -177,7 +178,9 @@ def github_request_json(api_url: str) -> tuple[Any | None, str | None, str | Non
         return None, f"GitHub API HTTP {exc.code} for {api_url}: {body[:300]}", None
     except URLError as exc:
         return None, f"GitHub API URL error for {api_url}: {exc.reason}", None
-    except (TimeoutError, json.JSONDecodeError) as exc:
+    except (TimeoutError, HTTPException, OSError) as exc:
+        return None, f"GitHub API connection error for {api_url}: {exc}", None
+    except json.JSONDecodeError as exc:
         return None, f"GitHub API error for {api_url}: {exc}", None
 
 
