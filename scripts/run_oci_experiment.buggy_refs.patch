@@ -1,0 +1,62 @@
+--- run_oci_experiment.py
++++ run_oci_experiment.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import argparse
++import copy
+ import json
+ import shutil
+ import sys
+@@ -61,8 +62,50 @@
+     return selected
+ 
+ 
++def benchmark_selection_mode(config: dict[str, Any]) -> str:
++    benchmark = config.get("benchmark", {})
++    selection = benchmark.get("selection", {})
++    selection_mode = selection.get("mode") if isinstance(selection, dict) else None
++    direct_mode = benchmark.get("mode")
++    if direct_mode is not None and selection_mode in (None, "all"):
++        return str(direct_mode)
++    return str(selection_mode or direct_mode or "all")
++
++
++def config_for_case_loading(config: dict[str, Any], selection_mode: str) -> dict[str, Any]:
++    if selection_mode != "buggy_refs":
++        return config
++
++    # load_oci_cases may only know the original selection modes. Load the full
++    # configured benchmark first, then apply buggy-ref filtering in this runner.
++    case_loading_config = copy.deepcopy(config)
++    benchmark = case_loading_config.setdefault("benchmark", {})
++    selection = benchmark.setdefault("selection", {})
++    if isinstance(selection, dict):
++        selection["mode"] = "all"
++    benchmark.pop("mode", None)
++    return case_loading_config
++
++
++def case_has_buggy_ref(config: dict[str, Any], case: dict[str, Any]) -> bool:
++    runtime_cfg = config.get("runtimes", {}).get(case.get("runtime"), {})
++    case_id = case.get("case_id")
++    buggy_ref_by_case = runtime_cfg.get("buggy_ref_by_case") or runtime_cfg.get("buggy_refs") or {}
++
++    if isinstance(buggy_ref_by_case, dict):
++        return bool(buggy_ref_by_case.get(case_id))
++    if isinstance(buggy_ref_by_case, list):
++        return case_id in buggy_ref_by_case
++    return False
++
++
+ def selected_cases(config: dict[str, Any], case_ids: list[str] | None, limit: int | None) -> tuple[list[dict[str, Any]], list[str]]:
+-    cases, problems = load_oci_cases(config)
++    selection_mode = benchmark_selection_mode(config)
++    cases, problems = load_oci_cases(config_for_case_loading(config, selection_mode))
++
++    if selection_mode == "buggy_refs":
++        cases = [case for case in cases if case_has_buggy_ref(config, case)]
++
+     requested = set(case_ids or [])
+     if requested:
+         cases = [case for case in cases if case["case_id"] in requested]
