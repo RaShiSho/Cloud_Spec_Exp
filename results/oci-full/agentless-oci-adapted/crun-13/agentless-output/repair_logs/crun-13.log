@@ -1,5 +1,5 @@
-2026-06-30 17:24:25,255 - INFO - ================ repairing crun-13 ================
-2026-06-30 17:24:25,256 - INFO - prompting with message:
+2026-06-30 18:15:00,496 - INFO - ================ repairing crun-13 ================
+2026-06-30 18:15:00,498 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case crun-13.
@@ -8024,46 +8024,47 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-06-30 17:24:25,257 - INFO - Initializing a decoder model: deepseek-coder ...
-2026-06-30 17:24:25,271 - INFO - Creating API request
-2026-06-30 17:24:32,678 - INFO - API response ChatCompletion(id='f721f1dd-412b-42a8-9fc0-5a2eb0e18fbb', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Looking at the issue, the problem is about `$PATH` lookup before exec\'ing the container process. The bug is in `src/libcrun/container.c` where `execvp` is used instead of `execvpe` or a direct path execution. \n\nThe issue is that `execvp` searches `$PATH` for the executable, but the environment has been cleared before the exec call. When `clearenv()` is called and then environment variables are set from the container\'s process definition, the `PATH` environment variable might not be properly set, causing `execvp` to fail to find the executable.\n\nLooking at the code in `container_entrypoint_init` and `container_entrypoint`, the environment is cleared and then rebuilt from the container\'s process definition. However, the `execvp` call in `container_entrypoint` uses `def->process->args[0]` which should be found via PATH lookup. The bug is that the PATH might not be properly set in the container\'s environment.\n\nThe fix should ensure that when `execvp` fails with `ENOENT`, we should try to resolve the path using the container\'s PATH before reporting the error. However, looking more carefully at the issue, the real problem is that `execvp` is being called but the environment might not have PATH set correctly.\n\nActually, looking at the code flow more carefully:\n\n1. In `container_entrypoint_init`, `clearenv()` is called\n2. Then environment variables from `def->process->env` are set via `putenv`\n3. In `container_entrypoint`, `execvp` is called\n\nThe issue is that `execvp` uses the current environment\'s PATH to find the executable. If the container\'s process args specify a command without a full path, it needs PATH to be set. The bug is that the PATH might not be properly inherited or set.\n\nThe fix should be to use `execvpe` instead of `execvp` to ensure proper PATH resolution, or to ensure PATH is properly set before calling exec.\n\nLooking at the code in `container.c`, the fix should be in the `container_entrypoint` function where `execvp` is called. We should change it to use `execvpe` with the environment from the container\'s process definition.\n\n```python\n### src/libcrun/container.c\n<<<<<<< SEARCH\n  if (! def->process)\n    return crun_make_error (err, errno, "block \'process\' not found");\n\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, "executable file not found in $PATH");\n\n  return crun_make_error (err, errno, "exec the container process");\n=======\n  if (! def->process)\n    return crun_make_error (err, errno, "block \'process\' not found");\n\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, "executable file not found in $PATH");\n\n  return crun_make_error (err, errno, "exec the container process");\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1782811465, model='deepseek-v4-flash', object='chat.completion', moderation=None, service_tier=None, system_fingerprint='fp_8b330d02d0_prod0820_fp8_kvcache_20260402', usage=CompletionUsage(completion_tokens=702, prompt_tokens=69209, total_tokens=69911, completion_tokens_details=None, prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=69120), prompt_cache_hit_tokens=69120, prompt_cache_miss_tokens=89))
-2026-06-30 17:24:32,679 - INFO - Initializing a decoder model: deepseek-coder ...
-2026-06-30 17:24:32,679 - INFO - raw output:
-Looking at the issue, the problem is about `$PATH` lookup before exec'ing the container process. The bug is in `src/libcrun/container.c` where `execvp` is used instead of `execvpe` or a direct path execution. 
+2026-06-30 18:15:00,501 - INFO - Initializing a decoder model: deepseek-coder ...
+2026-06-30 18:15:00,524 - INFO - Creating API request
+2026-06-30 18:15:13,221 - INFO - API response ChatCompletion(id='7688c4a0-e07c-490a-bf1a-7cfd71cb1137', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Looking at the issue, the problem is about `$PATH` lookup before exec\'ing the container process. The bug is in `src/libcrun/container.c` in the `container_entrypoint` function where `execvp` is used instead of `execvpe` or a direct path execution.\n\nThe issue is that `execvp` searches `$PATH` for the executable, but the environment has been cleared with `clearenv()` before the `execvp` call. This means `$PATH` is not set when `execvp` tries to find the executable, causing it to fail.\n\nThe fix should use `execvpe` instead of `execvp` to pass the environment explicitly, or ensure `$PATH` is set before calling `execvp`. Looking at the code, the environment is set up properly before `clearenv()` is called, but then `clearenv()` clears it, and the environment variables from the config are set via `putenv`. However, `execvp` uses the current environment\'s `PATH`, which should be set by the config\'s env variables.\n\nActually, looking more carefully at the code flow:\n1. `clearenv()` is called\n2. Environment variables from config are set via `putenv`\n3. `execvp` is called\n\nThis should work because `PATH` should be set from the config\'s env. But the issue says there\'s a bug with `$PATH` lookup. Let me look at the actual `execvp` call more carefully.\n\nThe bug is actually that `execvp` is used instead of `execvpe`. While `execvp` uses the current environment\'s `PATH`, the issue might be that after `clearenv()` and `putenv`, the `PATH` variable might not be properly set in the environment for `execvp` to find it. The fix should be to use `execvpe` with the environment explicitly, or ensure `PATH` is properly set.\n\nLooking at the code in `container.c`:\n\n```c\nexecvp (def->process->args[0], def->process->args);\n```\n\nThe fix should change this to use `execvpe` with the environment, or ensure `PATH` is properly set. Since the environment is already set up via `putenv`, the issue might be that `execvp` doesn\'t search `PATH` correctly in some cases.\n\nActually, looking at the upstream issue (crun-13), the problem is specifically about `$PATH` lookup. The fix should ensure that when `execvp` is called, the `PATH` environment variable is properly set. Since `clearenv()` is called and then environment variables are set via `putenv`, the `PATH` should be available. But the bug might be that `execvp` is not finding the executable because of how the environment is set up.\n\nThe correct fix is to use `execvpe` instead of `execvp`, passing the environment explicitly:\n\n```python\n### src/libcrun/container.c\n<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, "executable file not found in $PATH");\n\n  return crun_make_error (err, errno, "exec the container process");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, "executable file not found in $PATH");\n\n  return crun_make_error (err, errno, "exec the container process");\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1782814505, model='deepseek-v4-flash', object='chat.completion', moderation=None, service_tier=None, system_fingerprint='fp_8b330d02d0_prod0820_fp8_kvcache_20260402', usage=CompletionUsage(completion_tokens=789, prompt_tokens=69209, total_tokens=69998, completion_tokens_details=None, prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=69120), prompt_cache_hit_tokens=69120, prompt_cache_miss_tokens=89))
+2026-06-30 18:15:13,221 - INFO - Initializing a decoder model: deepseek-coder ...
+2026-06-30 18:15:13,221 - INFO - raw output:
+Looking at the issue, the problem is about `$PATH` lookup before exec'ing the container process. The bug is in `src/libcrun/container.c` in the `container_entrypoint` function where `execvp` is used instead of `execvpe` or a direct path execution.
 
-The issue is that `execvp` searches `$PATH` for the executable, but the environment has been cleared before the exec call. When `clearenv()` is called and then environment variables are set from the container's process definition, the `PATH` environment variable might not be properly set, causing `execvp` to fail to find the executable.
+The issue is that `execvp` searches `$PATH` for the executable, but the environment has been cleared with `clearenv()` before the `execvp` call. This means `$PATH` is not set when `execvp` tries to find the executable, causing it to fail.
 
-Looking at the code in `container_entrypoint_init` and `container_entrypoint`, the environment is cleared and then rebuilt from the container's process definition. However, the `execvp` call in `container_entrypoint` uses `def->process->args[0]` which should be found via PATH lookup. The bug is that the PATH might not be properly set in the container's environment.
+The fix should use `execvpe` instead of `execvp` to pass the environment explicitly, or ensure `$PATH` is set before calling `execvp`. Looking at the code, the environment is set up properly before `clearenv()` is called, but then `clearenv()` clears it, and the environment variables from the config are set via `putenv`. However, `execvp` uses the current environment's `PATH`, which should be set by the config's env variables.
 
-The fix should ensure that when `execvp` fails with `ENOENT`, we should try to resolve the path using the container's PATH before reporting the error. However, looking more carefully at the issue, the real problem is that `execvp` is being called but the environment might not have PATH set correctly.
+Actually, looking more carefully at the code flow:
+1. `clearenv()` is called
+2. Environment variables from config are set via `putenv`
+3. `execvp` is called
 
-Actually, looking at the code flow more carefully:
+This should work because `PATH` should be set from the config's env. But the issue says there's a bug with `$PATH` lookup. Let me look at the actual `execvp` call more carefully.
 
-1. In `container_entrypoint_init`, `clearenv()` is called
-2. Then environment variables from `def->process->env` are set via `putenv`
-3. In `container_entrypoint`, `execvp` is called
+The bug is actually that `execvp` is used instead of `execvpe`. While `execvp` uses the current environment's `PATH`, the issue might be that after `clearenv()` and `putenv`, the `PATH` variable might not be properly set in the environment for `execvp` to find it. The fix should be to use `execvpe` with the environment explicitly, or ensure `PATH` is properly set.
 
-The issue is that `execvp` uses the current environment's PATH to find the executable. If the container's process args specify a command without a full path, it needs PATH to be set. The bug is that the PATH might not be properly inherited or set.
+Looking at the code in `container.c`:
 
-The fix should be to use `execvpe` instead of `execvp` to ensure proper PATH resolution, or to ensure PATH is properly set before calling exec.
+```c
+execvp (def->process->args[0], def->process->args);
+```
 
-Looking at the code in `container.c`, the fix should be in the `container_entrypoint` function where `execvp` is called. We should change it to use `execvpe` with the environment from the container's process definition.
+The fix should change this to use `execvpe` with the environment, or ensure `PATH` is properly set. Since the environment is already set up via `putenv`, the issue might be that `execvp` doesn't search `PATH` correctly in some cases.
+
+Actually, looking at the upstream issue (crun-13), the problem is specifically about `$PATH` lookup. The fix should ensure that when `execvp` is called, the `PATH` environment variable is properly set. Since `clearenv()` is called and then environment variables are set via `putenv`, the `PATH` should be available. But the bug might be that `execvp` is not finding the executable because of how the environment is set up.
+
+The correct fix is to use `execvpe` instead of `execvp`, passing the environment explicitly:
 
 ```python
 ### src/libcrun/container.c
 <<<<<<< SEARCH
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
   execvp (def->process->args[0], def->process->args);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 =======
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
   execvpe (def->process->args[0], def->process->args, environ);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
@@ -8071,101 +8072,113 @@ Looking at the code in `container.c`, the fix should be in the `container_entryp
   return crun_make_error (err, errno, "exec the container process");
 >>>>>>> REPLACE
 ```
-2026-06-30 17:24:32,679 - INFO - === file_to_commands: ===
-2026-06-30 17:24:32,679 - INFO - {
+2026-06-30 18:15:13,221 - INFO - === file_to_commands: ===
+2026-06-30 18:15:13,221 - INFO - {
   "'src/libcrun/container.c'": [
-    "<<<<<<< SEARCH\n  if (! def->process)\n    return crun_make_error (err, errno, \"block 'process' not found\");\n\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  if (! def->process)\n    return crun_make_error (err, errno, \"block 'process' not found\");\n\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
+    "<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
   ]
 }
-2026-06-30 17:24:32,679 - INFO - === edited_file: 'src/libcrun/container.c' ===
-2026-06-30 17:24:32,679 - INFO - === edit_commands: ===
-2026-06-30 17:24:32,679 - INFO - <<<<<<< SEARCH
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
+2026-06-30 18:15:13,221 - INFO - === edited_file: 'src/libcrun/container.c' ===
+2026-06-30 18:15:13,222 - INFO - === edit_commands: ===
+2026-06-30 18:15:13,222 - INFO - <<<<<<< SEARCH
   execvp (def->process->args[0], def->process->args);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 =======
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
   execvpe (def->process->args[0], def->process->args, environ);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 >>>>>>> REPLACE
-2026-06-30 17:24:32,679 - INFO - 
+2026-06-30 18:15:13,222 - INFO - 
 ----------------------------------------
-2026-06-30 17:24:32,679 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_edit_commands: cannot access local variable 'original' where it is not associated with a value
-2026-06-30 17:24:32,682 - INFO - extracted patch:
-2026-06-30 17:24:32,682 - INFO - 
-2026-06-30 17:24:32,685 - INFO - === file_to_commands: ===
-2026-06-30 17:24:32,685 - INFO - === file_to_commands: ===
-2026-06-30 17:24:32,685 - INFO - {
+2026-06-30 18:15:13,222 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-06-30 18:15:13,224 - INFO - extracted patch:
+2026-06-30 18:15:13,224 - INFO - --- src/libcrun/container.c
++++ src/libcrun/container.c
+@@ -649,7 +649,7 @@
+   if (! def->process)
+     return crun_make_error (err, errno, "block 'process' not found");
+ 
+-  execvp (def->process->args[0], def->process->args);
++  execvpe (def->process->args[0], def->process->args, environ);
+   if (errno == ENOENT)
+     return crun_make_error (err, errno, "executable file not found in $PATH");
+ 
+2026-06-30 18:15:13,227 - INFO - === file_to_commands: ===
+2026-06-30 18:15:13,227 - INFO - === file_to_commands: ===
+2026-06-30 18:15:13,227 - INFO - {
   "'src/libcrun/container.c'": [
-    "<<<<<<< SEARCH\n  if (! def->process)\n    return crun_make_error (err, errno, \"block 'process' not found\");\n\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  if (! def->process)\n    return crun_make_error (err, errno, \"block 'process' not found\");\n\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
+    "<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
   ]
 }
-2026-06-30 17:24:32,685 - INFO - {
+2026-06-30 18:15:13,227 - INFO - {
   "'src/libcrun/container.c'": [
-    "<<<<<<< SEARCH\n  if (! def->process)\n    return crun_make_error (err, errno, \"block 'process' not found\");\n\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  if (! def->process)\n    return crun_make_error (err, errno, \"block 'process' not found\");\n\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
+    "<<<<<<< SEARCH\n  execvp (def->process->args[0], def->process->args);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n=======\n  execvpe (def->process->args[0], def->process->args, environ);\n  if (errno == ENOENT)\n    return crun_make_error (err, errno, \"executable file not found in $PATH\");\n\n  return crun_make_error (err, errno, \"exec the container process\");\n>>>>>>> REPLACE"
   ]
 }
-2026-06-30 17:24:32,685 - INFO - === edited_file: 'src/libcrun/container.c' ===
-2026-06-30 17:24:32,685 - INFO - === edited_file: 'src/libcrun/container.c' ===
-2026-06-30 17:24:32,685 - INFO - === edit_commands: ===
-2026-06-30 17:24:32,685 - INFO - === edit_commands: ===
-2026-06-30 17:24:32,685 - INFO - <<<<<<< SEARCH
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
+2026-06-30 18:15:13,227 - INFO - === edited_file: 'src/libcrun/container.c' ===
+2026-06-30 18:15:13,227 - INFO - === edited_file: 'src/libcrun/container.c' ===
+2026-06-30 18:15:13,227 - INFO - === edit_commands: ===
+2026-06-30 18:15:13,227 - INFO - === edit_commands: ===
+2026-06-30 18:15:13,227 - INFO - <<<<<<< SEARCH
   execvp (def->process->args[0], def->process->args);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 =======
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
   execvpe (def->process->args[0], def->process->args, environ);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 >>>>>>> REPLACE
-2026-06-30 17:24:32,685 - INFO - <<<<<<< SEARCH
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
+2026-06-30 18:15:13,227 - INFO - <<<<<<< SEARCH
   execvp (def->process->args[0], def->process->args);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 =======
-  if (! def->process)
-    return crun_make_error (err, errno, "block 'process' not found");
-
   execvpe (def->process->args[0], def->process->args, environ);
   if (errno == ENOENT)
     return crun_make_error (err, errno, "executable file not found in $PATH");
 
   return crun_make_error (err, errno, "exec the container process");
 >>>>>>> REPLACE
-2026-06-30 17:24:32,685 - INFO - 
+2026-06-30 18:15:13,227 - INFO - 
 ----------------------------------------
-2026-06-30 17:24:32,685 - INFO - 
+2026-06-30 18:15:13,227 - INFO - 
 ----------------------------------------
-2026-06-30 17:24:32,685 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_edit_commands: cannot access local variable 'original' where it is not associated with a value
-2026-06-30 17:24:32,685 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_edit_commands: cannot access local variable 'original' where it is not associated with a value
-2026-06-30 17:24:32,687 - INFO - extracted patch:
-2026-06-30 17:24:32,687 - INFO - extracted patch:
-2026-06-30 17:24:32,687 - INFO - 
-2026-06-30 17:24:32,687 - INFO - 
-2026-06-30 17:24:32,774 - INFO - differ_by_empty_lines = True
-2026-06-30 17:24:32,774 - INFO - differ_by_empty_lines = True
+2026-06-30 18:15:13,227 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-06-30 18:15:13,227 - ERROR - parse_diff_edit_commands failed for src/libcrun/container.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-06-30 18:15:13,229 - INFO - extracted patch:
+2026-06-30 18:15:13,229 - INFO - extracted patch:
+2026-06-30 18:15:13,229 - INFO - --- src/libcrun/container.c
++++ src/libcrun/container.c
+@@ -649,7 +649,7 @@
+   if (! def->process)
+     return crun_make_error (err, errno, "block 'process' not found");
+ 
+-  execvp (def->process->args[0], def->process->args);
++  execvpe (def->process->args[0], def->process->args, environ);
+   if (errno == ENOENT)
+     return crun_make_error (err, errno, "executable file not found in $PATH");
+ 
+2026-06-30 18:15:13,229 - INFO - --- src/libcrun/container.c
++++ src/libcrun/container.c
+@@ -649,7 +649,7 @@
+   if (! def->process)
+     return crun_make_error (err, errno, "block 'process' not found");
+ 
+-  execvp (def->process->args[0], def->process->args);
++  execvpe (def->process->args[0], def->process->args, environ);
+   if (errno == ENOENT)
+     return crun_make_error (err, errno, "executable file not found in $PATH");
+ 
+2026-06-30 18:15:13,300 - INFO - differ_by_empty_lines = False
+2026-06-30 18:15:13,300 - INFO - differ_by_empty_lines = False
