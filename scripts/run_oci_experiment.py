@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, help="Limit selected cases after filtering.")
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs and print the plan without side effects.")
     parser.add_argument("--clean", action="store_true", help="Remove previous output/worktree for selected runs before execution.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip terminal results and clean/retry only interrupted runs.",
+    )
     return parser.parse_args()
 
 
@@ -129,6 +134,16 @@ def preflight(
         repo_dir = resolve_path(baseline.get("repo_dir"))
         if repo_dir is None or not repo_dir.exists():
             problems.append(f"{baseline.get('name')}: missing baseline repo_dir: {repo_dir}")
+        if baseline.get("conda_env") and not command_exists("conda"):
+            problems.append(
+                f"{baseline.get('name')}: conda_env is configured but conda is not on PATH"
+            )
+        if int(baseline.get("task_timeout_seconds", 0)) > 0 and not command_exists(
+            "timeout"
+        ):
+            problems.append(
+                f"{baseline.get('name')}: task_timeout_seconds requires GNU timeout on PATH"
+            )
         if baseline.get("adapter_patch"):
             patch_path = resolve_path(baseline.get("adapter_patch"))
             if patch_path is None or not patch_path.exists():
@@ -167,6 +182,34 @@ def resolve_baseline_cwd(baseline: dict[str, Any], worktree_dir: Path) -> Path:
         return repo_dir or worktree_dir
     custom_cwd = resolve_path(cwd_mode)
     return custom_cwd or worktree_dir
+
+
+def output_dir_for_run(
+    config: dict[str, Any], baseline: dict[str, Any], case: dict[str, Any]
+) -> Path:
+    experiment = config.get("experiment", {})
+    output_root = resolve_path(experiment.get("output_dir")) or (
+        REPO_ROOT / "results" / "oci-first20-smoke"
+    )
+    return output_root / baseline["name"] / case["case_id"]
+
+
+def load_terminal_result(
+    config: dict[str, Any], baseline: dict[str, Any], case: dict[str, Any]
+) -> dict[str, Any] | None:
+    output_dir = output_dir_for_run(config, baseline, case)
+    metadata_path = output_dir / "metadata.json"
+    oracle_path = output_dir / "oracle.json"
+    if not metadata_path.is_file() or not oracle_path.is_file():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if metadata.get("status") not in {"done", "error"}:
+        return None
+    metadata["resumed_skip"] = True
+    return metadata
 
 
 def source_ref_for_case(runtime_cfg: dict[str, Any], case_id: str) -> str:
@@ -214,7 +257,9 @@ def remove_output_dir(output_dir: Path, output_root: Path, label: str) -> None:
 def remove_worktree_dir(source_dir: Path, worktree_dir: Path, worktree_root: Path, label: str) -> None:
     ensure_child_path(worktree_dir, worktree_root, "worktree_dir")
     if not worktree_dir.exists():
-        progress(f"{label} worktree does not exist; nothing to clean")
+        progress(f"{label} worktree directory does not exist; pruning stale registrations")
+        prune_result = run_command(["git", "-C", str(source_dir), "worktree", "prune"], shell=False)
+        progress(f"{label} git worktree prune finished returncode={prune_result.returncode}")
         return
 
     progress(f"{label} cleaning worktree: {worktree_dir}")
@@ -427,6 +472,15 @@ def run_one(
         "trajectory_file": output_dir / baseline.get("trajectory_name", "trajectory.json"),
         "max_samples": baseline.get("max_samples", 1),
         "top_n_files": baseline.get("top_n_files", 5),
+        "conda_env": baseline.get("conda_env", ""),
+        "task_timeout_seconds": baseline.get(
+            "task_timeout_seconds",
+            baseline.get(
+                "timeout_seconds", experiment.get("timeout_seconds", 1800)
+            ),
+        ),
+        "conv_round_limit": baseline.get("conv_round_limit", 15),
+        "source_extensions": ",".join(runtime_cfg.get("source_extensions") or []),
     }
 
     baseline_cwd = resolve_baseline_cwd(baseline, worktree_dir)
@@ -457,7 +511,11 @@ def run_one(
     baseline_result = run_command(
         command,
         cwd=baseline_cwd,
-        timeout=int(experiment.get("timeout_seconds", 1800)),
+        timeout=int(
+            baseline.get(
+                "timeout_seconds", experiment.get("timeout_seconds", 1800)
+            )
+        ),
     )
     progress(f"{label} baseline finished returncode={baseline_result.returncode} timed_out={baseline_result.timed_out}")
     write_command_logs(output_dir, None, baseline_result)
@@ -556,6 +614,9 @@ def run_one(
 
 def main() -> int:
     args = parse_args()
+    if args.clean and args.resume:
+        progress("argument error: --clean and --resume are mutually exclusive")
+        return 2
     progress(f"loading config: {args.config}")
     config = load_config(args.config)
     cases, case_problems = selected_cases(config, args.case, args.limit)
@@ -580,8 +641,21 @@ def main() -> int:
     for baseline in baselines:
         for case in cases:
             label = run_label(baseline, case)
+            if args.resume:
+                terminal_result = load_terminal_result(config, baseline, case)
+                if terminal_result is not None:
+                    progress(f"{label} resume: terminal result exists; skipping")
+                    results.append(terminal_result)
+                    continue
             progress(f"{label} starting run")
-            results.append(run_one(config=config, case=case, baseline=baseline, clean=args.clean))
+            results.append(
+                run_one(
+                    config=config,
+                    case=case,
+                    baseline=baseline,
+                    clean=args.clean or args.resume,
+                )
+            )
             progress(f"{label} finished run status={results[-1].get('status')}")
     print(json.dumps({"runs": results}, ensure_ascii=True, indent=2))
     return 0

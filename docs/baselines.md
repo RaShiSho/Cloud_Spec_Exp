@@ -51,5 +51,9 @@
 - 仓库：https://github.com/AutoCodeRoverSG/auto-code-rover
 - 定位：面向 GitHub issue 和 SWE-bench 的自动修复 agent。
 - 工作流：先检索相关代码上下文，再生成补丁；可利用结构化代码搜索和测试定位。
-- 特点：定位能力强，但环境、依赖和运行链路较重。
-- 建议：作为 Agentless 后的增强 baseline 接入。
+- 当前接入：使用上游 `local-issue` 模式；项目内 launcher 为 DeepSeek 注册 LiteLLM 动态模型，wrapper 收集并应用 `selected_patch.json` 指向的 diff。
+- 非 Python 降级：上游只为 Python 构建 AST 索引；当前 adapter 仅把 Go/C/Rust 源文件补入文本、行号和整文件搜索，类/方法检索仍不可用，不能视为上游原始能力的等价复现。
+- 环境：默认通过 `conda run --no-capture-output -n auto-code-rover python` 启动。该环境名可在 YAML 的 `conda_env` 中修改。
+- 批处理：每个 case 使用独立输出目录和任务级 timeout；runner 的 `--resume` 跳过终态 case、清理中断态 worktree 后继续。
+- 风险：上游主分支未固定时，CLI、依赖和补丁输出格式仍可能变化；正式实验应记录实际 commit。
+- 本次源码核对基准：`585d3e639aeda58ef0b6a151dd1cc2721a94d267`。

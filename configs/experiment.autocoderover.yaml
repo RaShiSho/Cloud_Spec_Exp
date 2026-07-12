@@ -1,0 +1,97 @@
+# AutoCodeRover-only configuration for the complete OCI differential dataset.
+
+experiment:
+  name: oci-autocoderover
+  output_dir: results/oci-autocoderover
+  worktree_root: external/worktrees
+  timeout_seconds: 1800
+  keep_failed_workdirs: true
+
+model:
+  provider: deepseek
+  name: deepseek/deepseek-v4-flash
+  temperature: 0
+
+paths:
+  dataset_dir: external/oci-differential-dataset
+  baselines_dir: external/baselines
+  subjects_dir: external/subjects
+
+benchmark:
+  metadata_file: external/oci-differential-dataset/metadata.json
+  cases_dir: external/oci-differential-dataset/cases
+  rootfs_tar: external/oci-differential-dataset/alpine-base.tar.gz
+  selection:
+    mode: all
+
+runtimes:
+  runc:
+    source_dir: external/subjects/runc
+    build_command: "make runc"
+    runtime_path: runc
+    reference_runtime: runc
+    source_extensions: [".go"]
+    buggy_ref_by_case:
+      runc-2430: 7673bee6bfbc28c8cfbc64165eea29b83e9957f0
+      runc-2928: d279ebd97d8832020e2c6f50cc3a11d0499a4690
+      runc-3020: f454bb10d77969ab44e752c8299d3a4da71b4f45
+      runc-3944: a3785c88ec5b2b271e13ebb872cf5bd49bcedace
+      runc-4014: a3a0ec48c464fe6458d2ba067f6707c027e5384e
+      runc-4772: 3764d6e888b21b3f67855736e7605e3785a3d553^
+      runc-5073: b4887cec320c922de3c8e9a89e1dc6fd867586a9
+      runc-5182: 3cdda464fa1f1eb0d5774acacf73bb446df5f3d8^
+  crun:
+    source_dir: external/subjects/crun
+    build_command: "./autogen.sh && ./configure && make -j$(nproc)"
+    runtime_path: crun
+    reference_runtime: runc
+    source_extensions: [".c", ".h"]
+    buggy_ref_by_case:
+      crun-13: c047a49b8d798e210054e411a999e83f6c05bdbf^
+      crun-129: 3d28553bd97cbd077dd9612c3c931a6b49d92fe2
+      crun-237: a75a4fd27631f2222b9d2578ec98ad6094762098^
+      crun-353: c7ac9320589f1ac206617c45a1314e30ea19eac1^
+      crun-453: 47dd153de92414b5bfdbcfefc87380aa38ac3fa1^
+      crun-876: 6904cf4a4fec6929abdd8d6b9676ed5fa9119612^
+      crun-1083: 3880f04675f5eaea60c8b36e21849ba01a09e1b2^
+      crun-1099: 234d77c96fc4aebb46d35fdcf820a00e4dd79e77^
+      crun-1161: 56a2550692d910948a746f9ca65e9bdd1702362d
+      crun-1307: 98db1d2fa60756c523b655c7479cef7c07c15f21^
+      crun-1783: 7407bbc9a5bc8c32eac466a54022410ce08e3b58^
+      crun-1943: 8e8186b3f0879b3cf11dccb21505d1ff6d809633^
+  youki:
+    source_dir: external/subjects/youki
+    build_command: "cargo build --release"
+    runtime_path: target/release/youki
+    reference_runtime: runc
+    source_extensions: [".rs"]
+    buggy_ref_by_case: {}
+
+oracle:
+  command: "python oracles/run_oci_oracle.py"
+  timeout_seconds: 300
+
+baselines:
+  - name: autocoderover
+    enabled: true
+    kind: generic_repair_agent
+    model: deepseek/deepseek-v4-flash
+    repo_dir: external/baselines/AutoCodeRover
+    cwd: repo_dir
+    output_dir_name: autocoderover-output
+    adapter: wrapper_required
+    conda_env: auto-code-rover
+    timeout_seconds: 3600
+    task_timeout_seconds: 3300
+    conv_round_limit: 15
+    command: >-
+      ACR_CONDA_ENV={conda_env}
+      bash {repo_root}/baselines/autocoderover/run_oci_repair.sh
+      --baseline-repo {baseline_repo_dir}
+      --repo {worktree_dir}
+      --task-file {task_file}
+      --output-dir {baseline_output_dir}
+      --model {model}
+      --timeout-seconds {task_timeout_seconds}
+      --conv-round-limit {conv_round_limit}
+      --source-extensions {source_extensions}
