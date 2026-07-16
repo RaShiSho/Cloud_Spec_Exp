@@ -40,8 +40,11 @@ nano .env
 - `configs/experiment.first20.example.yaml`：前 20 个 case 的模板配置，使用 `benchmark.selection.mode: first_n` 和 `count: 20`。
 - `configs/experiment.full.example.yaml`：全量数据集模板配置，使用 `benchmark.selection.mode: all`，会读取 `metadata.json` 中的全部 case。
 - `configs/experiment.first20.local.yaml`：本地运行配置示例，包含你已经填过的一部分 `buggy_ref_by_case`。
+- `configs/experiment.metagpt.rest.yaml`：仅启用 MetaGPT，选择已配置 `buggy_ref_by_case` 的剩余 youki case。
 
-全量配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。`autocoderover`、`metagpt`、`repairagent` 已写入配置，但默认 `enabled: false`。它们调用的是本项目 tracked `baselines/<name>/run_oci_repair.sh` OCI adapter skeleton，不是 upstream 原生命令；需要先在对应 wrapper 中实现真实 baseline 调用，再改为启用。
+全量示例配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。AutoCodeRover 与 MetaGPT
+已有 tracked OCI adapter，并分别提供专属配置；`repairagent` 仍是未实现的 wrapper skeleton，
+启用前必须先补齐真实 upstream 调用。
 
 ## Scripts
 
@@ -140,6 +143,17 @@ python scripts/run_oci_experiment.py \
 
 该配置只启用 AutoCodeRover，无需额外传入 `--baseline`。
 
+MetaGPT 剩余 case 命令：
+
+```bash
+python scripts/run_oci_experiment.py \
+  --config configs/experiment.metagpt.rest.yaml \
+  --resume
+```
+
+MetaGPT adapter 使用上游现有项目增量开发入口，并把 API key 仅注入进程内存。安装与
+参数说明见 `baselines/metagpt/README.md`。
+
 ### `scripts/summarize_oci_results.py`
 
 汇总实验结果目录下的 `oracle.json`，生成机器可读的 `summary.json` 和便于阅读的 `summary.md`。
@@ -219,7 +233,7 @@ python scripts/populate_buggy_refs.py \
 
 - `load_dotenv()`：读取仓库根目录 `.env`，支持 `KEY=value`、引号、空行和 `#` 注释，不覆盖已存在的 shell 环境变量。
 - `load_config()`：读取 YAML 配置，并在读取前加载 `.env`。
-- `load_oci_cases()`：读取数据集 metadata，按 `benchmark.selection.mode: first_n` 或 `all` 选择 case，并检查必需文件。
+- `load_oci_cases()`：读取数据集 metadata，按 `benchmark.selection.mode: first_n`、`all` 或 `buggy_refs` 选择 case，并检查必需文件。
 - `build_task_text()`：把 case README、expected diff、构建命令和 runtime 信息组装成 baseline prompt。
 - `run_command()`：统一执行 subprocess，捕获 stdout/stderr、timeout 和错误信息。
 - `write_json()` / `write_text()` / `append_jsonl()` / `load_jsonl()`：统一 UTF-8 文件读写。

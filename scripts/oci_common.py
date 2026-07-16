@@ -260,6 +260,20 @@ def safe_id(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-") or "item"
 
 
+def configured_buggy_ref_case_ids(config: dict[str, Any]) -> set[str]:
+    """Return case ids that have a non-empty per-case buggy revision."""
+    case_ids: set[str] = set()
+    for runtime_cfg in config.get("runtimes", {}).values():
+        if not isinstance(runtime_cfg, dict):
+            continue
+        by_case = runtime_cfg.get("buggy_ref_by_case") or runtime_cfg.get("buggy_refs") or {}
+        if isinstance(by_case, dict):
+            case_ids.update(str(case_id) for case_id, ref in by_case.items() if ref)
+        elif isinstance(by_case, list):
+            case_ids.update(str(case_id) for case_id in by_case if case_id)
+    return case_ids
+
+
 def load_oci_cases(config: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
     benchmark = config.get("benchmark", {})
     metadata_file = resolve_path(benchmark.get("metadata_file"))
@@ -282,6 +296,11 @@ def load_oci_cases(config: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
     elif mode == "first_n":
         count = int(selection.get("count", 20))
         selected_metadata = metadata[:count]
+    elif mode == "buggy_refs":
+        configured_case_ids = configured_buggy_ref_case_ids(config)
+        selected_metadata = [
+            entry for entry in metadata if entry.get("number") in configured_case_ids
+        ]
     else:
         raise ValueError(f"Unsupported benchmark.selection.mode: {mode}")
 

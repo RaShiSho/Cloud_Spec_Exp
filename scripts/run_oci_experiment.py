@@ -495,6 +495,9 @@ def run_one(
         ),
         "conv_round_limit": baseline.get("conv_round_limit", 15),
         "source_extensions": ",".join(runtime_cfg.get("source_extensions") or []),
+        "n_round": baseline.get("n_round", 10),
+        "investment": baseline.get("investment", 3.0),
+        "max_auto_summarize_code": baseline.get("max_auto_summarize_code", 0),
     }
 
     baseline_cwd = resolve_baseline_cwd(baseline, worktree_dir)

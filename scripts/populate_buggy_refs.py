@@ -14,7 +14,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from oci_common import case_runtime, load_config, resolve_path, run_command
+from oci_common import (
+    case_runtime,
+    configured_buggy_ref_case_ids,
+    load_config,
+    resolve_path,
+    run_command,
+)
 
 try:
     import yaml
@@ -113,6 +119,9 @@ def load_metadata_entries(config: dict[str, Any], requested_ids: list[str] | Non
             selected = metadata
         elif mode == "first_n":
             selected = metadata[: int(selection.get("count", 20))]
+        elif mode == "buggy_refs":
+            configured_case_ids = configured_buggy_ref_case_ids(config)
+            selected = [entry for entry in metadata if entry.get("number") in configured_case_ids]
         else:
             raise ValueError(f"Unsupported benchmark.selection.mode: {mode}")
 
