@@ -183,7 +183,29 @@ payload = {
 Path(output_dir, "wrapper_metadata.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
 
+update_wrapper_metadata() {
+  local status="$1"
+  local exit_code="${2:-}"
+  local selected_patch="${3:-}"
+  "$PYTHON_BIN" - "$OUTPUT_DIR" "$status" "$exit_code" "$selected_patch" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+output_dir, status, exit_code, selected_patch = sys.argv[1:]
+path = Path(output_dir, "wrapper_metadata.json")
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["adapter_status"] = status
+if exit_code:
+    payload["adapter_exit_code"] = int(exit_code)
+if selected_patch:
+    payload["selected_patch"] = selected_patch
+path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 echo "Starting AutoCodeRover local-issue mode." >&2
+set +e
 (
   cd "$BASELINE_REPO"
   if [ -z "${OPENAI_KEY:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
@@ -208,6 +230,12 @@ echo "Starting AutoCodeRover local-issue mode." >&2
       PYTHONPATH="$BASELINE_REPO${PYTHONPATH:+:$PYTHONPATH}" "${ACR_COMMAND[@]}"
   fi
 )
+ACR_EXIT_CODE=$?
+set -e
+if [ "$ACR_EXIT_CODE" -ne 0 ]; then
+  update_wrapper_metadata "acr_failed" "$ACR_EXIT_CODE"
+  exit "$ACR_EXIT_CODE"
+fi
 
 PATCH_FILE=""
 if ! PATCH_FILE="$(
@@ -260,21 +288,18 @@ fi
 
 if [ -z "$PATCH_FILE" ]; then
   echo "AutoCodeRover completed but no selected patch was found under $ACR_RUN_DIR." >&2
+  update_wrapper_metadata "patch_missing" "65"
   exit 65
 fi
 
 echo "Applying AutoCodeRover patch: $PATCH_FILE" >&2
+set +e
 git -C "$REPO" apply --whitespace=nowarn "$PATCH_FILE"
+PATCH_APPLY_EXIT_CODE=$?
+set -e
+if [ "$PATCH_APPLY_EXIT_CODE" -ne 0 ]; then
+  update_wrapper_metadata "patch_apply_failed" "$PATCH_APPLY_EXIT_CODE" "$PATCH_FILE"
+  exit "$PATCH_APPLY_EXIT_CODE"
+fi
 
-"$PYTHON_BIN" - "$OUTPUT_DIR" "$PATCH_FILE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-output_dir, patch_file = sys.argv[1:]
-path = Path(output_dir, "wrapper_metadata.json")
-payload = json.loads(path.read_text(encoding="utf-8"))
-payload["adapter_status"] = "patch_applied"
-payload["selected_patch"] = patch_file
-path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
+update_wrapper_metadata "patch_applied" "0" "$PATCH_FILE"

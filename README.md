@@ -109,7 +109,7 @@ python scripts/run_oci_experiment.py \
 | `--limit <n>` | 否 | 在 case 过滤后截取前 `n` 个 case。 |
 | `--dry-run` | 否 | 只执行配置加载、case 选择和 preflight，不创建 worktree，不运行 baseline，不删除文件。 |
 | `--clean` | 否 | 正式运行前清理当前 baseline/case 对应的旧结果目录和旧 worktree。和 `--dry-run` 一起使用时只报告计划，不删除。 |
-| `--resume` | 否 | 跳过已有终态结果；自动清理并重跑中断态 case。不能与 `--clean` 同时使用。 |
+| `--resume` | 否 | 跳过已有 `done` 结果；自动清理并重跑中断或 `error` case。不能与 `--clean` 同时使用。 |
 
 主要输出：
 
@@ -134,7 +134,7 @@ AutoCodeRover 全量命令：
 
 ```bash
 python scripts/run_oci_experiment.py \
-  --config configs/experiment.autocoderover.local.yaml \
+  --config configs/experiment.autocoderover.yaml \
   --resume
 ```
 

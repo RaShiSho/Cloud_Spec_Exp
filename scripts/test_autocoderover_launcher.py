@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +62,41 @@ class AutoCodeRoverLauncherTests(unittest.TestCase):
         self.assertIsInstance(registered, FakeLiteLLMGeneric)
         self.assertEqual(registered.input_cost, 0.0)
         self.assertEqual(registered.output_cost, 0.0)
+
+    def test_detects_linked_worktree_when_dot_git_is_a_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / ".git").write_text(
+                "gitdir: /tmp/source/.git/worktrees/test\n",
+                encoding="utf-8",
+            )
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(project)
+                completed = SimpleNamespace(returncode=0, stdout="true\n")
+                with mock.patch.object(
+                    launcher.subprocess,
+                    "run",
+                    return_value=completed,
+                ) as run:
+                    detected = launcher.is_git_worktree()
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertTrue(detected)
+        run.assert_called_once_with(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_installs_git_worktree_detection_for_acr(self) -> None:
+        app_utils = SimpleNamespace(is_git_repo=lambda: False)
+
+        launcher.install_git_worktree_detection(app_utils)
+
+        self.assertIs(app_utils.is_git_repo, launcher.is_git_worktree)
 
     def test_discovers_non_python_sources_without_tests_or_vendor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

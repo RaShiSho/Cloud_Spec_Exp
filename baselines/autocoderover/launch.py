@@ -9,6 +9,7 @@ requested dynamic models before AutoCodeRover builds that argument parser.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -79,6 +80,22 @@ def install_dynamic_registration(
     acr_main.register_all_models = register_all_models
 
 
+def is_git_worktree() -> bool:
+    """Return whether the current directory belongs to a Git worktree."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def install_git_worktree_detection(app_utils: Any) -> None:
+    """Replace ACR's directory-only ``.git`` check with Git's own check."""
+    app_utils.is_git_repo = is_git_worktree
+
+
 def parse_source_extensions(value: str) -> set[str]:
     extensions: set[str] = set()
     for item in value.split(","):
@@ -136,6 +153,7 @@ def main() -> int:
 
     try:
         from app import main as acr_main
+        from app import utils as app_utils
         from app.model import common
         from app.search.search_backend import SearchBackend
     except ImportError as exc:
@@ -148,6 +166,7 @@ def main() -> int:
         return 2
 
     install_dynamic_registration(acr_main, common, model_names)
+    install_git_worktree_detection(app_utils)
     extensions = parse_source_extensions(os.getenv("ACR_SOURCE_EXTENSIONS", ""))
     install_non_python_source_fallback(SearchBackend, extensions)
     acr_main.main()

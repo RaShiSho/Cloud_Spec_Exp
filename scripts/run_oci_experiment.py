@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Skip terminal results and clean/retry only interrupted runs.",
+        help="Skip completed results and clean/retry interrupted or failed runs.",
     )
     return parser.parse_args()
 
@@ -206,7 +206,7 @@ def load_terminal_result(
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if metadata.get("status") not in {"done", "error"}:
+    if metadata.get("status") != "done":
         return None
     metadata["resumed_skip"] = True
     return metadata
@@ -309,6 +309,19 @@ def write_command_logs(output_dir: Path, prefix: str | None, result: Any) -> Non
         write_text(output_dir / "stderr.log", result.stderr)
 
 
+def command_failure_message(stage: str, result: Any) -> str:
+    if result.timed_out:
+        return f"{stage} timed out"
+    if result.error:
+        return f"{stage} failed: {result.error}"
+
+    output = (result.stderr or result.stdout or "").strip()
+    detail = output.splitlines()[-1] if output else "no diagnostic output"
+    if len(detail) > 1000:
+        detail = detail[:997] + "..."
+    return f"{stage} failed with return code {result.returncode}: {detail}"
+
+
 def build_agentless_inputs(
     *,
     baseline: dict[str, Any],
@@ -391,7 +404,8 @@ def run_one(
     baseline: dict[str, Any],
     clean: bool = False,
 ) -> dict[str, Any]:
-    started = time.monotonic()
+    started_monotonic = time.monotonic()
+    started_at_unix = time.time()
     experiment = config.get("experiment", {})
     benchmark = config.get("benchmark", {})
     model = config.get("model", {})
@@ -423,7 +437,7 @@ def run_one(
                 "baseline_kind": baseline.get("kind"),
                 "runtime": case["runtime"],
                 "worktree_dir": str(worktree_dir),
-                "started_at_unix": started,
+                "started_at_unix": started_at_unix,
                 "status": "error",
                 "error": str(exc),
             }
@@ -437,7 +451,7 @@ def run_one(
         "runtime": case["runtime"],
         "source_ref": ref,
         "worktree_dir": str(worktree_dir),
-        "started_at_unix": started,
+        "started_at_unix": started_at_unix,
     }
 
     try:
@@ -520,6 +534,15 @@ def run_one(
     progress(f"{label} baseline finished returncode={baseline_result.returncode} timed_out={baseline_result.timed_out}")
     write_command_logs(output_dir, None, baseline_result)
     metadata["baseline_result"] = baseline_result.to_dict()
+    if not baseline_result.ok:
+        message = command_failure_message("baseline command", baseline_result)
+        progress(f"{label} error: {message}")
+        metadata["status"] = "error"
+        metadata["error"] = message
+        metadata["elapsed_seconds"] = round(time.monotonic() - started_monotonic, 3)
+        write_json(output_dir / "metadata.json", metadata)
+        write_oracle_error(output_dir, case["case_id"], "baseline", message)
+        return metadata
 
     if baseline.get("kind") == "agentless_oci":
         agentless_output_dir = output_dir / baseline.get("output_dir_name", "agentless-output")
@@ -605,7 +628,7 @@ def run_one(
     write_command_logs(output_dir, "oracle", oracle_result)
     metadata["oracle_result"] = oracle_result.to_dict()
     metadata["status"] = "done"
-    metadata["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    metadata["elapsed_seconds"] = round(time.monotonic() - started_monotonic, 3)
     progress(f"{label} writing final metadata: {output_dir / 'metadata.json'}")
     write_json(output_dir / "metadata.json", metadata)
     progress(f"{label} run done elapsed_seconds={metadata['elapsed_seconds']}")
