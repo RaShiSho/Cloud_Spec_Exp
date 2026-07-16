@@ -48,6 +48,8 @@
 
 ## AutoCodeRover
 
+> **当前决策（2026-07-16）**：暂不将 AutoCodeRover 纳入本项目的正式 baseline 实验和结果比较。现有 adapter 与运行结果保留，用于记录适配过程和后续可行性研究，不作为 baseline 能力分数。
+
 - 仓库：https://github.com/AutoCodeRoverSG/auto-code-rover
 - 定位：面向 GitHub issue 和 SWE-bench 的自动修复 agent。
 - 工作流：先检索相关代码上下文，再生成补丁；可利用结构化代码搜索和测试定位。
@@ -57,3 +59,11 @@
 - 批处理：每个 case 使用独立输出目录和任务级 timeout；wrapper 记录 ACR、补丁发现和补丁应用阶段状态；runner 的 `--resume` 跳过 `done` case，清理并重跑中断或 `error` case。
 - 风险：上游主分支未固定时，CLI、依赖和补丁输出格式仍可能变化；正式实验应记录实际 commit。
 - 本次源码核对基准：`585d3e639aeda58ef0b6a151dd1cc2721a94d267`。
+
+暂停采用的主要原因：
+
+- 上游补丁应用流程面向 Python：修改后的目标文件无论扩展名都会进入 `pylint` 语法检查，导致 OCI runtime 的 C、Go、Rust 补丁即使能够解析和匹配，也无法被判定为可应用。
+- 上游 AST 索引和搜索提示同样以 Python 类/方法为中心。当前文本级 fallback 会退化为整文件上下文，既不能等价复现 ACR 在 SWE-bench 上的结构化检索能力，也显著增加 token 消耗。
+- 最近一次 `crun-13` 冒烟运行已完成模型搜索和补丁生成，但所有候选补丁均在提取或应用阶段失败，没有进入 runtime 构建与 OCI oracle，因此当前结果不能用于评价 ACR 的实际修复能力。
+
+重新评估 AutoCodeRover 的前置条件：实现按语言区分的补丁应用与验证，提供 C/Go/Rust 的函数级结构化索引，并至少各选一个 crun、runc、youki case 跑通“生成补丁、应用、构建、oracle”完整链路。
