@@ -340,6 +340,8 @@ def read_case_text(case: dict[str, Any]) -> dict[str, str]:
 
 def build_task_text(case: dict[str, Any], runtime_cfg: dict[str, Any]) -> str:
     texts = read_case_text(case)
+    case_dir = Path(case["case_dir"]).resolve()
+    rootfs_tar = case_dir.parent.parent / "alpine-base.tar.gz"
     build_command = runtime_cfg.get("build_command", "")
     runtime_path = runtime_cfg.get("runtime_path", "")
     return "\n".join(
@@ -354,6 +356,14 @@ def build_task_text(case: dict[str, Any], runtime_cfg: dict[str, Any]) -> str:
             "Goal:",
             "Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.",
             "Do not edit the dataset, generated worktree metadata, or oracle scripts.",
+            "",
+            "Reproduction bundle absolute path (read-only):",
+            str(case_dir),
+            "",
+            "Rootfs tar absolute path:",
+            str(rootfs_tar),
+            "",
+            "Run reproduction commands from the reproduction bundle directory.",
             "",
             "Build command that will be used after your changes:",
             build_command,

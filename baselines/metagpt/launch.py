@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import inspect
 import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -193,10 +195,21 @@ def main() -> int:
         supported = {
             name: value for name, value in parameters.items() if name in signature.parameters
         }
-        result = generate_repo(**supported)
+        metadata["status"] = "running_generate_repo"
+        metadata["generate_repo_started_at_unix"] = time.time()
+        metadata["launcher_pid"] = os.getpid()
+        metadata["generate_repo_parameters"] = sorted(supported)
+        write_metadata(metadata_path, metadata)
+
+        faulthandler.enable()
+        faulthandler.dump_traceback_later(300, repeat=True)
+        try:
+            result = generate_repo(**supported)
+        finally:
+            faulthandler.cancel_dump_traceback_later()
         metadata["status"] = "completed"
         metadata["result_project_path"] = str(result) if result is not None else None
-        metadata["generate_repo_parameters"] = sorted(supported)
+        metadata["generate_repo_finished_at_unix"] = time.time()
         write_metadata(metadata_path, metadata)
         return 0
     except Exception as exc:

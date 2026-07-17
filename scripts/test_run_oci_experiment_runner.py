@@ -74,6 +74,20 @@ class RunOciExperimentResumeTests(unittest.TestCase):
 
 
 class RunOciExperimentFailureTests(unittest.TestCase):
+    def test_classifies_child_return_code_124_as_timeout(self) -> None:
+        failure = CommandResult(
+            command="run-baseline",
+            cwd=None,
+            returncode=124,
+            stdout="",
+            stderr="misleading last line",
+        )
+
+        message = runner.command_failure_message("baseline command", failure)
+
+        self.assertIn("timed out", message)
+        self.assertNotIn("misleading last line", message)
+
     def test_stops_after_baseline_command_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -126,7 +140,9 @@ class RunOciExperimentFailureTests(unittest.TestCase):
             with (
                 mock.patch.object(runner, "create_worktree"),
                 mock.patch.object(runner, "run_command", return_value=failure) as run,
-                mock.patch.object(runner, "git_diff") as git_diff,
+                mock.patch.object(
+                    runner, "git_diff", return_value="partial diff\n"
+                ) as git_diff,
             ):
                 result = runner.run_one(
                     config=config,
@@ -144,13 +160,20 @@ class RunOciExperimentFailureTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
+            candidate_patch = (
+                output_root / "autocoderover" / "crun-13" / "candidate.patch"
+            ).read_text(encoding="utf-8")
 
         self.assertEqual(run.call_count, 1)
-        git_diff.assert_not_called()
+        git_diff.assert_called_once()
         self.assertEqual(result["status"], "error")
+        self.assertTrue(result["patch_is_partial"])
+        self.assertGreater(result["patch_size_bytes"], 0)
         self.assertIn("return code 1: fatal detail", result["error"])
         self.assertGreater(result["started_at_unix"], 1_000_000_000)
         self.assertEqual(metadata["error"], result["error"])
+        self.assertTrue(metadata["patch_is_partial"])
+        self.assertEqual(candidate_patch, "partial diff\n")
         self.assertEqual(oracle["error_type"], "baseline")
         self.assertEqual(oracle["message"], result["error"])
 

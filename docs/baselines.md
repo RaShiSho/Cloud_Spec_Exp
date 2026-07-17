@@ -23,6 +23,8 @@
 - 工作流：通过产品经理、架构师、工程师等角色分工完成需求到代码的生成。
 - 特点：更适合从需求生成项目，不是精确 bug repair 的天然形态。
 - 建议：除非实验要求覆盖该 baseline，否则降低优先级。
+- 超时诊断、单案例 smoke test 和批量恢复命令见
+  [`metagpt-timeout-recovery.md`](metagpt-timeout-recovery.md)。
 
 ## RepairAgent
 

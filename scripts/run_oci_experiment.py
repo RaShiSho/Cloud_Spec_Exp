@@ -310,8 +310,9 @@ def write_command_logs(output_dir: Path, prefix: str | None, result: Any) -> Non
 
 
 def command_failure_message(stage: str, result: Any) -> str:
-    if result.timed_out:
-        return f"{stage} timed out"
+    if result.timed_out or result.returncode == 124:
+        detail = result.error or "child timeout command returned 124"
+        return f"{stage} timed out: {detail}"
     if result.error:
         return f"{stage} failed: {result.error}"
 
@@ -538,6 +539,17 @@ def run_one(
     write_command_logs(output_dir, None, baseline_result)
     metadata["baseline_result"] = baseline_result.to_dict()
     if not baseline_result.ok:
+        try:
+            partial_patch = git_diff(worktree_dir)
+            write_text(output_dir / "candidate.patch", partial_patch)
+            metadata["patch_size_bytes"] = len(partial_patch.encode("utf-8"))
+            metadata["patch_is_partial"] = True
+            progress(
+                f"{label} partial candidate patch size={metadata['patch_size_bytes']} bytes"
+            )
+        except Exception as exc:
+            metadata["partial_patch_error"] = str(exc)
+            progress(f"{label} failed to collect partial candidate patch: {exc}")
         message = command_failure_message("baseline command", baseline_result)
         progress(f"{label} error: {message}")
         metadata["status"] = "error"

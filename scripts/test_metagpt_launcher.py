@@ -101,6 +101,13 @@ class MetaGPTLauncherTests(unittest.TestCase):
             )
             self.assertEqual(metadata["status"], "completed")
             self.assertEqual(metadata["api_key_source"], "METAGPT_API_KEY")
+            self.assertGreater(metadata["launcher_pid"], 0)
+            self.assertIn("generate_repo_started_at_unix", metadata)
+            self.assertIn("generate_repo_finished_at_unix", metadata)
+            self.assertGreaterEqual(
+                metadata["generate_repo_finished_at_unix"],
+                metadata["generate_repo_started_at_unix"],
+            )
 
             persisted = "\n".join(
                 path.read_text(encoding="utf-8", errors="replace")
