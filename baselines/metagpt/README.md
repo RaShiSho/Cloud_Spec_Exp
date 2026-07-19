@@ -17,6 +17,21 @@ worktree 作为 `project_path`。MetaGPT 直接修改 worktree，随后由统一
 仓库里的示例 `llm` mapping。导入 MetaGPT 后，再只在内存中注入 API key。真实 key 不会
 进入 `wrapper_metadata.json`、`launcher_metadata.json` 或 bootstrap 配置。
 
+## Terminal 兼容层
+
+已验证的上游 revision `11cdf466d042aece04fc6cfd13b28e1a70341b1f` 会把换行结尾的
+Terminal marker 永久保留在读取缓冲区的最后一个分段中，并继续等待不会到来的下一个
+字节。上游 shell 提前退出时，原实现对 EOF 也会继续循环。
+
+本 adapter 在运行时通过 `terminal_compat.py` 修复这两个问题，不修改
+`external/baselines/MetaGPT`：reader 会先在原始字节缓冲区中查找 marker，命中后立即
+返回；遇到 EOF 则抛出包含 shell return code 的异常。兼容层还保留 Terminal observer、
+前台返回文本和 daemon queue 行为，并将安装状态记录到 `launcher_metadata.json` 的
+`terminal_compat` 字段。
+
+`scripts/diagnose_metagpt_terminal.py` 与正式 launcher 使用同一个安装函数。可用
+`--raw-upstream-terminal` 暂时禁用兼容层以复现上游问题，但正式实验不应使用该选项。
+
 ## 环境
 
 建议把上游仓库 clone 到 `external/baselines/MetaGPT`，并使用独立 Conda 环境：
@@ -25,6 +40,20 @@ worktree 作为 `project_path`。MetaGPT 直接修改 worktree，随后由统一
 git clone https://github.com/FoundationAgents/MetaGPT.git external/baselines/MetaGPT
 conda create -n metagpt python=3.10 -y
 conda run -n metagpt python -m pip install -e external/baselines/MetaGPT
+```
+
+同步仓库后先运行兼容层回归和真实 Terminal 探针：
+
+```bash
+conda run -n metagpt python -m unittest \
+  scripts.test_metagpt_terminal_compat \
+  scripts.test_metagpt_launcher \
+  -v
+
+PYTHONUNBUFFERED=1 timeout --signal=TERM --kill-after=5s 20s \
+  conda run --no-capture-output -n metagpt python \
+  scripts/diagnose_metagpt_terminal.py \
+  --baseline-repo external/baselines/MetaGPT
 ```
 
 配置至少一个 key：`METAGPT_API_KEY`、`DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`。API base

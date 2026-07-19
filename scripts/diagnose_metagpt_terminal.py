@@ -13,6 +13,10 @@ from pathlib import Path
 
 
 BOOTSTRAP_API_KEY = "sk-metagpt-terminal-probe"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ADAPTER_DIR = REPO_ROOT / "baselines" / "metagpt"
+sys.path.insert(0, str(ADAPTER_DIR))
+from terminal_compat import install_terminal_compat  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--command", default="pwd")
     parser.add_argument("--command-timeout", type=float, default=10.0)
+    parser.add_argument(
+        "--raw-upstream-terminal",
+        action="store_true",
+        help="Do not install the local Terminal compatibility layer.",
+    )
     return parser.parse_args()
 
 
@@ -59,19 +68,37 @@ def prepare_environment(baseline_repo: Path, home: Path) -> Path:
     return config_path
 
 
-async def run_probe(command: str, command_timeout: float) -> None:
+async def run_probe(
+    command: str, command_timeout: float, *, install_compat: bool = True
+) -> None:
     # Import only after the isolated HOME bootstrap config has been written.
+    if install_compat:
+        details = install_terminal_compat()
+        print(f"Terminal 兼容层：{json.dumps(details, ensure_ascii=False)}", flush=True)
     from metagpt.tools.libs.terminal import Terminal
 
     terminal = Terminal()
+    primary_error: BaseException | None = None
     try:
         print(f"开始执行 {command}", flush=True)
         output = await asyncio.wait_for(
             terminal.run_command(command), timeout=command_timeout
         )
         print(f"终端输出：{output!r}", flush=True)
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
-        await asyncio.wait_for(terminal.close(), timeout=5.0)
+        try:
+            await asyncio.wait_for(terminal.close(), timeout=5.0)
+        except BaseException as close_error:
+            if primary_error is None:
+                raise
+            print(
+                f"关闭 Terminal 时发生次要异常：{close_error!r}",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 def main() -> int:
@@ -84,7 +111,13 @@ def main() -> int:
         config_path = prepare_environment(baseline_repo, Path(temp_home))
         print(f"MetaGPT 源码目录：{baseline_repo}", flush=True)
         print(f"临时 bootstrap 配置：{config_path}", flush=True)
-        asyncio.run(run_probe(args.command, args.command_timeout))
+        asyncio.run(
+            run_probe(
+                args.command,
+                args.command_timeout,
+                install_compat=not args.raw_upstream_terminal,
+            )
+        )
     print("MetaGPT Terminal 探针通过", flush=True)
     return 0
 

@@ -17,6 +17,7 @@ git -C external/subjects/crun rev-parse \
 
 conda run -n metagpt python -m unittest \
   scripts.test_oci_common_prompt \
+  scripts.test_metagpt_terminal_compat \
   scripts.test_metagpt_launcher \
   scripts.test_run_oci_experiment_runner \
   -v
@@ -43,12 +44,16 @@ python scripts/run_oci_experiment.py \
 写入 bootstrap 配置，再把真实 key 仅注入进程内存；直接探针也必须保持相同的导入顺序。
 
 仓库内的 `scripts/diagnose_metagpt_terminal.py` 已经实现这个最小探针：它自动创建并清理
-临时 HOME，在导入 MetaGPT 前写入只用于配置校验的假 key，然后执行并关闭 Terminal。
+临时 HOME，在导入 MetaGPT 前写入只用于配置校验的假 key，安装与正式 launcher 相同的
+Terminal reader 兼容层，然后执行并关闭 Terminal。
 同步仓库到 WSL 后，先做不导入 MetaGPT 的语法检查：
 
 ```bash
 cd /home/aludy/scires/Cloud_Spec_Exp
-conda run -n metagpt python -m py_compile scripts/diagnose_metagpt_terminal.py
+conda run -n metagpt python -m py_compile \
+  baselines/metagpt/terminal_compat.py \
+  baselines/metagpt/launch.py \
+  scripts/diagnose_metagpt_terminal.py
 ```
 
 再从外部执行脚本。整条命令保持在一行内，避免多行粘贴损坏：
@@ -58,8 +63,10 @@ PYTHONUNBUFFERED=1 timeout --signal=TERM --kill-after=5s 20s conda run --no-capt
 ```
 
 验收标准：输出包含 `开始执行 pwd`、非空的 `终端输出`、`MetaGPT Terminal 探针通过`，且
-`probe_rc=0`。MetaGPT Terminal 默认可能在自己的 workspace 中启动 shell，所以 `pwd`
-不一定等于当前仓库路径；路径非空即可。其他结果按下列方式判断：
+`probe_rc=0`。`Terminal 兼容层` JSON 中的 `status` 必须为 `applied` 或
+`already_applied`，并且 `eof_detection` 为 `true`。MetaGPT Terminal 默认可能在自己的
+workspace 中启动 shell，所以 `pwd` 不一定等于当前仓库路径；路径非空即可。其他结果按
+下列方式判断：
 
 - 再次出现 `YOUR_API_KEY`：执行的不是已同步的新脚本，或 MetaGPT 在脚本导入前已被其他
   启动钩子导入。检查 `python -c 'import sys; print(sys.path)'` 和脚本绝对路径。
@@ -68,6 +75,8 @@ PYTHONUNBUFFERED=1 timeout --signal=TERM --kill-after=5s 20s conda run --no-capt
 - `probe_rc=137`：进程收到 TERM 后 5 秒仍未退出，被强制杀死；检查是否残留 shell 子进程。
 - 在 `开始执行 pwd` 前 traceback：仍属于 import/依赖错误，按 traceback 中第一个项目文件
   定位，不能据此判断 Terminal 是否可用。
+- `TerminalProcessEOF`：bash 在写出 marker 前关闭了 stdout；异常中的 `returncode` 和
+  `command` 是新的诊断证据，不再把 EOF 误表现为永久超时。
 
 这个探针不会请求 LLM，因此假 key 是有意设计，不能用于正式实验。正式运行仍必须在启动
 runner 的同一个 WSL shell 中设置 `METAGPT_API_KEY`、`DEEPSEEK_API_KEY` 或
@@ -125,47 +134,62 @@ launcher 现在每五分钟输出一次 Python 线程堆栈。堆栈位于
 `terminal.py`/`subprocess` 表示正在等待终端进程；位于 `httpx`/`openai` 表示正在等待
 LLM 请求；位于 `asyncio.gather` 表示正在等待角色任务或环境轮次结束。
 
-## 3. 创建隔离的冒烟测试配置
+## 3. 正式重跑前归档旧结果并检查所有权
+
+当前 `crun-13` 的 `metadata.status` 为 `error`，所以 `--resume` 会删除旧输出和 worktree 后
+重跑。先保存失败证据，并确认 runner 对目标目录有写权限：
 
 ```bash
-SMOKE=/tmp/experiment.metagpt.smoke.yaml
-cp configs/experiment.metagpt.yaml "$SMOKE"
+ROOT="$(pwd -P)"
+RESULT="$ROOT/results/oci-metagpt/metagpt/crun-13"
+WORKTREE="$ROOT/external/worktrees/oci-metagpt/metagpt/crun-13"
+STAMP="$(date +%Y%m%d-%H%M%S)"
 
-sed -i 's/name: oci-metagpt/name: oci-metagpt-smoke/' "$SMOKE"
-sed -i \
-  's#output_dir: results/oci-metagpt#output_dir: results/oci-metagpt-smoke#' \
-  "$SMOKE"
-sed -i \
-  '0,/timeout_seconds: 3600/s//timeout_seconds: 1200/' \
-  "$SMOKE"
-sed -i \
-  's/    timeout_seconds: 3600/    timeout_seconds: 1200/' \
-  "$SMOKE"
-sed -i \
-  's/task_timeout_seconds: 3300/task_timeout_seconds: 900/' \
-  "$SMOKE"
+realpath -m "$RESULT" "$WORKTREE"
+find "$RESULT" "$WORKTREE" -xdev ! -user "$(id -un)" \
+  -printf '%u:%g %p\n' 2>/dev/null
 
-grep -nE \
-  'name:|output_dir:|timeout_seconds:|task_timeout_seconds:' \
-  "$SMOKE"
+tar -C "$ROOT/results" \
+  -czf "$ROOT/results/oci-metagpt-before-terminal-fix-$STAMP.tgz" \
+  oci-metagpt
+sha256sum "$ROOT/results/oci-metagpt-before-terminal-fix-$STAMP.tgz"
 ```
 
-## 4. 运行单案例冒烟测试
+如果 `find` 确实列出非当前用户文件，只修复上面两个已核对的精确目录；不要用 `sudo`
+启动实验，也不要把整个仓库改成宽松权限：
 
 ```bash
-PYTHONUNBUFFERED=1 \
+sudo chown -R "$(id -u):$(id -g)" -- "$RESULT" "$WORKTREE"
+```
+
+## 4. 直接使用正式配置重跑单案例
+
+不需要创建单独的 smoke YAML。先预演，再让 `--resume` 重跑当前 `error` 案例：
+
+```bash
 python scripts/run_oci_experiment.py \
-  --config "$SMOKE" \
+  --config configs/experiment.metagpt.yaml \
   --baseline metagpt \
   --case crun-13 \
-  --clean \
-  2>&1 | tee results/oci-metagpt-smoke-runner.log
+  --dry-run
+
+PYTHONUNBUFFERED=1 \
+python scripts/run_oci_experiment.py \
+  --config configs/experiment.metagpt.yaml \
+  --baseline metagpt \
+  --case crun-13 \
+  --resume \
+  2>&1 | tee results/oci-metagpt-crun-13-repaired.log
 ```
 
-## 5. 验证冒烟测试结果
+不要同时使用 `--resume` 和 `--clean`。如果案例未来已经是 `status=done` 但仍需强制重跑，
+归档后改用 `--case crun-13 --clean`，因为 `--resume` 会跳过所有 `done` 案例，不要求 oracle
+必须通过。
+
+## 5. 验证单案例结果
 
 ```bash
-RESULT=results/oci-metagpt-smoke/metagpt/crun-13
+RESULT=results/oci-metagpt/metagpt/crun-13
 
 test -s "$RESULT/candidate.patch"
 test -f "$RESULT/build_stdout.log"
@@ -173,6 +197,11 @@ test -f "$RESULT/build_stderr.log"
 
 jq -e \
   '.status == "completed"' \
+  "$RESULT/metagpt-output/launcher_metadata.json"
+
+jq -e \
+  '.terminal_compat.status == "applied" and
+   .terminal_compat.eof_detection == true' \
   "$RESULT/metagpt-output/launcher_metadata.json"
 
 jq -e \

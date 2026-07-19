@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from terminal_compat import install_terminal_compat
+
 
 BOOTSTRAP_API_KEY = "sk-metagpt-oci-bootstrap"
 
@@ -160,7 +162,6 @@ def main() -> int:
     try:
         import metagpt.config2 as config_module
         from metagpt.configs.llm_config import LLMConfig
-        from metagpt.software_company import generate_repo
 
         config_module.config.llm = LLMConfig(
             api_type=args.api_type,
@@ -171,6 +172,11 @@ def main() -> int:
             calc_usage=False,
         )
         config_module.config.repair_llm_output = True
+
+        metadata["terminal_compat"] = install_terminal_compat()
+        write_metadata(metadata_path, metadata)
+
+        from metagpt.software_company import generate_repo
 
         signature = inspect.signature(generate_repo)
         if "project_path" not in signature.parameters:

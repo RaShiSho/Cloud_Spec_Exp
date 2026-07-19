@@ -28,9 +28,13 @@ class MetaGPTLauncherTests(unittest.TestCase):
             baseline_repo = root / "MetaGPT"
             package = baseline_repo / "metagpt"
             configs = package / "configs"
+            terminal_libs = package / "tools" / "libs"
             configs.mkdir(parents=True)
+            terminal_libs.mkdir(parents=True)
             (package / "__init__.py").write_text("", encoding="utf-8")
             (configs / "__init__.py").write_text("", encoding="utf-8")
+            (package / "tools" / "__init__.py").write_text("", encoding="utf-8")
+            (terminal_libs / "__init__.py").write_text("", encoding="utf-8")
             (package / "config2.py").write_text(
                 "class Config:\n"
                 "    llm = None\n"
@@ -44,9 +48,20 @@ class MetaGPTLauncherTests(unittest.TestCase):
                 "        self.__dict__.update(kwargs)\n",
                 encoding="utf-8",
             )
+            (terminal_libs / "terminal.py").write_text(
+                "END_MARKER_VALUE = '\\x18\\x19\\x1b\\x18\\n'\n"
+                "class Terminal:\n"
+                "    async def _read_and_process_output(self, cmd, daemon=False):\n"
+                "        raise RuntimeError('vulnerable reader was not patched')\n"
+                "    async def run_command(self, cmd, daemon=False):\n"
+                "        return await self._read_and_process_output(cmd, daemon=daemon)\n",
+                encoding="utf-8",
+            )
             (package / "software_company.py").write_text(
                 "from pathlib import Path\n"
+                "from metagpt.tools.libs.terminal import Terminal\n"
                 "def generate_repo(idea, project_path, n_round=5, **kwargs):\n"
+                "    assert getattr(Terminal, '__oci_terminal_compat__', None)\n"
                 "    Path(project_path, 'metagpt-change.txt').write_text(idea, encoding='utf-8')\n"
                 "    return project_path\n",
                 encoding="utf-8",
@@ -101,6 +116,7 @@ class MetaGPTLauncherTests(unittest.TestCase):
             )
             self.assertEqual(metadata["status"], "completed")
             self.assertEqual(metadata["api_key_source"], "METAGPT_API_KEY")
+            self.assertEqual(metadata["terminal_compat"]["status"], "applied")
             self.assertGreater(metadata["launcher_pid"], 0)
             self.assertIn("generate_repo_started_at_unix", metadata)
             self.assertIn("generate_repo_finished_at_unix", metadata)
