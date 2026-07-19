@@ -9,6 +9,14 @@ Goal:
 Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
 Do not edit the dataset, generated worktree metadata, or oracle scripts.
 
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-13
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
 Build command that will be used after your changes:
 ./autogen.sh && ./configure && make -j$(nproc)
 
