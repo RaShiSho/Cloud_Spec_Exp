@@ -9,6 +9,16 @@ Goal:
 Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
 Do not edit the dataset, generated worktree metadata, or oracle scripts.
 
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt/metagpt/crun-13
+
+Required first command:
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt/metagpt/crun-13 && git rev-parse HEAD && git status --short
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-13
 
