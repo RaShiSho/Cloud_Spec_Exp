@@ -97,6 +97,17 @@ if [ ! -f "$LAUNCHER" ]; then
   exit 2
 fi
 
+# MetaGPT runs with an isolated HOME so bootstrap credentials cannot leak into
+# the user's config.  Keep Playwright's large browser installation in a stable,
+# shared location instead of the temporary HOME that is removed after each run.
+if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  SHARED_PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH"
+elif [ -n "${HOME:-}" ]; then
+  SHARED_PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+else
+  SHARED_PLAYWRIGHT_BROWSERS_PATH="$ADAPTER_DIR/.cache/ms-playwright"
+fi
+
 mkdir -p "$OUTPUT_DIR"
 PYTHON_BIN="${PYTHON:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -218,11 +229,13 @@ echo "Starting MetaGPT incremental repair mode." >&2
 set +e
 if [ "$TIMEOUT_SECONDS" -gt 0 ]; then
   HOME="$RUN_HOME" \
+  PLAYWRIGHT_BROWSERS_PATH="$SHARED_PLAYWRIGHT_BROWSERS_PATH" \
   METAGPT_PROJECT_ROOT="$BASELINE_REPO" \
   PYTHONPATH="$BASELINE_REPO${PYTHONPATH:+:$PYTHONPATH}" \
     timeout --signal=TERM --kill-after=30s "${TIMEOUT_SECONDS}s" "${LAUNCH_COMMAND[@]}"
 else
   HOME="$RUN_HOME" \
+  PLAYWRIGHT_BROWSERS_PATH="$SHARED_PLAYWRIGHT_BROWSERS_PATH" \
   METAGPT_PROJECT_ROOT="$BASELINE_REPO" \
   PYTHONPATH="$BASELINE_REPO${PYTHONPATH:+:$PYTHONPATH}" \
     "${LAUNCH_COMMAND[@]}"

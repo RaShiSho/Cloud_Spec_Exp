@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,39 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 import run_oci_experiment as runner  # noqa: E402
 from oci_common import CommandResult  # noqa: E402
+
+
+class RunOciExperimentGitDiffTests(unittest.TestCase):
+    def test_collects_staged_tracked_changes_against_head(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            source = repo / "runtime.c"
+            subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+            source.write_text("original\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "runtime.c"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=Runner Test",
+                    "-c",
+                    "user.email=runner-test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "test(runner): initialize fixture",
+                ],
+                check=True,
+            )
+            source.write_text("changed\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "runtime.c"], check=True)
+
+            patch = runner.git_diff(repo)
+
+        self.assertIn("-original", patch)
+        self.assertIn("+changed", patch)
 
 
 class RunOciExperimentResumeTests(unittest.TestCase):

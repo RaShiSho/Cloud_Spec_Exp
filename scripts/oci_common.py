@@ -338,12 +338,31 @@ def read_case_text(case: dict[str, Any]) -> dict[str, str]:
     return result
 
 
-def build_task_text(case: dict[str, Any], runtime_cfg: dict[str, Any]) -> str:
+def build_task_text(
+    case: dict[str, Any],
+    runtime_cfg: dict[str, Any],
+    worktree_dir: str | Path | None = None,
+) -> str:
     texts = read_case_text(case)
     case_dir = Path(case["case_dir"]).resolve()
     rootfs_tar = case_dir.parent.parent / "alpine-base.tar.gz"
     build_command = runtime_cfg.get("build_command", "")
     runtime_path = runtime_cfg.get("runtime_path", "")
+    target_repo = Path(worktree_dir).resolve() if worktree_dir is not None else None
+    target_instructions = []
+    if target_repo is not None:
+        target_instructions = [
+            "Writable target repository (the only location where source changes are allowed):",
+            str(target_repo),
+            "",
+            "Required first command:",
+            f"cd {shlex.quote(str(target_repo))} && git rev-parse HEAD && git status --short",
+            "",
+            "Inspect, edit, build, and collect git diff only in the writable target repository.",
+            "Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.",
+            "Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.",
+            "",
+        ]
     return "\n".join(
         [
             f"Fix OCI runtime bug case {case['case_id']}.",
@@ -357,6 +376,7 @@ def build_task_text(case: dict[str, Any], runtime_cfg: dict[str, Any]) -> str:
             "Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.",
             "Do not edit the dataset, generated worktree metadata, or oracle scripts.",
             "",
+            *target_instructions,
             "Reproduction bundle absolute path (read-only):",
             str(case_dir),
             "",

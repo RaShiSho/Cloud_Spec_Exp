@@ -14,10 +14,12 @@ test -x "$(command -v runc)"
 test -f external/oci-differential-dataset/alpine-base.tar.gz
 git -C external/subjects/crun rev-parse \
   'c047a49b8d798e210054e411a999e83f6c05bdbf^'
+bash -n baselines/metagpt/run_oci_repair.sh
 
 conda run -n metagpt python -m unittest \
   scripts.test_oci_common_prompt \
   scripts.test_metagpt_terminal_compat \
+  scripts.test_metagpt_command_compat \
   scripts.test_metagpt_launcher \
   scripts.test_run_oci_experiment_runner \
   -v
@@ -51,6 +53,7 @@ Terminal reader 兼容层，然后执行并关闭 Terminal。
 ```bash
 cd /home/aludy/scires/Cloud_Spec_Exp
 conda run -n metagpt python -m py_compile \
+  baselines/metagpt/command_compat.py \
   baselines/metagpt/terminal_compat.py \
   baselines/metagpt/launch.py \
   scripts/diagnose_metagpt_terminal.py
@@ -82,6 +85,21 @@ workspace 中启动 shell，所以 `pwd` 不一定等于当前仓库路径；路
 runner 的同一个 WSL shell 中设置 `METAGPT_API_KEY`、`DEEPSEEK_API_KEY` 或
 `OPENAI_API_KEY`，并继续通过 adapter 注入；不要把真实 key 写入脚本或 YAML。
 
+### 1.2 准备共享 Playwright 浏览器缓存
+
+正式 adapter 仍使用隔离 HOME，但会显式复用启动 shell 的
+`$HOME/.cache/ms-playwright`。如果该路径还没有 Chromium，安装一次：
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
+conda run -n metagpt python -m playwright install chromium
+
+test -d "$HOME/.cache/ms-playwright"
+```
+
+也可以预先设置其他绝对路径的 `PLAYWRIGHT_BROWSERS_PATH`；wrapper 会原样保留。不要把浏览器
+安装进 `metagpt-output/.metagpt-home-*`，该临时 HOME 会在每次运行结束后删除。
+
 ## 2. 可选：直接运行 adapter 进行实时诊断
 
 如果冒烟测试仍然卡住，请执行本节命令。它会绕过外层 runner 的输出捕获，并在 adapter
@@ -97,7 +115,9 @@ git -C external/subjects/crun worktree add --detach \
   'c047a49b8d798e210054e411a999e83f6c05bdbf^'
 
 cp results/oci-metagpt/metagpt/crun-13/task.md "$TASK"
-printf '\nReproduction bundle absolute path: %s\nRootfs tar absolute path: %s\n' \
+printf '\nWritable target repository (the only location where source changes are allowed): %s\nRequired first command: cd %s && git rev-parse HEAD && git status --short\nDo not inspect or modify external/subjects/crun.\nReproduction bundle absolute path: %s\nRootfs tar absolute path: %s\n' \
+  "$DBG" \
+  "$DBG" \
   "$PWD/external/oci-differential-dataset/cases/crun-13" \
   "$PWD/external/oci-differential-dataset/alpine-base.tar.gz" \
   >> "$TASK"
@@ -133,6 +153,10 @@ grep -nE \
 launcher 现在每五分钟输出一次 Python 线程堆栈。堆栈位于
 `terminal.py`/`subprocess` 表示正在等待终端进程；位于 `httpx`/`openai` 表示正在等待
 LLM 请求；位于 `asyncio.gather` 表示正在等待角色任务或环境轮次结束。
+
+launcher 返回成功还要求 `$DBG` 中存在非空 tracked diff。MetaGPT 内部异常被上游序列化
+装饰器吞掉、模型只返回 `{}`、或者 Agent 误操作 `external/subjects/crun` 时，adapter 会以
+`NoRepositoryChanges` 失败，不再写出误导性的 `status=completed`。
 
 ## 3. 正式重跑前归档旧结果并检查所有权
 
@@ -201,8 +225,18 @@ jq -e \
 
 jq -e \
   '.terminal_compat.status == "applied" and
-   .terminal_compat.eof_detection == true' \
+   .terminal_compat.eof_detection == true and
+   .terminal_compat.workspace_root_override == true and
+   .terminal_compat.forced_working_directory == .repo and
+   .workspace_binding.process_cwd == .repo and
+   .command_compat.install_status == "applied" and
+   .command_compat.status != "failed" and
+   .worktree_diff_size_bytes > 0' \
   "$RESULT/metagpt-output/launcher_metadata.json"
+
+! grep -Eq '"(cmd|path)"[[:space:]]*:[[:space:]]*"[^"]*/external/subjects/crun' \
+  "$RESULT/stdout.log"
+grep -q '/external/worktrees/oci-metagpt/metagpt/crun-13' "$RESULT/task.md"
 
 jq -e \
   '.status == "done" and .patch_size_bytes > 0' \

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+from pathlib import Path
 from typing import Any
 
 
@@ -48,17 +49,35 @@ async def _report_output(
         await terminal.stdout_queue.put(text)
 
 
-def install_terminal_compat(terminal_module: Any | None = None) -> dict[str, Any]:
+def install_terminal_compat(
+    terminal_module: Any | None = None,
+    *,
+    working_directory: str | Path | None = None,
+) -> dict[str, Any]:
     """Patch MetaGPT's marker reader without editing the upstream checkout."""
 
     if terminal_module is None:
         import metagpt.tools.libs.terminal as terminal_module
 
     terminal_class = terminal_module.Terminal
+    resolved_working_directory = (
+        str(Path(working_directory).resolve())
+        if working_directory is not None
+        else None
+    )
+    if resolved_working_directory is not None:
+        terminal_module.DEFAULT_WORKSPACE_ROOT = Path(resolved_working_directory)
     marker = terminal_module.END_MARKER_VALUE
     marker_hex = marker.encode().hex()
     existing = getattr(terminal_class, "__oci_terminal_compat__", None)
     if existing:
+        if resolved_working_directory is not None:
+            existing = {
+                **existing,
+                "forced_working_directory": resolved_working_directory,
+                "workspace_root_override": True,
+            }
+            terminal_class.__oci_terminal_compat__ = existing
         return {
             **existing,
             "status": "already_applied",
@@ -74,6 +93,8 @@ def install_terminal_compat(terminal_module: Any | None = None) -> dict[str, Any
             "patched_methods": [],
             "eof_detection": False,
             "daemon_queue_forwarding": False,
+            "forced_working_directory": resolved_working_directory,
+            "workspace_root_override": resolved_working_directory is not None,
         }
 
     original_reader = terminal_class._read_and_process_output
@@ -149,6 +170,8 @@ def install_terminal_compat(terminal_module: Any | None = None) -> dict[str, Any
         ],
         "eof_detection": True,
         "daemon_queue_forwarding": True,
+        "forced_working_directory": resolved_working_directory,
+        "workspace_root_override": resolved_working_directory is not None,
     }
     terminal_class.__oci_terminal_compat__ = details
     return details.copy()

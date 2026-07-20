@@ -296,7 +296,18 @@ def clean_previous_run(
 
 
 def git_diff(worktree_dir: Path) -> str:
-    result = run_command(["git", "-C", str(worktree_dir), "diff", "--binary", "--no-ext-diff"], shell=False)
+    result = run_command(
+        [
+            "git",
+            "-C",
+            str(worktree_dir),
+            "diff",
+            "HEAD",
+            "--binary",
+            "--no-ext-diff",
+        ],
+        shell=False,
+    )
     return result.stdout if result.returncode == 0 else ""
 
 
@@ -468,7 +479,7 @@ def run_one(
         return metadata
 
     progress(f"{label} writing task prompt")
-    task_text = build_task_text(case, runtime_cfg)
+    task_text = build_task_text(case, runtime_cfg, worktree_dir)
     task_file = output_dir / "task.md"
     write_text(task_file, task_text)
 

@@ -11,10 +11,23 @@ import time
 from pathlib import Path
 from typing import Any
 
+from command_compat import (
+    InvalidMetaGPTCommand,
+    get_command_compat_state,
+    install_command_compat,
+)
 from terminal_compat import install_terminal_compat
 
 
 BOOTSTRAP_API_KEY = "sk-metagpt-oci-bootstrap"
+
+
+class DirtyTargetRepository(RuntimeError):
+    """Raised when the supposedly fresh experiment worktree is already dirty."""
+
+
+class NoRepositoryChanges(RuntimeError):
+    """Raised when MetaGPT returns without changing tracked repository files."""
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,6 +118,42 @@ def git_revision(repo: Path) -> str | None:
     return result.stdout.strip() or None
 
 
+def git_diff(repo: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "diff", "HEAD", "--binary", "--no-ext-diff"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Unable to collect git diff from target repository: {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+def bind_metagpt_workspace(config: Any, repo: Path) -> dict[str, Any]:
+    """Bind dynamic MetaGPT workspace settings before roles/tools are imported."""
+
+    os.chdir(repo)
+    os.environ["SWE_CMD_WORK_DIR"] = str(repo)
+    details: dict[str, Any] = {
+        "process_cwd": str(Path.cwd()),
+        "swe_cmd_work_dir": os.environ["SWE_CMD_WORK_DIR"],
+        "config_workspace_bound": False,
+    }
+    workspace = getattr(config, "workspace", None)
+    if workspace is not None and hasattr(workspace, "path"):
+        workspace.path = repo
+        details["config_workspace_bound"] = True
+        details["config_workspace_path"] = str(workspace.path)
+    else:
+        details["config_workspace_path"] = None
+    return details
+
+
 def write_metadata(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -156,6 +205,7 @@ def main() -> int:
         "investment": args.investment,
         "max_auto_summarize_code": args.max_auto_summarize_code,
         "run_tests": args.run_tests,
+        "playwright_browsers_path": os.environ.get("PLAYWRIGHT_BROWSERS_PATH"),
     }
     write_metadata(metadata_path, metadata)
 
@@ -173,7 +223,21 @@ def main() -> int:
         )
         config_module.config.repair_llm_output = True
 
-        metadata["terminal_compat"] = install_terminal_compat()
+        initial_diff = git_diff(repo)
+        metadata["initial_diff_size_bytes"] = len(initial_diff.encode("utf-8"))
+        if initial_diff.strip():
+            raise DirtyTargetRepository(
+                "Target worktree already contains tracked changes before MetaGPT starts"
+            )
+
+        metadata["workspace_binding"] = bind_metagpt_workspace(
+            config_module.config, repo
+        )
+
+        metadata["terminal_compat"] = install_terminal_compat(
+            working_directory=repo
+        )
+        metadata["command_compat"] = install_command_compat()
         write_metadata(metadata_path, metadata)
 
         from metagpt.software_company import generate_repo
@@ -213,12 +277,25 @@ def main() -> int:
             result = generate_repo(**supported)
         finally:
             faulthandler.cancel_dump_traceback_later()
+            metadata["generate_repo_finished_at_unix"] = time.time()
+        metadata["command_compat"] = get_command_compat_state()
+        patch = git_diff(repo)
+        metadata["worktree_diff_size_bytes"] = len(patch.encode("utf-8"))
+        if metadata["command_compat"]["status"] == "failed":
+            raise InvalidMetaGPTCommand(
+                "MetaGPT stopped after repeated malformed RoleZero commands: "
+                f"{metadata['command_compat']['last_error']}"
+            )
+        if not patch.strip():
+            raise NoRepositoryChanges(
+                "MetaGPT returned without changing tracked files in the target worktree"
+            )
         metadata["status"] = "completed"
         metadata["result_project_path"] = str(result) if result is not None else None
-        metadata["generate_repo_finished_at_unix"] = time.time()
         write_metadata(metadata_path, metadata)
         return 0
     except Exception as exc:
+        metadata["command_compat"] = get_command_compat_state()
         metadata["status"] = "failed"
         metadata["error_type"] = type(exc).__name__
         metadata["error"] = redact(str(exc), (api_key,))

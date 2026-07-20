@@ -21,6 +21,7 @@ class OciTaskPromptTests(unittest.TestCase):
             (case_dir / "expected_diff.txt").write_text(
                 "expected behavior", encoding="utf-8"
             )
+            worktree_dir = Path(tmp) / "worktrees" / "crun-13"
 
             text = build_task_text(
                 {
@@ -35,10 +36,15 @@ class OciTaskPromptTests(unittest.TestCase):
                     "build_command": "make",
                     "runtime_path": "crun",
                 },
+                worktree_dir,
             )
 
         self.assertIn(str(case_dir.resolve()), text)
         self.assertIn(str((dataset_dir / "alpine-base.tar.gz").resolve()), text)
+        self.assertIn(str(worktree_dir.resolve()), text)
+        self.assertIn("Required first command:", text)
+        self.assertIn("external/subjects", text)
+        self.assertIn("the only location where source changes are allowed", text)
         self.assertIn("Reproduction bundle absolute path (read-only):", text)
 
 

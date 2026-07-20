@@ -75,6 +75,7 @@ def fake_terminal_module(payload: bytes, *, returncode: int | None = None) -> An
 
     return types.SimpleNamespace(
         END_MARKER_VALUE=EXPECTED_MARKER,
+        DEFAULT_WORKSPACE_ROOT=Path("/upstream/workspace"),
         Terminal=FakeTerminal,
     )
 
@@ -161,6 +162,16 @@ class TerminalCompatTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(first["status"], "applied")
         self.assertEqual(second["status"], "already_applied")
+
+    async def test_overrides_upstream_terminal_workspace(self) -> None:
+        module = fake_terminal_module(EXPECTED_MARKER.encode())
+        target = Path.cwd() / "target-worktree"
+
+        details = install_terminal_compat(module, working_directory=target)
+
+        self.assertEqual(module.DEFAULT_WORKSPACE_ROOT, target.resolve())
+        self.assertTrue(details["workspace_root_override"])
+        self.assertEqual(details["forced_working_directory"], str(target.resolve()))
 
     async def test_different_upstream_marker_is_not_patched(self) -> None:
         module = fake_terminal_module(b"")
