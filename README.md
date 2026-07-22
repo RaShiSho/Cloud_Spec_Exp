@@ -41,10 +41,12 @@ nano .env
 - `configs/experiment.full.example.yaml`：全量数据集模板配置，使用 `benchmark.selection.mode: all`，会读取 `metadata.json` 中的全部 case。
 - `configs/experiment.first20.local.yaml`：本地运行配置示例，包含你已经填过的一部分 `buggy_ref_by_case`。
 - `configs/experiment.metagpt.rest.yaml`：仅启用 MetaGPT，选择已配置 `buggy_ref_by_case` 的剩余 youki case。
+- `configs/experiment.repairagent.yaml`：仅启用 RepairAgent OCI 工具层，选择所有已配置 buggy ref 的 case。
 
 全量示例配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。AutoCodeRover 与 MetaGPT
-已有 tracked OCI adapter，并分别提供专属配置；`repairagent` 仍是未实现的 wrapper skeleton，
-启用前必须先补齐真实 upstream 调用。
+已有 tracked OCI adapter，并分别提供专属配置。RepairAgent 的上游仅支持 Java/Defects4J；
+本项目 adapter 保留其 FSM 与动态 prompt，替换为 OCI 工具层，具体适配差异见
+`baselines/repairagent/README.md`。
 
 ## Scripts
 

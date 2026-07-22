@@ -28,10 +28,15 @@
 
 ## RepairAgent
 
+- 仓库：https://github.com/sola-st/RepairAgent
 - 定位：LLM 自动程序修复 agent。
-- 已知特点：论文描述中包含动态 prompt、工具调用和有限状态机式修复流程。
-- 风险：公开搜索下仓库定位不够稳定，复现前需要确认具体上游仓库和版本。
-- 建议：先确认引用来源，再决定是否纳入。
+- 已知特点：动态 prompt、工具调用和有限状态机式修复流程。
+- 原生范围：Java/Defects4J，CLI、工作区命名、测试、fault localization 和 mutation
+  均绑定 Defects4J，不能直接接收 OCI runtime worktree。
+- 当前接入：保留上游 FSM、动态上下文和行级 fix 格式，替换为 Go/C/Rust 文本检索、
+  事务性编辑与 runtime build；最终行为仍由统一 OCI oracle 判定。
+- 风险：该工具层适配不是论文 Defects4J 设置的等价复现；语言无关符号扫描也不等价于
+  上游 Java AST 工具。详见 `baselines/repairagent/README.md`。
 
 ## PatchAgent / PAGENT
 

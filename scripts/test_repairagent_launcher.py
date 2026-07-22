@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import json
+import importlib.util
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ADAPTER_DIR = Path(__file__).resolve().parents[1] / "baselines" / "repairagent"
+LAUNCHER_PATH = ADAPTER_DIR / "launch.py"
+SPEC = importlib.util.spec_from_file_location("repairagent_oci_launch", LAUNCHER_PATH)
+assert SPEC is not None and SPEC.loader is not None
+launch = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = launch
+SPEC.loader.exec_module(launch)
+
+
+class RepairAgentLauncherTests(unittest.TestCase):
+    def test_prepares_isolated_upstream_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            baseline_root = root / "RepairAgent" / "repair_agent"
+            baseline_root.mkdir(parents=True)
+            (baseline_root / "prompt_settings.yaml").write_text(
+                "constraints: []\nresources: []\nbest_practices: []\n", encoding="utf-8"
+            )
+            task = root / "task.md"
+            task.write_text("Repair OCI behavior.\n", encoding="utf-8")
+
+            run_dir = launch.prepare_run_layout(output, baseline_root, task)
+
+            self.assertTrue((run_dir / "auto_gpt_workspace" / "oci_1_buggy").is_dir())
+            self.assertEqual((run_dir / "task.md").read_text(encoding="utf-8"), "Repair OCI behavior.\n")
+            self.assertIn(
+                'project "oci" and bug index "1"',
+                (run_dir / "ai_settings.yaml").read_text(encoding="utf-8"),
+            )
+            interface = json.loads((run_dir / "commands_interface.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                interface["write_fix"],
+                ["project_name", "bug_index", "changes_dicts"],
+            )
+            hyperparams = json.loads((run_dir / "hyperparams.json").read_text(encoding="utf-8"))
+            self.assertEqual(hyperparams["external_fix_strategy"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
