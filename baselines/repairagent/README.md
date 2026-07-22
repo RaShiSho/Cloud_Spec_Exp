@@ -27,6 +27,8 @@ RepairAgent 在 Defects4J 上原始实验的等价复现。结果报告应明确
 `launch.py` 为每个 case 创建隔离运行目录，并在导入上游 agent 前完成以下替换：
 
 - 初始 `get_info` 使用 runner 生成的 `task.md` 和受扩展名约束的源码清单；
+- 每个隔离运行目录生成 OCI 专用的 `cycle_instruction_text.txt`，供上游 FSM 在每个
+  cycle 构造 prompt，并避免沿用 Defects4J 命令示例；
 - `read_range`、文本搜索和函数样式符号扫描支持 Go、C/header、Rust；
 - `write_fix` 保留上游的行级 change dictionary，限制路径不能逃出目标 worktree；
 - 每个候选修改后运行配置中的 runtime `build_command`；构建失败时恢复该候选修改，构建成功时保留修改；

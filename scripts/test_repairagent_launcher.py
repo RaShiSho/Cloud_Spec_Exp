@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,19 @@ class RepairAgentLauncherTests(unittest.TestCase):
                 ai_settings["ai_goals"][0],
                 'Locate the Bug: systematically identify the bug within the project "oci" and bug index "1".',
             )
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(run_dir)
+                cycle_instruction = Path("cycle_instruction_text.txt").read_text(encoding="utf-8")
+            finally:
+                os.chdir(previous_cwd)
+            self.assertIn("Respond with exactly one JSON object", cycle_instruction)
+            self.assertIn("current state's Commands section", cycle_instruction)
+            self.assertIn("exact argument names", cycle_instruction)
+            self.assertNotIn("Chart", cycle_instruction)
+            self.assertNotIn("Java", cycle_instruction)
+            self.assertNotIn("Defects4J", cycle_instruction)
+            self.assertNotIn("run_tests", cycle_instruction)
             interface = json.loads((run_dir / "commands_interface.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 interface["write_fix"],

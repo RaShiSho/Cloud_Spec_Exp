@@ -14,6 +14,17 @@ from typing import Any
 ADAPTER_DIR = Path(__file__).resolve().parent
 PROJECT_NAME = "oci"
 BUG_INDEX = "1"
+CYCLE_INSTRUCTION = """Determine exactly one command to use based on the goals, the current state, and the progress made so far.
+Respond with exactly one JSON object and no Markdown code fences or surrounding text. The object must have this shape:
+{
+  "thoughts": "Explain the relevant evidence, reasoning, and immediate next step.",
+  "command": {
+    "name": "Copy exactly one command name from the current state's Commands section.",
+    "args": {}
+  }
+}
+Use only commands listed for the current state. Use the exact argument names defined for the selected command, and include every required argument.
+"""
 
 
 def parse_args() -> argparse.Namespace:
@@ -190,6 +201,9 @@ def prepare_run_layout(output_dir: Path, baseline_root: Path, task_file: Path) -
         },
     )
     (run_dir / "plugins_config.yaml").write_text("{}\n", encoding="utf-8")
+    (run_dir / "cycle_instruction_text.txt").write_text(
+        CYCLE_INSTRUCTION, encoding="utf-8"
+    )
     (run_dir / "hints.txt").write_text(
         "Prefer minimal changes supported by the issue and inspected source.\n", encoding="utf-8"
     )
