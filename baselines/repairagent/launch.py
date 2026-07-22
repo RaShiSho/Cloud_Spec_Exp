@@ -104,13 +104,15 @@ def prepare_run_layout(output_dir: Path, baseline_root: Path, task_file: Path) -
         "OCI oracle remains the final authority."
     )
     goals = [
+        f'Locate the Bug: systematically identify the bug within the project "{PROJECT_NAME}" and bug index "{BUG_INDEX}".',
         "Understand the OCI runtime behavior described in the task.",
         "Inspect only the candidate runtime worktree through the supplied tools.",
-        f'Locate the Bug: systematically identify the bug within the project "{PROJECT_NAME}" and bug index "{BUG_INDEX}".',
         "Propose and validate source changes without modifying the upstream RepairAgent checkout.",
         "Finish only after retaining a non-empty candidate patch.",
     ]
-    ai_settings = "ai_goals:\n" + "".join(f"- {goal}\n" for goal in goals)
+    ai_settings = "ai_goals:\n" + "".join(
+        f"- {json.dumps(goal, ensure_ascii=False)}\n" for goal in goals
+    )
     ai_settings += "ai_name: RepairAgent-OCI\nai_role: |\n  " + role.replace("\n", "\n  ") + "\napi_budget: 0.0\n"
     (run_dir / "ai_settings.yaml").write_text(ai_settings, encoding="utf-8")
 

@@ -13,7 +13,8 @@
 上游并不是通用仓库 repair agent：
 
 - `repairagent.py run` 的输入是 Defects4J 的 `Project BugIndex`，并主动 checkout Java 项目；
-- `BaseAgent` 从固定格式的第三个 goal 解析项目名和 bug 编号；
+- `BaseAgent` 从 `prompt_dictionary["goals"][2]` 解析项目名和 bug 编号；该位置对应
+  `ai_goals` 的第一项，因为上游会在目标列表前插入标题和说明；
 - 初始 bug 信息、测试、定位和 mutation 均读取 Defects4J 数据；
 - 搜索和方法提取依赖 Java AST；
 - `write_fix` 使用行号编辑并运行 `defects4j compile && defects4j test`。

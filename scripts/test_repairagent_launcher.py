@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 ADAPTER_DIR = Path(__file__).resolve().parents[1] / "baselines" / "repairagent"
@@ -34,9 +36,10 @@ class RepairAgentLauncherTests(unittest.TestCase):
 
             self.assertTrue((run_dir / "auto_gpt_workspace" / "oci_1_buggy").is_dir())
             self.assertEqual((run_dir / "task.md").read_text(encoding="utf-8"), "Repair OCI behavior.\n")
-            self.assertIn(
-                'project "oci" and bug index "1"',
-                (run_dir / "ai_settings.yaml").read_text(encoding="utf-8"),
+            ai_settings = yaml.safe_load((run_dir / "ai_settings.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(
+                ai_settings["ai_goals"][0],
+                'Locate the Bug: systematically identify the bug within the project "oci" and bug index "1".',
             )
             interface = json.loads((run_dir / "commands_interface.json").read_text(encoding="utf-8"))
             self.assertEqual(
