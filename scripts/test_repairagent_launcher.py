@@ -60,6 +60,13 @@ class RepairAgentLauncherTests(unittest.TestCase):
                 interface["write_fix"],
                 ["project_name", "bug_index", "changes_dicts"],
             )
+            fix_format = (run_dir / "fix_format").read_text(encoding="utf-8")
+            self.assertIn("new_lines MUST be a JSON list of strings", fix_format)
+            self.assertIn(
+                '"new_lines":["first inserted line","second inserted line"]',
+                fix_format,
+            )
+            self.assertIn("Do not return new_lines as one multiline string", fix_format)
             hyperparams = json.loads((run_dir / "hyperparams.json").read_text(encoding="utf-8"))
             self.assertEqual(hyperparams["external_fix_strategy"], 0)
 

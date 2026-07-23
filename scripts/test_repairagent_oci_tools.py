@@ -54,6 +54,81 @@ class RepairAgentOciToolsTests(unittest.TestCase):
         self.assertIn("0 failing tests", result)
         self.assertEqual(source.read_text(encoding="utf-8"), expected)
 
+    def test_accepts_multiline_string_insertion_without_splitting_characters(self) -> None:
+        source = self.repo / "runtime.c"
+        source.write_text("tail\n", encoding="utf-8")
+        expected = "alpha\nbeta\ntail\n"
+        os.environ["REPAIRAGENT_OCI_TEST_COMMAND"] = self.validation_command(expected)
+
+        result = oci_tools.apply_and_validate(
+            [
+                {
+                    "file_name": "runtime.c",
+                    "insertions": [
+                        {"line_number": 1, "new_lines": "alpha\nbeta\n"}
+                    ],
+                    "deletions": [],
+                    "modifications": [],
+                }
+            ]
+        )
+
+        self.assertIn("0 failing tests", result)
+        self.assertEqual(source.read_text(encoding="utf-8"), expected)
+
+    def test_rejects_invalid_insertion_type_and_restores_earlier_file(self) -> None:
+        first = self.repo / "first.c"
+        second = self.repo / "second.c"
+        first.write_text("first\n", encoding="utf-8")
+        second.write_text("second\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ValueError, "new_lines must be a string or a list of strings"
+        ):
+            oci_tools.apply_change_set(
+                [
+                    {
+                        "file_name": "first.c",
+                        "insertions": [],
+                        "deletions": [],
+                        "modifications": [
+                            {"line_number": 1, "modified_line": "changed"}
+                        ],
+                    },
+                    {
+                        "file_name": "second.c",
+                        "insertions": [
+                            {"line_number": 1, "new_lines": {"invalid": "shape"}}
+                        ],
+                        "deletions": [],
+                        "modifications": [],
+                    },
+                ]
+            )
+
+        self.assertEqual(first.read_text(encoding="utf-8"), "first\n")
+        self.assertEqual(second.read_text(encoding="utf-8"), "second\n")
+
+    def test_rejects_non_string_list_item(self) -> None:
+        source = self.repo / "runtime.c"
+        source.write_text("original\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ValueError, "new_lines must contain only strings"
+        ):
+            oci_tools.apply_change_set(
+                [
+                    {
+                        "file_name": "runtime.c",
+                        "insertions": [{"line_number": 1, "new_lines": ["ok", 2]}],
+                        "deletions": [],
+                        "modifications": [],
+                    }
+                ]
+            )
+
+        self.assertEqual(source.read_text(encoding="utf-8"), "original\n")
+
     def test_reverts_candidate_when_validation_fails(self) -> None:
         source = self.repo / "runtime.c"
         original = "one\ntwo\n"

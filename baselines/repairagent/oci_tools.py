@@ -158,6 +158,25 @@ def _normalize_new_line(value: Any) -> str:
     return text if text.endswith("\n") else text + "\n"
 
 
+def _normalize_inserted_lines(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        raise ValueError("insertion new_lines must be a string or a list of strings")
+
+    normalized: list[str] = []
+    for item in values:
+        if not isinstance(item, str):
+            raise ValueError("insertion new_lines must contain only strings")
+        parts = item.splitlines()
+        if not parts:
+            parts = [""]
+        normalized.extend(_normalize_new_line(part) for part in parts)
+    return normalized
+
+
 def apply_change_set(changes: list[dict[str, Any]]) -> dict[Path, str]:
     if not isinstance(changes, list) or not changes:
         raise ValueError("changes_dicts must be a non-empty list")
@@ -180,7 +199,7 @@ def apply_change_set(changes: list[dict[str, Any]]) -> dict[Path, str]:
             for item in change.get("insertions", []):
                 line_number = int(item["line_number"])
                 insertions.setdefault(line_number, []).extend(
-                    _normalize_new_line(value) for value in item.get("new_lines", [])
+                    _normalize_inserted_lines(item.get("new_lines", []))
                 )
 
             touched = deletions | set(modifications) | set(insertions)

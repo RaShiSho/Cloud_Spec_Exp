@@ -30,7 +30,9 @@ RepairAgent 在 Defects4J 上原始实验的等价复现。结果报告应明确
 - 每个隔离运行目录生成 OCI 专用的 `cycle_instruction_text.txt`，供上游 FSM 在每个
   cycle 构造 prompt，并避免沿用 Defects4J 命令示例；
 - `read_range`、文本搜索和函数样式符号扫描支持 Go、C/header、Rust；
-- `write_fix` 保留上游的行级 change dictionary，限制路径不能逃出目标 worktree；
+- `write_fix` 保留上游的行级 change dictionary，限制路径不能逃出目标 worktree；prompt
+  要求 `insertions[*].new_lines` 使用字符串列表，同时工具层兼容模型偶尔返回的多行字符串，
+  并在写入前按源码行归一化，避免把字符串逐字符插入；
 - 每个候选修改后运行配置中的 runtime `build_command`；构建失败时恢复该候选修改，构建成功时保留修改；
 - 禁用依赖 Defects4J buggy-line 数据和 Java mutation 模板的辅助 mutation 调用；
 - agent 退出后必须存在 tracked diff，否则 launcher 返回 `65`，wrapper 记录 `patch_missing`。

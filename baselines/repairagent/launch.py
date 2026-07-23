@@ -211,8 +211,11 @@ def prepare_run_layout(output_dir: Path, baseline_root: Path, task_file: Path) -
         """Use a JSON list with one dictionary per source file. Each dictionary has:
 file_name (repository-relative path), insertions (line_number and new_lines),
 deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
 All line numbers refer to the file content shown by read_range.
-Example: [{"file_name":"path/file.c","insertions":[],"deletions":[],
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
 "modifications":[{"line_number":10,"modified_line":"new source line"}]}]
 """,
         encoding="utf-8",
