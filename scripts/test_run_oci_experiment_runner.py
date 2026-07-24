@@ -49,62 +49,113 @@ class RunOciExperimentGitDiffTests(unittest.TestCase):
 
 
 class RunOciExperimentResumeTests(unittest.TestCase):
-    def test_loads_only_completed_results_with_oracle(self) -> None:
+    def test_does_not_skip_when_result_directory_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_root = Path(tmp)
             config = {"experiment": {"output_dir": str(output_root)}}
             baseline = {"name": "autocoderover"}
             case = {"case_id": "crun-13"}
-            output_dir = output_root / "autocoderover" / "crun-13"
-            output_dir.mkdir(parents=True)
-            metadata_path = output_dir / "metadata.json"
-            oracle_path = output_dir / "oracle.json"
-
-            metadata_path.write_text(json.dumps({"status": "done"}), encoding="utf-8")
-            self.assertIsNone(runner.load_terminal_result(config, baseline, case))
-
-            oracle_path.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
-            result = runner.load_terminal_result(config, baseline, case)
-
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertTrue(result["resumed_skip"])
-
-    def test_does_not_skip_failed_result(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            output_root = Path(tmp)
-            config = {"experiment": {"output_dir": str(output_root)}}
-            baseline = {"name": "autocoderover"}
-            case = {"case_id": "crun-13"}
-            output_dir = output_root / "autocoderover" / "crun-13"
-            output_dir.mkdir(parents=True)
-            (output_dir / "metadata.json").write_text(
-                json.dumps({"status": "error"}), encoding="utf-8"
-            )
-            (output_dir / "oracle.json").write_text(
-                json.dumps({"status": "error"}), encoding="utf-8"
-            )
 
             result = runner.load_terminal_result(config, baseline, case)
 
         self.assertIsNone(result)
 
-    def test_does_not_skip_incomplete_result(self) -> None:
+    def test_skips_existing_results_regardless_of_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_root = Path(tmp)
             config = {"experiment": {"output_dir": str(output_root)}}
             baseline = {"name": "autocoderover"}
-            case = {"case_id": "runc-2430"}
-            output_dir = output_root / "autocoderover" / "runc-2430"
-            output_dir.mkdir(parents=True)
-            (output_dir / "metadata.json").write_text(
-                json.dumps({"status": "running"}), encoding="utf-8"
-            )
-            (output_dir / "oracle.json").write_text("{}", encoding="utf-8")
 
-            result = runner.load_terminal_result(config, baseline, case)
+            for status in ("done", "error", "running"):
+                with self.subTest(status=status):
+                    case = {"case_id": f"crun-{status}"}
+                    output_dir = output_root / "autocoderover" / case["case_id"]
+                    output_dir.mkdir(parents=True)
+                    (output_dir / "metadata.json").write_text(
+                        json.dumps({"status": status}), encoding="utf-8"
+                    )
 
-        self.assertIsNone(result)
+                    result = runner.load_terminal_result(config, baseline, case)
+
+                    self.assertIsNotNone(result)
+                    assert result is not None
+                    self.assertEqual(result["status"], status)
+                    self.assertTrue(result["resumed_skip"])
+                    self.assertEqual(
+                        result["resume_reason"], "output_directory_exists"
+                    )
+
+    def test_skips_empty_or_partial_result_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp)
+            config = {"experiment": {"output_dir": str(output_root)}}
+            baseline = {"name": "autocoderover"}
+
+            for case_id, fixture_name, fixture_content in (
+                ("crun-empty", None, None),
+                ("crun-task", "task.md", "partial task"),
+                ("crun-invalid", "metadata.json", "{invalid"),
+            ):
+                with self.subTest(case_id=case_id):
+                    case = {"case_id": case_id}
+                    output_dir = output_root / "autocoderover" / case_id
+                    output_dir.mkdir(parents=True)
+                    if fixture_name is not None:
+                        (output_dir / fixture_name).write_text(
+                            fixture_content or "", encoding="utf-8"
+                        )
+
+                    result = runner.load_terminal_result(config, baseline, case)
+
+                    self.assertIsNotNone(result)
+                    assert result is not None
+                    self.assertEqual(result["status"], "skipped_existing")
+                    self.assertEqual(result["case"], case)
+                    self.assertEqual(result["baseline"], "autocoderover")
+                    self.assertEqual(result["output_dir"], str(output_dir))
+                    self.assertTrue(result["resumed_skip"])
+                    self.assertEqual(
+                        result["resume_reason"], "output_directory_exists"
+                    )
+
+    def test_resume_does_not_run_or_clean_an_existing_case(self) -> None:
+        case = {"case_id": "crun-13"}
+        baseline = {"name": "metagpt"}
+        existing_result = {
+            "case": case,
+            "baseline": "metagpt",
+            "status": "error",
+            "resumed_skip": True,
+            "resume_reason": "output_directory_exists",
+        }
+        args = mock.Mock(
+            clean=False,
+            resume=True,
+            config="experiment.yaml",
+            case=None,
+            baseline=None,
+            limit=None,
+            dry_run=False,
+        )
+
+        with (
+            mock.patch.object(runner, "parse_args", return_value=args),
+            mock.patch.object(runner, "load_config", return_value={}),
+            mock.patch.object(runner, "selected_cases", return_value=([case], [])),
+            mock.patch.object(runner, "enabled_baselines", return_value=[baseline]),
+            mock.patch.object(runner, "preflight", return_value=[]),
+            mock.patch.object(
+                runner, "load_terminal_result", return_value=existing_result
+            ),
+            mock.patch.object(runner, "run_one") as run_one,
+            mock.patch.object(runner, "clean_previous_run") as clean_previous_run,
+            mock.patch("builtins.print"),
+        ):
+            exit_code = runner.main()
+
+        self.assertEqual(exit_code, 0)
+        run_one.assert_not_called()
+        clean_previous_run.assert_not_called()
 
 
 class RunOciExperimentFailureTests(unittest.TestCase):

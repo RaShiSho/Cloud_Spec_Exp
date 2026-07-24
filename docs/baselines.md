@@ -63,7 +63,7 @@
 - 当前接入：使用上游 `local-issue` 模式；项目内 launcher 为 DeepSeek 注册 LiteLLM 动态模型、兼容 `.git` 为文件的 linked worktree，wrapper 收集并应用 `selected_patch.json` 指向的 diff。
 - 非 Python 降级：上游只为 Python 构建 AST 索引；当前 adapter 仅把 Go/C/Rust 源文件补入文本、行号和整文件搜索，类/方法检索仍不可用，不能视为上游原始能力的等价复现。
 - 环境：默认通过 `conda run --no-capture-output -n auto-code-rover python` 启动。该环境名可在 YAML 的 `conda_env` 中修改。
-- 批处理：每个 case 使用独立输出目录和任务级 timeout；wrapper 记录 ACR、补丁发现和补丁应用阶段状态；runner 的 `--resume` 跳过 `done` case，清理并重跑中断或 `error` case。
+- 批处理：每个 case 使用独立输出目录和任务级 timeout；wrapper 记录 ACR、补丁发现和补丁应用阶段状态；runner 的 `--resume` 跳过结果目录中已经存在的所有 case，不会自动重跑中断或 `error` case；强制重跑需使用 `--case <case-id> --clean`。
 - 风险：上游主分支未固定时，CLI、依赖和补丁输出格式仍可能变化；正式实验应记录实际 commit。
 - 本次源码核对基准：`585d3e639aeda58ef0b6a151dd1cc2721a94d267`。
 

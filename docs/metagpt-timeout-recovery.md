@@ -160,8 +160,8 @@ launcher 返回成功还要求 `$DBG` 中存在非空 tracked diff。MetaGPT 内
 
 ## 3. 正式重跑前归档旧结果并检查所有权
 
-当前 `crun-13` 的 `metadata.status` 为 `error`，所以 `--resume` 会删除旧输出和 worktree 后
-重跑。先保存失败证据，并确认 runner 对目标目录有写权限：
+当前 `crun-13` 的结果目录已经存在，因此 `--resume` 会直接跳过，不会删除或重跑。强制
+重跑前先保存失败证据，并确认 runner 对目标目录有写权限：
 
 ```bash
 ROOT="$(pwd -P)"
@@ -188,7 +188,7 @@ sudo chown -R "$(id -u):$(id -g)" -- "$RESULT" "$WORKTREE"
 
 ## 4. 直接使用正式配置重跑单案例
 
-不需要创建单独的 smoke YAML。先预演，再让 `--resume` 重跑当前 `error` 案例：
+不需要创建单独的 smoke YAML。先预演，再使用 `--clean` 强制重跑当前已有结果的案例：
 
 ```bash
 python scripts/run_oci_experiment.py \
@@ -202,13 +202,13 @@ python scripts/run_oci_experiment.py \
   --config configs/experiment.metagpt.yaml \
   --baseline metagpt \
   --case crun-13 \
-  --resume \
+  --clean \
   2>&1 | tee results/oci-metagpt-crun-13-repaired.log
 ```
 
-不要同时使用 `--resume` 和 `--clean`。如果案例未来已经是 `status=done` 但仍需强制重跑，
-归档后改用 `--case crun-13 --clean`，因为 `--resume` 会跳过所有 `done` 案例，不要求 oracle
-必须通过。
+不要同时使用 `--resume` 和 `--clean`。`--resume` 只补跑结果目录尚不存在的案例，不检查
+metadata 或 oracle 状态；任何已有结果目录都需要归档后使用 `--case crun-13 --clean`
+强制重跑。
 
 ## 5. 验证单案例结果
 
@@ -274,5 +274,5 @@ python scripts/run_oci_experiment.py \
   2>&1 | tee results/oci-metagpt-batch.log
 ```
 
-`--resume` 会跳过已有终态结果，并清理、重试中断或错误案例。不要同时使用 `--resume` 和
-`--clean`。
+`--resume` 会跳过结果目录中已经存在的所有案例，包括中断、错误、空目录或 metadata
+损坏的案例，只运行尚无结果目录的案例。不要同时使用 `--resume` 和 `--clean`。

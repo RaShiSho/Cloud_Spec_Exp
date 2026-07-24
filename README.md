@@ -114,7 +114,7 @@ python scripts/run_oci_experiment.py \
 | `--limit <n>` | 否 | 在 case 过滤后截取前 `n` 个 case。 |
 | `--dry-run` | 否 | 只执行配置加载、case 选择和 preflight，不创建 worktree，不运行 baseline，不删除文件。 |
 | `--clean` | 否 | 正式运行前清理当前 baseline/case 对应的旧结果目录和旧 worktree。和 `--dry-run` 一起使用时只报告计划，不删除。 |
-| `--resume` | 否 | 跳过已有 `done` 结果；自动清理并重跑中断或 `error` case。不能与 `--clean` 同时使用。 |
+| `--resume` | 否 | 跳过结果目录中已经存在的所有 case，不检查完成、失败或中断状态。不能与 `--clean` 同时使用。 |
 
 主要输出：
 
@@ -132,7 +132,9 @@ python scripts/run_oci_experiment.py \
 
 - 不加 `--clean` 或 `--resume` 时，如果目标 worktree 已存在，脚本会报错。
 - `--clean` 只清理本次选中的 baseline/case，不会清理整个实验目录。
-- 长时间全量实验建议使用 `--resume`；首次运行也可直接使用该参数。
+- 长时间全量实验建议使用 `--resume`；首次运行也可直接使用该参数。结果目录已存在的
+  case（包括失败、中断、空目录或损坏 metadata）都会被跳过；如需强制重跑，使用
+  `--case <case-id> --clean`。
 - preflight 会检查数据集、runtime source、baseline repo、`git`、`bash`、reference runtime 和 build command。
 
 AutoCodeRover 全量命令：

@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Skip completed results and clean/retry interrupted or failed runs.",
+        help="Skip every case whose result directory already exists.",
     )
     return parser.parse_args()
 
@@ -198,17 +198,28 @@ def load_terminal_result(
     config: dict[str, Any], baseline: dict[str, Any], case: dict[str, Any]
 ) -> dict[str, Any] | None:
     output_dir = output_dir_for_run(config, baseline, case)
+    if not output_dir.is_dir():
+        return None
+
     metadata_path = output_dir / "metadata.json"
-    oracle_path = output_dir / "oracle.json"
-    if not metadata_path.is_file() or not oracle_path.is_file():
-        return None
+    metadata: dict[str, Any] | None = None
     try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            metadata = loaded
     except (OSError, json.JSONDecodeError):
-        return None
-    if metadata.get("status") != "done":
-        return None
+        pass
+
+    if metadata is None:
+        metadata = {
+            "case": case,
+            "baseline": baseline.get("name"),
+            "status": "skipped_existing",
+            "output_dir": str(output_dir),
+        }
+
     metadata["resumed_skip"] = True
+    metadata["resume_reason"] = "output_directory_exists"
     return metadata
 
 
@@ -694,10 +705,10 @@ def main() -> int:
         for case in cases:
             label = run_label(baseline, case)
             if args.resume:
-                terminal_result = load_terminal_result(config, baseline, case)
-                if terminal_result is not None:
-                    progress(f"{label} resume: terminal result exists; skipping")
-                    results.append(terminal_result)
+                existing_result = load_terminal_result(config, baseline, case)
+                if existing_result is not None:
+                    progress(f"{label} resume: result directory exists; skipping")
+                    results.append(existing_result)
                     continue
             progress(f"{label} starting run")
             results.append(
