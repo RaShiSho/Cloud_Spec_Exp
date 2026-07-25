@@ -38,12 +38,24 @@
 - 风险：该工具层适配不是论文 Defects4J 设置的等价复现；语言无关符号扫描也不等价于
   上游 Java AST 工具。详见 `baselines/repairagent/README.md`。
 
-## PatchAgent / PAGENT
+## PatchAgent
 
-- 参考论文：https://arxiv.org/abs/2506.17772
-- 定位：更接近失败补丁的二次修补，而不是完整 issue 修复 agent。
-- 工作流：针对已有失败 patch，结合静态分析和 LLM 修复 patch 中的问题。
-- 建议：如果实验包含 baseline 失败 patch 的后处理，可以作为补充；不建议直接替代完整 agent baseline。
+- 论文：https://www.usenix.org/conference/usenixsecurity25/presentation/yu-zheng
+- 官方实现：https://github.com/cla7aye15I4nd/PatchAgent
+- 定位：PoC 驱动的端到端漏洞修复 Agent，统一故障定位、补丁生成和补丁验证。
+- 工作流：根据 sanitizer report，通过 `viewcode`、LSP 符号定位和 `validate` 迭代；
+  使用 report purification、chain compression、auto correction 和 counterexample
+  feedback 优化交互。
+- 原生范围：公开版支持 C/C++ 与 Java，需要具体 PoC 和功能测试；论文实验主要面向
+  OSS-Fuzz、Huntr 和 ExtractFix 的内存安全漏洞。
+- 当前接入：保留上游 PatchTask、Agent generator 和工具循环；用 OCI issue prompt
+  代替 sanitizer report，用文本符号索引覆盖 C/Go/Rust，内部验证补丁格式和 runtime
+  build，最终行为由统一 OCI oracle 判定。详见 `baselines/patchagent/README.md`。
+- 风险：Go/Rust 缺少原生 LSP definition/hover；没有内部 PoC replay，Agent 会将首个
+  可构建补丁视为成功，因此不能把本 adapter 结果视为论文设置的等价复现。
+
+注意：arXiv 2506.17772 是 **PAGENT: Learning to Patch Software Engineering Agents**，
+研究失败补丁中的类型错误，和本节的 USENIX Security 2025 PatchAgent 不是同一个系统。
 
 ## Agentless
 

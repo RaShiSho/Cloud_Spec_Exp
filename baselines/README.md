@@ -10,7 +10,8 @@
 4. `SWE-agent`：功能完整但配置较重，可作为强 agent 对照。
 5. `MetaGPT`：偏多角色软件生成框架，不是精确 bug repair 的首选。
 6. `RepairAgent`：已有 OCI 工具层 adapter，但原生仅支持 Java/Defects4J，结果需标注适配差异。
-7. `PatchAgent`：先确认可复现仓库和任务定义，再决定是否接入。
+7. `PatchAgent`：已添加 OCI builder adapter；官方仅支持 C/C++/Java，Go/Rust
+   使用文本符号索引，且行为验证延后到统一 OCI oracle，结果必须标注适配差异。
 
 ## 记录要求
 
