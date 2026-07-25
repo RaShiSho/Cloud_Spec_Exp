@@ -62,6 +62,9 @@ Case README:
 ## Runtime Version Assessment
 Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
 
+## Buggy Version Identification
+Issue text does not name a release. Upstream git log matched the PATH lookup fix `620b91b5a076` (`utils: fix PATH lookup`); use its parent `cc27fd6c1b28` as the pre-fix buggy baseline.
+
 ## Local Reproduction Files
 - `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
 - `buggy_config.json`: modified OCI configuration containing the payload.
