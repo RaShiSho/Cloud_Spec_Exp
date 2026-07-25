@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -14,6 +16,7 @@ from typing import Any
 ADAPTER_DIR = Path(__file__).resolve().parent
 PROJECT_NAME = "oci"
 BUG_INDEX = "1"
+FIX_COMMANDS = frozenset({"write_fix", "write_range", "try_fixes"})
 CYCLE_INSTRUCTION = """Determine exactly one command to use based on the goals, the current state, and the progress made so far.
 Respond with exactly one JSON object and no Markdown code fences or surrounding text. The object must have this shape:
 {
@@ -25,6 +28,64 @@ Respond with exactly one JSON object and no Markdown code fences or surrounding 
 }
 Use only commands listed for the current state. Use the exact argument names defined for the selected command, and include every required argument.
 """
+
+
+class CandidatePatchReady(Exception):
+    def __init__(self, command_name: str, command_result: Any, patch: str):
+        super().__init__(f"{command_name} retained a buildable candidate patch")
+        self.command_name = command_name
+        self.command_result = command_result
+        self.patch = patch
+
+
+def completion_aware_execute(original_execute: Any, patch_reader: Any) -> Any:
+    @functools.wraps(original_execute)
+    def execute(
+        agent: Any,
+        command_name: str | None,
+        command_args: Any,
+        user_input: Any,
+    ) -> Any:
+        result = original_execute(agent, command_name, command_args, user_input)
+        if command_name in FIX_COMMANDS:
+            patch = patch_reader()
+            if patch.strip():
+                raise CandidatePatchReady(str(command_name), result, patch)
+        return result
+
+    execute._repairagent_oci_completion_hook = True
+    return execute
+
+
+def update_completed_metadata(
+    metadata: dict[str, Any], completion: CandidatePatchReady, patch: str
+) -> None:
+    metadata.update(
+        {
+            "status": "completed",
+            "completion_reason": "retained_candidate_build_passed",
+            "behavioral_validation": "pending_outer_oracle",
+            "successful_command": completion.command_name,
+            "patch_size_bytes": len(patch.encode("utf-8")),
+        }
+    )
+
+
+def update_terminated_metadata(
+    metadata: dict[str, Any], signum: int, patch: str = ""
+) -> None:
+    signal_name = signal.Signals(signum).name
+    metadata.update(
+        {
+            "status": "terminated",
+            "termination_signal": signal_name,
+            "error": f"launcher received {signal_name}",
+            "behavioral_validation": "not_started",
+            "patch_size_bytes": len(patch.encode("utf-8")),
+        }
+    )
+    if patch.strip():
+        metadata["patch_is_partial"] = True
 
 
 def parse_args() -> argparse.Namespace:
@@ -177,6 +238,7 @@ def prepare_run_layout(output_dir: Path, baseline_root: Path, task_file: Path) -
         "express_hypothesis": ["hypothesis"],
         "discard_hypothesis": ["reason_for_discarding"],
         "go_back_to_collect_more_info": ["reason_for_going_back"],
+        "goals_accomplished": ["reason"],
         "run_tests": ["project_name", "bug_index"],
         "read_range": ["project_name", "bug_index", "filepath", "startline", "endline"],
         "write_range": ["project_name", "bug_index", "changes_dicts"],
@@ -227,6 +289,7 @@ Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
 def install_oci_tool_layer() -> None:
     import autogpt.commands
     import autogpt.commands.defects4j_static as static_tools
+    from autogpt.agents.agent import Agent
 
     import oci_tools
 
@@ -248,6 +311,11 @@ def install_oci_tool_layer() -> None:
     )
     static_tools.get_detailed_list_of_buggy_lines = lambda name, index: oci_tools.task_text()
     static_tools.query_for_mutants = lambda *args, **kwargs: "[]"
+    if not getattr(Agent.execute, "_repairagent_oci_completion_hook", False):
+        Agent.execute = completion_aware_execute(
+            Agent.execute,
+            lambda: git_diff(oci_tools.repository()),
+        )
 
 
 def run() -> int:
@@ -303,6 +371,21 @@ def run() -> int:
     sys.path.insert(0, str(ADAPTER_DIR))
     sys.path.insert(0, str(baseline_root))
     previous_cwd = Path.cwd()
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def handle_sigterm(signum: int, frame: Any) -> None:
+        del frame
+        try:
+            partial_patch = git_diff(repo)
+        except Exception as exc:
+            partial_patch = ""
+            metadata["termination_patch_error"] = f"{type(exc).__name__}: {exc}"
+        update_terminated_metadata(metadata, signum, partial_patch)
+        write_json(metadata_path, metadata)
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    completion: CandidatePatchReady | None = None
     try:
         os.chdir(run_dir)
         install_oci_tool_layer()
@@ -329,6 +412,8 @@ def run() -> int:
                 experiment_file=str(run_dir / "hyperparams.json"),
                 model=args.model,
             )
+        except CandidatePatchReady as exc:
+            completion = exc
         except SystemExit as exc:
             if exc.code not in (None, 0):
                 raise
@@ -337,6 +422,7 @@ def run() -> int:
         write_json(metadata_path, metadata)
         raise
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
         os.chdir(previous_cwd)
 
     final_diff = git_diff(repo)
@@ -344,12 +430,15 @@ def run() -> int:
         metadata.update({"status": "no_repository_changes", "patch_size_bytes": 0})
         write_json(metadata_path, metadata)
         return 65
-    metadata.update(
-        {
-            "status": "completed",
-            "patch_size_bytes": len(final_diff.encode("utf-8")),
-        }
-    )
+    if completion is not None:
+        update_completed_metadata(metadata, completion, final_diff)
+    else:
+        metadata.update(
+            {
+                "status": "completed",
+                "patch_size_bytes": len(final_diff.encode("utf-8")),
+            }
+        )
     write_json(metadata_path, metadata)
     return 0
 

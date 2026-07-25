@@ -52,6 +52,7 @@ class RepairAgentOciToolsTests(unittest.TestCase):
         )
 
         self.assertIn("0 failing tests", result)
+        self.assertIn("pending the external OCI oracle", result)
         self.assertEqual(source.read_text(encoding="utf-8"), expected)
 
     def test_accepts_multiline_string_insertion_without_splitting_characters(self) -> None:

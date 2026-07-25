@@ -34,6 +34,8 @@ RepairAgent 在 Defects4J 上原始实验的等价复现。结果报告应明确
   要求 `insertions[*].new_lines` 使用字符串列表，同时工具层兼容模型偶尔返回的多行字符串，
   并在写入前按源码行归一化，避免把字符串逐字符插入；
 - 每个候选修改后运行配置中的 runtime `build_command`；构建失败时恢复该候选修改，构建成功时保留修改；
+- 首个保留且产生非空 tracked diff 的候选会使 adapter 正常结束，随后由统一 runner
+  重新构建并执行 OCI oracle，避免让模型在构建成功后继续空转；
 - 禁用依赖 Defects4J buggy-line 数据和 Java mutation 模板的辅助 mutation 调用；
 - agent 退出后必须存在 tracked diff，否则 launcher 返回 `65`，wrapper 记录 `patch_missing`。
 

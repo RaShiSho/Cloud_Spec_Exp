@@ -11,6 +11,10 @@ import oci_tools
 
 COMMAND_CATEGORY = "oci_runtime"
 COMMAND_CATEGORY_TITLE = "OCI Runtime Repair"
+TRYING_FIXES_NOTE = (
+    "\n **Note:** You are automatically switched to the state "
+    "'trying out candidate fixes'"
+)
 
 
 def _parameter(description: str, type_name: str = "string") -> dict[str, Any]:
@@ -192,7 +196,7 @@ def write_fix(
     agent: Agent,
 ) -> str:
     del project_name, bug_index, agent
-    return oci_tools.apply_and_validate(changes_dicts) + "\n **Note:** You are automatically switched to the state 'trying out candidate fixes'"
+    return TRYING_FIXES_NOTE + "\n" + oci_tools.apply_and_validate(changes_dicts)
 
 
 @command(

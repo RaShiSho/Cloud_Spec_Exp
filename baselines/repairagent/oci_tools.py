@@ -317,4 +317,7 @@ def apply_and_validate(changes: list[dict[str, Any]]) -> str:
     if not passed:
         restore_files(originals)
         return "Candidate rejected and reverted; validation has failing tests or build errors.\n" + output
-    return "Candidate retained; validation reports 0 failing tests.\n" + output
+    return (
+        "Candidate retained; build validation reports 0 failing tests. "
+        "Behavioral correctness is pending the external OCI oracle.\n" + output
+    )
