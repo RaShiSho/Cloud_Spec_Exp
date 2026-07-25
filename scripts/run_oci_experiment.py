@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import time
@@ -331,6 +332,353 @@ def write_command_logs(output_dir: Path, prefix: str | None, result: Any) -> Non
         write_text(output_dir / "stderr.log", result.stderr)
 
 
+def empty_metrics() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "tokens": {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        },
+        "cost_usd": None,
+        "llm_calls": None,
+        "pipeline_elapsed_seconds": None,
+        "agent_elapsed_seconds": None,
+        "sources": [],
+        "missing": [],
+        "warnings": [],
+    }
+
+
+def _numeric(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
+def _add_source(metrics: dict[str, Any], path: Path, output_dir: Path) -> None:
+    try:
+        source = str(path.relative_to(output_dir))
+    except ValueError:
+        source = str(path)
+    if source not in metrics["sources"]:
+        metrics["sources"].append(source)
+
+
+def _set_token_totals(
+    metrics: dict[str, Any],
+    *,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    total_tokens: int | None,
+) -> None:
+    if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+        total_tokens = prompt_tokens + completion_tokens
+    metrics["tokens"] = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _completion_usage_matches(text: str) -> list[tuple[str | None, int, int, int]]:
+    pattern = re.compile(
+        r"(?:API response )?ChatCompletion\(id='([^']+)'.*?"
+        r"usage=CompletionUsage\(completion_tokens=(\d+), "
+        r"prompt_tokens=(\d+), total_tokens=(\d+)",
+        re.DOTALL,
+    )
+    matches = [
+        (match.group(1), int(match.group(3)), int(match.group(2)), int(match.group(4)))
+        for match in pattern.finditer(text)
+    ]
+    if matches:
+        return matches
+
+    usage_pattern = re.compile(
+        r"CompletionUsage\(completion_tokens=(\d+), "
+        r"prompt_tokens=(\d+), total_tokens=(\d+)"
+    )
+    return [
+        (None, int(match.group(2)), int(match.group(1)), int(match.group(3)))
+        for match in usage_pattern.finditer(text)
+    ]
+
+
+def _apply_usage_matches(
+    metrics: dict[str, Any],
+    matches: list[tuple[str | None, int, int, int]],
+    *,
+    deduplicate_ids: bool,
+) -> None:
+    selected: list[tuple[str | None, int, int, int]] = []
+    seen_ids: set[str] = set()
+    for item in matches:
+        response_id = item[0]
+        if deduplicate_ids and response_id:
+            if response_id in seen_ids:
+                continue
+            seen_ids.add(response_id)
+        selected.append(item)
+    if not selected:
+        return
+    _set_token_totals(
+        metrics,
+        prompt_tokens=sum(item[1] for item in selected),
+        completion_tokens=sum(item[2] for item in selected),
+        total_tokens=sum(item[3] for item in selected),
+    )
+    metrics["llm_calls"] = len(selected)
+
+
+def _extract_mini_swe_metrics(
+    metrics: dict[str, Any],
+    *,
+    baseline: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    trajectory_path = output_dir / baseline.get("trajectory_name", "trajectory.json")
+    if not trajectory_path.exists():
+        metrics["warnings"].append("missing_trajectory")
+        return
+    _add_source(metrics, trajectory_path, output_dir)
+    try:
+        trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+        metrics["warnings"].append(f"invalid_trajectory:{type(exc).__name__}")
+        return
+    if not isinstance(trajectory, dict):
+        metrics["warnings"].append("invalid_trajectory:expected_object")
+        return
+
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+    usage_count = 0
+    for message in trajectory.get("messages") or []:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        extra = message.get("extra")
+        response = extra.get("response") if isinstance(extra, dict) else None
+        usage = response.get("usage") if isinstance(response, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        prompt = _numeric(usage.get("prompt_tokens"))
+        completion = _numeric(usage.get("completion_tokens"))
+        total = _numeric(usage.get("total_tokens"))
+        if prompt is None or completion is None:
+            continue
+        prompt_tokens += int(prompt)
+        completion_tokens += int(completion)
+        total_tokens += int(total) if total is not None else int(prompt) + int(completion)
+        usage_count += 1
+    if usage_count:
+        _set_token_totals(
+            metrics,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
+    info = trajectory.get("info")
+    model_stats = info.get("model_stats") if isinstance(info, dict) else None
+    if isinstance(model_stats, dict):
+        api_calls = _numeric(model_stats.get("api_calls"))
+        instance_cost = _numeric(model_stats.get("instance_cost"))
+        if api_calls is not None:
+            metrics["llm_calls"] = int(api_calls)
+        if instance_cost is not None:
+            metrics["cost_usd"] = float(instance_cost)
+    if metrics["llm_calls"] is None and usage_count:
+        metrics["llm_calls"] = usage_count
+
+
+def _extract_agentless_metrics(
+    metrics: dict[str, Any],
+    *,
+    baseline: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    baseline_output = output_dir / baseline.get("output_dir_name", "agentless-output")
+    log_paths = sorted(baseline_output.glob("repair_logs/*.log"))
+    matches: list[tuple[str | None, int, int, int]] = []
+    for path in log_paths:
+        _add_source(metrics, path, output_dir)
+        try:
+            matches.extend(
+                _completion_usage_matches(
+                    path.read_text(encoding="utf-8", errors="replace")
+                )
+            )
+        except OSError as exc:
+            metrics["warnings"].append(
+                f"unreadable_agentless_log:{type(exc).__name__}"
+            )
+    _apply_usage_matches(metrics, matches, deduplicate_ids=True)
+
+
+def _extract_autocoderover_metrics(
+    metrics: dict[str, Any],
+    *,
+    baseline: dict[str, Any],
+    output_dir: Path,
+    baseline_result: Any,
+) -> None:
+    baseline_output = output_dir / baseline.get(
+        "output_dir_name", "autocoderover-output"
+    )
+    info_logs = sorted(baseline_output.glob("**/info.log"))
+    texts: list[str] = []
+    if info_logs:
+        for path in info_logs:
+            _add_source(metrics, path, output_dir)
+            try:
+                texts.append(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError as exc:
+                metrics["warnings"].append(
+                    f"unreadable_autocoderover_log:{type(exc).__name__}"
+                )
+    else:
+        texts.append(f"{baseline_result.stdout}\n{baseline_result.stderr}")
+        metrics["sources"].append("baseline_result.stdout+stderr")
+
+    pattern = re.compile(
+        r"API request cost info: input_tokens=(\d+), "
+        r"output_tokens=(\d+), cost=([0-9]+(?:\.[0-9]+)?)"
+    )
+    rows = [
+        (int(match.group(1)), int(match.group(2)), float(match.group(3)))
+        for text in texts
+        for match in pattern.finditer(text)
+    ]
+    if not rows:
+        return
+    prompt_tokens = sum(row[0] for row in rows)
+    completion_tokens = sum(row[1] for row in rows)
+    _set_token_totals(
+        metrics,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+    )
+    metrics["cost_usd"] = sum(row[2] for row in rows)
+    metrics["llm_calls"] = len(rows)
+
+
+def _extract_repairagent_metrics(
+    metrics: dict[str, Any],
+    *,
+    baseline_result: Any,
+) -> None:
+    metrics["sources"].append("baseline_result.stdout")
+    pattern = re.compile(
+        r"Tokens:\s*([\d,]+)\s+prompt\s+\+\s+([\d,]+)\s+completion"
+        r"\s*\|\s*Cost:\s*\$([0-9]+(?:\.[0-9]+)?)"
+    )
+    snapshots: list[tuple[int, int, float]] = []
+    seen: set[tuple[int, int, float]] = set()
+    for match in pattern.finditer(baseline_result.stdout or ""):
+        row = (
+            int(match.group(1).replace(",", "")),
+            int(match.group(2).replace(",", "")),
+            float(match.group(3)),
+        )
+        if row not in seen:
+            seen.add(row)
+            snapshots.append(row)
+    if not snapshots:
+        return
+    prompt_tokens, completion_tokens, cost = snapshots[-1]
+    _set_token_totals(
+        metrics,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+    )
+    metrics["cost_usd"] = cost
+    metrics["llm_calls"] = len(snapshots)
+
+
+def collect_llm_metrics(
+    *,
+    baseline: dict[str, Any],
+    output_dir: Path,
+    baseline_result: Any,
+) -> dict[str, Any]:
+    metrics = empty_metrics()
+    kind = str(baseline.get("kind") or "")
+    name = str(baseline.get("name") or "").lower()
+    try:
+        if kind == "mini_swe_agent" or name == "mini-swe-agent":
+            _extract_mini_swe_metrics(
+                metrics, baseline=baseline, output_dir=output_dir
+            )
+        elif kind == "agentless_oci" or "agentless" in name:
+            _extract_agentless_metrics(
+                metrics, baseline=baseline, output_dir=output_dir
+            )
+        elif "autocoderover" in name:
+            _extract_autocoderover_metrics(
+                metrics,
+                baseline=baseline,
+                output_dir=output_dir,
+                baseline_result=baseline_result,
+            )
+        elif "repairagent" in name:
+            _extract_repairagent_metrics(
+                metrics, baseline_result=baseline_result
+            )
+        else:
+            metrics["sources"].append("baseline_result.stdout+stderr")
+            matches = _completion_usage_matches(
+                f"{baseline_result.stdout}\n{baseline_result.stderr}"
+            )
+            _apply_usage_matches(metrics, matches, deduplicate_ids=True)
+    except Exception as exc:
+        metrics["warnings"].append(
+            f"metrics_extraction_failed:{type(exc).__name__}"
+        )
+
+    total_tokens = metrics["tokens"]["total_tokens"]
+    if total_tokens is not None and total_tokens > 0 and metrics["cost_usd"] == 0:
+        metrics["cost_usd"] = None
+        metrics["warnings"].append("zero_cost_with_nonzero_tokens")
+    for field, missing in (
+        ("tokens", metrics["tokens"]["total_tokens"] is None),
+        ("cost_usd", metrics["cost_usd"] is None),
+        ("llm_calls", metrics["llm_calls"] is None),
+    ):
+        if missing:
+            metrics["missing"].append(field)
+    return metrics
+
+
+def finalize_metadata(
+    metadata: dict[str, Any],
+    *,
+    metrics: dict[str, Any],
+    started_monotonic: float,
+    output_dir: Path | None,
+) -> dict[str, Any]:
+    elapsed = round(time.monotonic() - started_monotonic, 3)
+    metrics["pipeline_elapsed_seconds"] = elapsed
+    if metrics["tokens"]["total_tokens"] is None:
+        metrics["missing"].append("tokens")
+    if metrics["cost_usd"] is None:
+        metrics["missing"].append("cost_usd")
+    if metrics["llm_calls"] is None:
+        metrics["missing"].append("llm_calls")
+    if metrics["agent_elapsed_seconds"] is None:
+        metrics["missing"].append("agent_elapsed_seconds")
+    metrics["missing"] = sorted(set(metrics["missing"]))
+    metrics["warnings"] = list(dict.fromkeys(metrics["warnings"]))
+    metadata["metrics"] = metrics
+    metadata["elapsed_seconds"] = elapsed
+    if output_dir is not None:
+        write_json(output_dir / "metadata.json", metadata)
+    return metadata
+
+
 def command_failure_message(stage: str, result: Any) -> str:
     if result.timed_out or result.returncode == 124:
         detail = result.error or "child timeout command returned 124"
@@ -429,6 +777,7 @@ def run_one(
 ) -> dict[str, Any]:
     started_monotonic = time.monotonic()
     started_at_unix = time.time()
+    metrics = empty_metrics()
     experiment = config.get("experiment", {})
     benchmark = config.get("benchmark", {})
     model = config.get("model", {})
@@ -454,7 +803,7 @@ def run_one(
             )
         except RuntimeError as exc:
             progress(f"{label} setup error while cleaning previous run: {exc}")
-            return {
+            metadata = {
                 "case": case,
                 "baseline": baseline.get("name"),
                 "baseline_kind": baseline.get("kind"),
@@ -464,6 +813,12 @@ def run_one(
                 "status": "error",
                 "error": str(exc),
             }
+            return finalize_metadata(
+                metadata,
+                metrics=metrics,
+                started_monotonic=started_monotonic,
+                output_dir=None,
+            )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     ref = source_ref_for_case(runtime_cfg, case["case_id"])
@@ -485,9 +840,13 @@ def run_one(
         progress(f"{label} setup error while creating worktree: {exc}")
         metadata["status"] = "error"
         metadata["error"] = str(exc)
-        write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "setup", str(exc))
-        return metadata
+        return finalize_metadata(
+            metadata,
+            metrics=metrics,
+            started_monotonic=started_monotonic,
+            output_dir=output_dir,
+        )
 
     progress(f"{label} writing task prompt")
     task_text = build_task_text(case, runtime_cfg, worktree_dir)
@@ -551,6 +910,7 @@ def run_one(
 
     command = render_command(baseline["command"], command_values)
     progress(f"{label} running baseline command in {baseline_cwd}")
+    agent_started_monotonic = time.monotonic()
     baseline_result = run_command(
         command,
         cwd=baseline_cwd,
@@ -560,6 +920,15 @@ def run_one(
             )
         ),
     )
+    agent_elapsed_seconds = round(
+        time.monotonic() - agent_started_monotonic, 3
+    )
+    metrics = collect_llm_metrics(
+        baseline=baseline,
+        output_dir=output_dir,
+        baseline_result=baseline_result,
+    )
+    metrics["agent_elapsed_seconds"] = agent_elapsed_seconds
     progress(f"{label} baseline finished returncode={baseline_result.returncode} timed_out={baseline_result.timed_out}")
     write_command_logs(output_dir, None, baseline_result)
     metadata["baseline_result"] = baseline_result.to_dict()
@@ -579,10 +948,13 @@ def run_one(
         progress(f"{label} error: {message}")
         metadata["status"] = "error"
         metadata["error"] = message
-        metadata["elapsed_seconds"] = round(time.monotonic() - started_monotonic, 3)
-        write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "baseline", message)
-        return metadata
+        return finalize_metadata(
+            metadata,
+            metrics=metrics,
+            started_monotonic=started_monotonic,
+            output_dir=output_dir,
+        )
 
     if baseline.get("kind") == "agentless_oci":
         agentless_output_dir = output_dir / baseline.get("output_dir_name", "agentless-output")
@@ -609,9 +981,13 @@ def run_one(
         progress(f"{label} error: baseline produced no git diff")
         metadata["status"] = "error"
         metadata["error"] = "baseline produced no git diff"
-        write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "baseline", "baseline produced no git diff")
-        return metadata
+        return finalize_metadata(
+            metadata,
+            metrics=metrics,
+            started_monotonic=started_monotonic,
+            output_dir=output_dir,
+        )
 
     progress(f"{label} building candidate runtime")
     build_result = run_command(
@@ -626,9 +1002,13 @@ def run_one(
         progress(f"{label} error: build failed")
         metadata["status"] = "error"
         metadata["error"] = "build failed"
-        write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "build", "build failed")
-        return metadata
+        return finalize_metadata(
+            metadata,
+            metrics=metrics,
+            started_monotonic=started_monotonic,
+            output_dir=output_dir,
+        )
 
     candidate_runtime = Path(runtime_cfg["runtime_path"])
     if not candidate_runtime.is_absolute():
@@ -638,9 +1018,13 @@ def run_one(
         progress(f"{label} error: candidate runtime missing after build")
         metadata["status"] = "error"
         metadata["error"] = f"candidate runtime missing after build: {candidate_runtime}"
-        write_json(output_dir / "metadata.json", metadata)
         write_oracle_error(output_dir, case["case_id"], "build", metadata["error"])
-        return metadata
+        return finalize_metadata(
+            metadata,
+            metrics=metrics,
+            started_monotonic=started_monotonic,
+            output_dir=output_dir,
+        )
 
     oracle_script = REPO_ROOT / "oracles" / "run_oci_oracle.py"
     oracle_timeout = int(config.get("oracle", {}).get("timeout_seconds", 300))
@@ -668,9 +1052,13 @@ def run_one(
     write_command_logs(output_dir, "oracle", oracle_result)
     metadata["oracle_result"] = oracle_result.to_dict()
     metadata["status"] = "done"
-    metadata["elapsed_seconds"] = round(time.monotonic() - started_monotonic, 3)
     progress(f"{label} writing final metadata: {output_dir / 'metadata.json'}")
-    write_json(output_dir / "metadata.json", metadata)
+    finalize_metadata(
+        metadata,
+        metrics=metrics,
+        started_monotonic=started_monotonic,
+        output_dir=output_dir,
+    )
     progress(f"{label} run done elapsed_seconds={metadata['elapsed_seconds']}")
     return metadata
 

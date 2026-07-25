@@ -258,9 +258,288 @@ class RunOciExperimentFailureTests(unittest.TestCase):
         self.assertGreater(result["started_at_unix"], 1_000_000_000)
         self.assertEqual(metadata["error"], result["error"])
         self.assertTrue(metadata["patch_is_partial"])
+        self.assertIn("metrics", metadata)
+        self.assertEqual(
+            metadata["elapsed_seconds"],
+            metadata["metrics"]["pipeline_elapsed_seconds"],
+        )
+        self.assertIsNotNone(metadata["metrics"]["agent_elapsed_seconds"])
         self.assertEqual(candidate_patch, "partial diff\n")
         self.assertEqual(oracle["error_type"], "baseline")
         self.assertEqual(oracle["message"], result["error"])
+
+
+class RunOciExperimentMetricsTests(unittest.TestCase):
+    @staticmethod
+    def command_result(
+        *,
+        returncode: int = 0,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> CommandResult:
+        return CommandResult(
+            command="baseline",
+            cwd=None,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    def test_extracts_mini_swe_trajectory_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            trajectory = {
+                "info": {
+                    "model_stats": {
+                        "instance_cost": 0.25,
+                        "api_calls": 2,
+                    }
+                },
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "extra": {
+                            "response": {
+                                "usage": {
+                                    "prompt_tokens": 100,
+                                    "completion_tokens": 10,
+                                    "total_tokens": 110,
+                                }
+                            }
+                        },
+                    },
+                    {
+                        "role": "assistant",
+                        "extra": {
+                            "response": {
+                                "usage": {
+                                    "prompt_tokens": 200,
+                                    "completion_tokens": 20,
+                                    "total_tokens": 220,
+                                }
+                            }
+                        },
+                    },
+                ],
+            }
+            (output_dir / "trajectory.json").write_text(
+                json.dumps(trajectory), encoding="utf-8"
+            )
+
+            metrics = runner.collect_llm_metrics(
+                baseline={"name": "mini-swe-agent", "kind": "mini_swe_agent"},
+                output_dir=output_dir,
+                baseline_result=self.command_result(),
+            )
+
+        self.assertEqual(metrics["tokens"]["prompt_tokens"], 300)
+        self.assertEqual(metrics["tokens"]["completion_tokens"], 30)
+        self.assertEqual(metrics["tokens"]["total_tokens"], 330)
+        self.assertEqual(metrics["cost_usd"], 0.25)
+        self.assertEqual(metrics["llm_calls"], 2)
+        self.assertEqual(metrics["sources"], ["trajectory.json"])
+
+    def test_agentless_deduplicates_completion_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            repair_logs = output_dir / "agentless-output" / "repair_logs"
+            repair_logs.mkdir(parents=True)
+            first = (
+                "API response ChatCompletion(id='response-1', choices=[], "
+                "usage=CompletionUsage(completion_tokens=10, "
+                "prompt_tokens=100, total_tokens=110))"
+            )
+            second = (
+                "API response ChatCompletion(id='response-2', choices=[], "
+                "usage=CompletionUsage(completion_tokens=20, "
+                "prompt_tokens=200, total_tokens=220))"
+            )
+            (repair_logs / "case.log").write_text(
+                f"{first}\n{first}\n{second}\n", encoding="utf-8"
+            )
+
+            metrics = runner.collect_llm_metrics(
+                baseline={
+                    "name": "agentless-oci-adapted",
+                    "kind": "agentless_oci",
+                },
+                output_dir=output_dir,
+                baseline_result=self.command_result(),
+            )
+
+        self.assertEqual(metrics["tokens"]["total_tokens"], 330)
+        self.assertEqual(metrics["llm_calls"], 2)
+        self.assertIsNone(metrics["cost_usd"])
+        self.assertIn("cost_usd", metrics["missing"])
+
+    def test_autocoderover_zero_cost_is_marked_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            log_dir = output_dir / "autocoderover-output" / "run"
+            log_dir.mkdir(parents=True)
+            (log_dir / "info.log").write_text(
+                "API request cost info: input_tokens=100, "
+                "output_tokens=20, cost=0.000000\n",
+                encoding="utf-8",
+            )
+
+            metrics = runner.collect_llm_metrics(
+                baseline={"name": "autocoderover", "kind": "generic_repair_agent"},
+                output_dir=output_dir,
+                baseline_result=self.command_result(),
+            )
+
+        self.assertEqual(metrics["tokens"]["total_tokens"], 120)
+        self.assertEqual(metrics["llm_calls"], 1)
+        self.assertIsNone(metrics["cost_usd"])
+        self.assertIn("zero_cost_with_nonzero_tokens", metrics["warnings"])
+
+    def test_repairagent_uses_last_cumulative_snapshot(self) -> None:
+        stdout = "\n".join(
+            [
+                "Tokens: 1,000 prompt + 100 completion | Cost: $0.1000",
+                "Tokens: 2,500 prompt + 250 completion | Cost: $0.2500",
+            ]
+        )
+        metrics = runner.collect_llm_metrics(
+            baseline={"name": "repairagent", "kind": "generic_repair_agent"},
+            output_dir=Path("."),
+            baseline_result=self.command_result(stdout=stdout),
+        )
+
+        self.assertEqual(metrics["tokens"]["prompt_tokens"], 2500)
+        self.assertEqual(metrics["tokens"]["completion_tokens"], 250)
+        self.assertEqual(metrics["tokens"]["total_tokens"], 2750)
+        self.assertEqual(metrics["cost_usd"], 0.25)
+        self.assertEqual(metrics["llm_calls"], 2)
+
+    def test_invalid_trajectory_is_best_effort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            (output_dir / "trajectory.json").write_text("{invalid", encoding="utf-8")
+
+            metrics = runner.collect_llm_metrics(
+                baseline={"name": "mini-swe-agent", "kind": "mini_swe_agent"},
+                output_dir=output_dir,
+                baseline_result=self.command_result(),
+            )
+
+        self.assertIsNone(metrics["tokens"]["total_tokens"])
+        self.assertIsNone(metrics["cost_usd"])
+        self.assertIsNone(metrics["llm_calls"])
+        self.assertIn("tokens", metrics["missing"])
+        self.assertTrue(
+            any(item.startswith("invalid_trajectory:") for item in metrics["warnings"])
+        )
+
+    def test_finalize_metadata_preserves_elapsed_compatibility(self) -> None:
+        metadata = {"status": "error"}
+        metrics = runner.empty_metrics()
+        metrics["agent_elapsed_seconds"] = 2.0
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            with mock.patch.object(runner.time, "monotonic", return_value=15.5):
+                result = runner.finalize_metadata(
+                    metadata,
+                    metrics=metrics,
+                    started_monotonic=10.0,
+                    output_dir=output_dir,
+                )
+            written = json.loads(
+                (output_dir / "metadata.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(result["elapsed_seconds"], 5.5)
+        self.assertEqual(result["metrics"]["pipeline_elapsed_seconds"], 5.5)
+        self.assertEqual(written["metrics"], result["metrics"])
+
+    def test_no_patch_build_failure_and_success_record_timings(self) -> None:
+        for scenario in ("no_patch", "build_failure", "success"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source_dir = root / "source"
+                source_dir.mkdir()
+                case_dir = root / "case"
+                case_dir.mkdir()
+                output_root = root / "results"
+                worktree_root = root / "worktrees"
+                config = {
+                    "experiment": {
+                        "name": "metrics-test",
+                        "output_dir": str(output_root),
+                        "worktree_root": str(worktree_root),
+                        "timeout_seconds": 30,
+                    },
+                    "model": {"name": "test-model"},
+                    "benchmark": {"rootfs_tar": str(root / "rootfs.tar.gz")},
+                    "oracle": {"timeout_seconds": 1},
+                    "runtimes": {
+                        "crun": {
+                            "source_dir": str(source_dir),
+                            "build_command": "build-runtime",
+                            "runtime_path": "crun",
+                            "reference_runtime": "runc",
+                            "source_extensions": [".c", ".h"],
+                        }
+                    },
+                }
+                case = {
+                    "case_id": "crun-13",
+                    "runtime": "crun",
+                    "case_dir": str(case_dir),
+                    "title": "test",
+                    "url": "https://example.invalid/13",
+                    "category": "test",
+                }
+                baseline = {
+                    "name": "generic",
+                    "kind": "generic_repair_agent",
+                    "command": "run-baseline",
+                }
+                success = self.command_result()
+                build_failure = self.command_result(returncode=1)
+                side_effects = {
+                    "no_patch": [success],
+                    "build_failure": [success, build_failure],
+                    "success": [success, success, success],
+                }[scenario]
+
+                def create_worktree(
+                    _source_dir: Path, worktree_dir: Path, _ref: str
+                ) -> None:
+                    worktree_dir.mkdir(parents=True)
+                    (worktree_dir / "crun").write_text("", encoding="utf-8")
+
+                patch = "" if scenario == "no_patch" else "diff\n"
+                with (
+                    mock.patch.object(
+                        runner, "create_worktree", side_effect=create_worktree
+                    ),
+                    mock.patch.object(
+                        runner, "run_command", side_effect=side_effects
+                    ),
+                    mock.patch.object(runner, "git_diff", return_value=patch),
+                ):
+                    result = runner.run_one(
+                        config=config,
+                        case=case,
+                        baseline=baseline,
+                    )
+
+                metadata = json.loads(
+                    (
+                        output_root / "generic" / "crun-13" / "metadata.json"
+                    ).read_text(encoding="utf-8")
+                )
+
+            expected_status = "done" if scenario == "success" else "error"
+            self.assertEqual(result["status"], expected_status)
+            self.assertEqual(metadata["status"], expected_status)
+            self.assertEqual(
+                metadata["elapsed_seconds"],
+                metadata["metrics"]["pipeline_elapsed_seconds"],
+            )
+            self.assertIsNotNone(metadata["metrics"]["agent_elapsed_seconds"])
 
 
 if __name__ == "__main__":
