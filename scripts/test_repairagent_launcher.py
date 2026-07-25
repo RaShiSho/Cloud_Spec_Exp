@@ -94,6 +94,91 @@ class RepairAgentLauncherTests(unittest.TestCase):
         self.assertEqual(raised.exception.command_name, "write_fix")
         self.assertTrue(raised.exception.patch.strip())
 
+    def test_installs_oci_functions_over_cached_defects4j_bindings(self) -> None:
+        def original_static_tool(*args, **kwargs):
+            del args, kwargs
+            return "defects4j"
+
+        fake_autogpt = types.ModuleType("autogpt")
+        fake_autogpt.__path__ = []
+        fake_commands = types.ModuleType("autogpt.commands")
+        fake_commands.__path__ = []
+        fake_static = types.ModuleType("autogpt.commands.defects4j_static")
+        fake_agents = types.ModuleType("autogpt.agents")
+        fake_agents.__path__ = []
+        fake_base = types.ModuleType("autogpt.agents.base")
+        fake_agent = types.ModuleType("autogpt.agents.agent")
+        fake_oci_tools = types.ModuleType("oci_tools")
+
+        fake_static.get_info = original_static_tool
+        fake_static.run_tests = original_static_tool
+        fake_static.create_fix_template = original_static_tool
+        fake_static.get_detailed_list_of_buggy_lines = original_static_tool
+        fake_static.query_for_mutants = original_static_tool
+        fake_base.get_info = original_static_tool
+        fake_base.run_tests = original_static_tool
+        fake_base.create_fix_template = original_static_tool
+        fake_agent.get_detailed_list_of_buggy_lines = original_static_tool
+        fake_agent.query_for_mutants = original_static_tool
+
+        class FakeAgent:
+            def execute(self, command_name, command_args, user_input):
+                del self, command_args, user_input
+                return f"executed:{command_name}"
+
+        fake_agent.Agent = FakeAgent
+        fake_oci_tools.task_text = lambda: "OCI task"
+        fake_oci_tools.source_inventory = lambda: "runtime.c"
+        fake_oci_tools.run_validation = lambda: (True, "build passed")
+        fake_oci_tools.repository = lambda: Path("unused")
+
+        fake_autogpt.commands = fake_commands
+        fake_autogpt.agents = fake_agents
+        fake_commands.defects4j_static = fake_static
+        fake_agents.base = fake_base
+        fake_agents.agent = fake_agent
+        modules = {
+            "autogpt": fake_autogpt,
+            "autogpt.commands": fake_commands,
+            "autogpt.commands.defects4j_static": fake_static,
+            "autogpt.agents": fake_agents,
+            "autogpt.agents.base": fake_base,
+            "autogpt.agents.agent": fake_agent,
+            "oci_tools": fake_oci_tools,
+        }
+
+        with mock.patch.dict(sys.modules, modules):
+            launch.install_oci_tool_layer()
+
+            self.assertIs(fake_base.get_info, fake_static.get_info)
+            self.assertIs(fake_base.run_tests, fake_static.run_tests)
+            self.assertIs(fake_base.create_fix_template, fake_static.create_fix_template)
+            self.assertIs(
+                fake_agent.get_detailed_list_of_buggy_lines,
+                fake_static.get_detailed_list_of_buggy_lines,
+            )
+            self.assertIs(fake_agent.query_for_mutants, fake_static.query_for_mutants)
+            self.assertEqual(
+                json.loads(fake_base.create_fix_template("oci", 1)),
+                [
+                    {
+                        "file_name": "path/to/source",
+                        "insertions": [],
+                        "deletions": [],
+                        "modifications": [],
+                    }
+                ],
+            )
+            self.assertEqual(
+                fake_agent.get_detailed_list_of_buggy_lines("oci", 1),
+                "OCI task",
+            )
+            self.assertEqual(fake_agent.query_for_mutants("prompt", object()), "[]")
+
+            wrapped_execute = FakeAgent.execute
+            launch.install_oci_tool_layer()
+            self.assertIs(FakeAgent.execute, wrapped_execute)
+
     def test_completion_hook_ignores_failed_empty_and_non_fix_commands(self) -> None:
         def original_execute(agent, command_name, command_args, user_input):
             del agent, command_args, user_input

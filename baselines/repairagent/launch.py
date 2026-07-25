@@ -289,28 +289,53 @@ Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
 def install_oci_tool_layer() -> None:
     import autogpt.commands
     import autogpt.commands.defects4j_static as static_tools
-    from autogpt.agents.agent import Agent
 
     import oci_tools
+
+    def get_info(name: str, index: int, workspace: str) -> str:
+        del name, index, workspace
+        return oci_tools.task_text() + "\n\nSource files:\n" + oci_tools.source_inventory()
+
+    def run_tests(name: str, index: int, workspace: str) -> str:
+        del name, index, workspace
+        passed, output = oci_tools.run_validation()
+        return ("0 failing tests.\n" if passed else "Validation failed.\n") + output
+
+    def create_fix_template(name: str, index: int) -> str:
+        del name, index
+        return '[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]'
+
+    def get_detailed_list_of_buggy_lines(name: str, index: int) -> str:
+        del name, index
+        return oci_tools.task_text()
+
+    def query_for_mutants(*args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        return "[]"
 
     autogpt.commands.COMMAND_CATEGORIES = [
         "autogpt.commands.system",
         "oci_commands",
         "autogpt.commands.states",
     ]
-    static_tools.get_info = lambda name, index, workspace: (
-        oci_tools.task_text() + "\n\nSource files:\n" + oci_tools.source_inventory()
-    )
-    static_tools.run_tests = lambda name, index, workspace: (
-        (lambda result: ("0 failing tests.\n" if result[0] else "Validation failed.\n") + result[1])(
-            oci_tools.run_validation()
-        )
-    )
-    static_tools.create_fix_template = lambda name, index: (
-        '[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]'
-    )
-    static_tools.get_detailed_list_of_buggy_lines = lambda name, index: oci_tools.task_text()
-    static_tools.query_for_mutants = lambda *args, **kwargs: "[]"
+    static_tools.get_info = get_info
+    static_tools.run_tests = run_tests
+    static_tools.create_fix_template = create_fix_template
+    static_tools.get_detailed_list_of_buggy_lines = get_detailed_list_of_buggy_lines
+    static_tools.query_for_mutants = query_for_mutants
+
+    import autogpt.agents.agent as agent_module
+    import autogpt.agents.base as base_agent_module
+
+    # The upstream modules import these functions by value. Rebind their module
+    # globals explicitly in case either module was loaded before this adapter.
+    base_agent_module.get_info = get_info
+    base_agent_module.run_tests = run_tests
+    base_agent_module.create_fix_template = create_fix_template
+    agent_module.get_detailed_list_of_buggy_lines = get_detailed_list_of_buggy_lines
+    agent_module.query_for_mutants = query_for_mutants
+
+    Agent = agent_module.Agent
     if not getattr(Agent.execute, "_repairagent_oci_completion_hook", False):
         Agent.execute = completion_aware_execute(
             Agent.execute,
