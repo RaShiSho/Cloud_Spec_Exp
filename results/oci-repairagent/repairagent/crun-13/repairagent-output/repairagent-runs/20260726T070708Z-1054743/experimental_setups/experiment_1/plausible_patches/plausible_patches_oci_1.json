@@ -1,0 +1,56 @@
+[
+  {
+    "source": "write_fix",
+    "patch": [
+      {
+        "file_name": "src/libcrun/container.c",
+        "insertions": [
+          {
+            "line_number": 651,
+            "new_lines": [
+              "",
+              "  /* Resolve a bare process name with the container's PATH before exec.",
+              "     execvp() performs this lookup implicitly at exec time; doing it here makes",
+              "     the lookup use the OCI process environment that was just installed and",
+              "     passes an explicit container pathname to execv().  */",
+              "  if (strchr (def->process->args[0], '/') == NULL)",
+              "    {",
+              "      const char *path = getenv (\"PATH\");",
+              "      char *paths = NULL;",
+              "      char *saveptr = NULL;",
+              "      char *dir;",
+              "",
+              "      if (path == NULL || path[0] == '\\0')",
+              "        path = \"/bin:/usr/bin\";",
+              "",
+              "      paths = xstrdup (path);",
+              "      for (dir = strtok_r (paths, \":\", &saveptr); dir; dir = strtok_r (NULL, \":\", &saveptr))",
+              "        {",
+              "          cleanup_free char *candidate = NULL;",
+              "",
+              "          if (dir[0] == '\\0')",
+              "            dir = \".\";",
+              "",
+              "          xasprintf (&candidate, \"%s/%s\", dir, def->process->args[0]);",
+              "          if (access (candidate, X_OK) == 0)",
+              "            {",
+              "              execv (candidate, def->process->args);",
+              "              break;",
+              "            }",
+              "        }",
+              "      free (paths);",
+              "    }"
+            ]
+          }
+        ],
+        "deletions": [],
+        "modifications": [
+          {
+            "line_number": 652,
+            "modified_line": "  execv (def->process->args[0], def->process->args);"
+          }
+        ]
+      }
+    ]
+  }
+]
