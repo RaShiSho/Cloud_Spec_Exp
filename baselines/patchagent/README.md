@@ -42,13 +42,16 @@ conda run -n patchagent python -m pip install -e \
 `launch.py` 保留上游 `PatchTask`、CLike Agent、多轮 generator、三种工具、自动修正和反例
 反馈。上游 builder 被替换为 OCI builder：
 
-1. 将 runner 创建的干净 worktree 复制到隔离 workspace。
-2. 把 `task.md` 作为初始缺陷报告。
-3. 用语言无关的文本符号索引为 C、Go、Rust 提供 `locate`，并绕过上游 C-only 的
+1. wrapper 检测 `.gitmodules`，在 runner 创建的 worktree 中执行递归
+   `git submodule sync/update --init`，并确认所有子模块位于 superproject 记录的 revision。
+2. 将包含已物化子模块的干净 worktree 复制到隔离 workspace，递归移除根仓库及子模块
+   的 `.git` 控制文件，把子模块源码作为普通文件提交到内部临时仓库。
+3. 把 `task.md` 作为初始缺陷报告。
+4. 用语言无关的文本符号索引为 C、Go、Rust 提供 `locate`，并绕过上游 C-only 的
    libclang AST fallback；`viewcode` 仍使用上游实现。
-4. `validate` 检查 diff 格式、应用补丁并执行 runtime `build_command`。
-5. 找到可构建补丁后，将 diff 应用回 runner worktree。
-6. runner 随后重新构建并执行统一 OCI differential oracle。
+5. `validate` 检查 diff 格式、应用补丁并执行 runtime `build_command`。
+6. 找到可构建补丁后，将 diff 应用回 runner worktree。
+7. runner 随后重新构建并执行统一 OCI differential oracle。
 
 完整运行：
 
@@ -78,5 +81,8 @@ smoke test 可在配置命令末尾临时添加 `--fast`。
 
 - `trajectory.json`：上游 PatchAgent 对话和工具调用；
 - `generated_patch.diff`：Agent 选中的补丁；
-- `launcher_metadata.json`：上游 revision、模型、参数和适配状态；
+- `launcher_metadata.json`：上游 revision、模型、参数、被移除的 Git 元数据和适配状态；
 - `workspace/`：隔离的 PatchAgent builder 工作区。
+
+初始化构建失败时，launcher 会同时把完整报告写入 `launcher_metadata.json` 并输出到
+stderr，runner 的错误摘要中可直接看到实际构建错误。
