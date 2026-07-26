@@ -1,2 +1,243 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/175bc38c-7bab-4b7e-88e4-e8da2c1fce86/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/231f84e0-5212-491b-962b-a94574ef848d/.git/
+[master (root-commit) 71ed917] initial commit
+ 1 file changed, 2058 insertions(+)
+ create mode 100644 src/libcrun/container.c
 trying the 1-th sample ...
+--- src/libcrun/container.c
++++ src/libcrun/container.c
+@@ -577,6 +577,98 @@
+   return 0;
+ }
+ 
++extern char **environ;
++
++static const char *
++find_env_value (char **envp, const char *name)
++{
++  size_t name_len = strlen (name);
++
++  if (envp == NULL)
++    envp = environ;
++
++  for (; *envp; envp++)
++    if (strncmp (*envp, name, name_len) == 0 && (*envp)[name_len] == '=')
++      return *envp + name_len + 1;
++
++  return NULL;
++}
++
++static int
++execve_with_shell_fallback (const char *path, char **argv, char **envp)
++{
++  execve (path, argv, envp);
++
++  if (errno == ENOEXEC)
++    {
++      int saved_errno;
++      size_t argc;
++      char **new_argv;
++
++      for (argc = 0; argv[argc]; argc++);
++
++      new_argv = xmalloc (sizeof (char *) * (argc + 2));
++      new_argv[0] = "/bin/sh";
++      new_argv[1] = (char *) path;
++      if (argc > 1)
++        memcpy (new_argv + 2, argv + 1, sizeof (char *) * argc);
++      else
++        new_argv[2] = NULL;
++
++      execve (new_argv[0], new_argv, envp);
++      saved_errno = errno;
++      free (new_argv);
++      errno = saved_errno;
++    }
++
++  return -1;
++}
++
++static int
++execvpe_from_envp (const char *file, char **argv, char **envp)
++{
++  const char *path;
++  const char *it;
++  int got_eacces = 0;
++
++  if (envp == NULL)
++    envp = environ;
++
++  if (strchr (file, '/'))
++    return execve_with_shell_fallback (file, argv, envp);
++
++  path = find_env_value (envp, "PATH");
++  if (path == NULL)
++    path = "/bin:/usr/bin";
++
++  for (it = path; ; )
++    {
++      const char *end = strchr (it, ':');
++      size_t len = end ? (size_t) (end - it) : strlen (it);
++      cleanup_free char *candidate = NULL;
++
++      if (len == 0)
++        xasprintf (&candidate, "%s", file);
++      else
++        xasprintf (&candidate, "%.*s/%s", (int) len, it, file);
++
++      execve_with_shell_fallback (candidate, argv, envp);
++
++      if (errno == EACCES)
++        got_eacces = 1;
++      else if (errno != ENOENT && errno != ENOTDIR)
++        return -1;
++
++      if (end == NULL)
++        break;
++
++      it = end + 1;
++    }
++
++  errno = got_eacces ? EACCES : ENOENT;
++  return -1;
++}
++
+ /* Entrypoint to the container.  */
+ static int
+ container_entrypoint (void *args, const char *notify_socket,
+@@ -649,7 +741,7 @@
+   if (! def->process)
+     return crun_make_error (err, errno, "block 'process' not found");
+ 
+-  execvp (def->process->args[0], def->process->args);
++  execvpe_from_envp (def->process->args[0], def->process->args, environ);
+   if (errno == ENOENT)
+     return crun_make_error (err, errno, "executable file not found in $PATH");
+ 
+@@ -1902,7 +1994,7 @@
+             return ret;
+         }
+ 
+-      execvp (process->args[0], process->args);
++      execvpe_from_envp (process->args[0], process->args, environ);
+       if (errno == ENOENT)
+         libcrun_fail_with_error (errno, "executable file not found in $PATH");
+       libcrun_fail_with_error (errno, "exec");
+--- src/libcrun/container.c
++++ src/libcrun/container.c
+@@ -577,6 +577,98 @@
+   return 0;
+ }
+ 
++extern char **environ;
++
++static const char *
++find_env_value (char **envp, const char *name)
++{
++  size_t name_len = strlen (name);
++
++  if (envp == NULL)
++    envp = environ;
++
++  for (; *envp; envp++)
++    if (strncmp (*envp, name, name_len) == 0 && (*envp)[name_len] == '=')
++      return *envp + name_len + 1;
++
++  return NULL;
++}
++
++static int
++execve_with_shell_fallback (const char *path, char **argv, char **envp)
++{
++  execve (path, argv, envp);
++
++  if (errno == ENOEXEC)
++    {
++      int saved_errno;
++      size_t argc;
++      char **new_argv;
++
++      for (argc = 0; argv[argc]; argc++);
++
++      new_argv = xmalloc (sizeof (char *) * (argc + 2));
++      new_argv[0] = "/bin/sh";
++      new_argv[1] = (char *) path;
++      if (argc > 1)
++        memcpy (new_argv + 2, argv + 1, sizeof (char *) * argc);
++      else
++        new_argv[2] = NULL;
++
++      execve (new_argv[0], new_argv, envp);
++      saved_errno = errno;
++      free (new_argv);
++      errno = saved_errno;
++    }
++
++  return -1;
++}
++
++static int
++execvpe_from_envp (const char *file, char **argv, char **envp)
++{
++  const char *path;
++  const char *it;
++  int got_eacces = 0;
++
++  if (envp == NULL)
++    envp = environ;
++
++  if (strchr (file, '/'))
++    return execve_with_shell_fallback (file, argv, envp);
++
++  path = find_env_value (envp, "PATH");
++  if (path == NULL)
++    path = "/bin:/usr/bin";
++
++  for (it = path; ; )
++    {
++      const char *end = strchr (it, ':');
++      size_t len = end ? (size_t) (end - it) : strlen (it);
++      cleanup_free char *candidate = NULL;
++
++      if (len == 0)
++        xasprintf (&candidate, "%s", file);
++      else
++        xasprintf (&candidate, "%.*s/%s", (int) len, it, file);
++
++      execve_with_shell_fallback (candidate, argv, envp);
++
++      if (errno == EACCES)
++        got_eacces = 1;
++      else if (errno != ENOENT && errno != ENOTDIR)
++        return -1;
++
++      if (end == NULL)
++        break;
++
++      it = end + 1;
++    }
++
++  errno = got_eacces ? EACCES : ENOENT;
++  return -1;
++}
++
+ /* Entrypoint to the container.  */
+ static int
+ container_entrypoint (void *args, const char *notify_socket,
+@@ -649,7 +741,7 @@
+   if (! def->process)
+     return crun_make_error (err, errno, "block 'process' not found");
+ 
+-  execvp (def->process->args[0], def->process->args);
++  execvpe_from_envp (def->process->args[0], def->process->args, environ);
+   if (errno == ENOENT)
+     return crun_make_error (err, errno, "executable file not found in $PATH");
+ 
+@@ -1902,7 +1994,7 @@
+             return ret;
+         }
+ 
+-      execvp (process->args[0], process->args);
++      execvpe_from_envp (process->args[0], process->args, environ);
+       if (errno == ENOENT)
+         libcrun_fail_with_error (errno, "executable file not found in $PATH");
+       libcrun_fail_with_error (errno, "exec");
