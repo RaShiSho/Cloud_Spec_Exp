@@ -12,8 +12,8 @@ Do not edit the dataset, generated worktree metadata, or oracle scripts.
 Writable target repository (the only location where source changes are allowed):
 /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-13
 
-Required first command:
-cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-13 && git rev-parse HEAD && git status --short
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
