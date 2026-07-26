@@ -1,0 +1,818 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case crun-129.
+
+Target runtime: crun
+Title: crun hangs when an OCI hook exists non-zero
+Upstream issue: https://github.com/containers/crun/issues/129
+Category: POSIX-platform Hooks
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-129
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-129
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-129
+Upstream URL: https://github.com/containers/crun/issues/129
+Category: POSIX-platform Hooks
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Expected differential behavior:
+A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-129
+
+## Upstream Issue Summary
+- Title: crun hangs when an OCI hook exists non-zero
+- URL: https://github.com/containers/crun/issues/129
+- Category: POSIX-platform Hooks
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a concrete crun release; the issue body only states that the reproducer is reliable. The current GitHub issue page is closed and shows a linked PR #76, but local git history shows PR #76 is a `.gitignore` change and is not semantically related to hook failure handling, so it is not used as the version oracle. The closest relevant fix in upstream git history is `e3b974cdeecebbe4f58b38905c639e89017e917c` (`container: exit immediately if a prestart hook fails`, 2017-11-19). Use its parent `fd0498a528e61218e5ebe173de666d687526951a` as the pre-fix buggy baseline. `git describe --contains` places the fix before `v0.2` (`v0.2~244`) and the parent at `v0.2~245`, so a revision at or before that parent is the version target for reproducing the hang/non-return behavior.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-129`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Oracle: A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original hang/non-return behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes exited promptly on the failing prestart hook and surfaced a hook failure. Reproducing the historical issue appears to require the affected pre-fix crun revision.
+
+
+Source files:
+contrib/terminal-receiver/terminal-receiver.c
+python/crun_python.c
+src/create.c
+src/create.h
+src/crun.c
+src/crun.h
+src/delete.c
+src/delete.h
+src/exec.c
+src/exec.h
+src/kill.c
+src/kill.h
+src/libcrun/cgroup.c
+src/libcrun/cgroup.h
+src/libcrun/chroot_realpath.c
+src/libcrun/cloned_binary.c
+src/libcrun/container.c
+src/libcrun/container.h
+src/libcrun/ebpf.c
+src/libcrun/ebpf.h
+src/libcrun/error.c
+src/libcrun/error.h
+src/libcrun/intprops.h
+src/libcrun/linux.c
+src/libcrun/linux.h
+src/libcrun/seccomp.c
+src/libcrun/seccomp.h
+src/libcrun/sig2str.c
+src/libcrun/sig2str.h
+src/libcrun/status.c
+src/libcrun/status.h
+src/libcrun/terminal.c
+src/libcrun/terminal.h
+src/libcrun/utils.c
+src/libcrun/utils.h
+src/list.c
+src/list.h
+src/pause.c
+src/pause.h
+src/run.c
+src/run.h
+src/spec.c
+src/spec.h
+src/start.c
+src/start.h
+src/state.c
+src/state.h
+src/unpause.c
+src/unpause.h
+src/update.c
+src/update.h
+tests/init.c
+tests/tests_libcrun_errors.c
+tests/tests_libcrun_utils.c
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+2 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 520 to 900 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 520:   if
+[older content truncated]
+
+Lines 900 to 1300 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 900:         }
+Line 901:       else
+Line 902:         {
+Line 903:           cleanup_free libcrun_container_t *container = NULL;
+Line 904: 
+Line 905:           if (def == NULL)
+Line 906:             {
+Line 907:               ret = read_container_config_from_state (&container, state_root, id, err);
+Line 908:               if (UNLIKELY (ret < 0))
+Line 909:                 return ret;
+Line 910: 
+Line 911:               def = container->container_def;
+Line 912:             }
+Line 913: 
+Line 914:           /* If the container has a pid namespace, it is enough to kill the first
+Line 915:              process (pid=1 in the namespace).
+Line 916:           */
+Line 917:           if (has_namespace_in_definition (def, "pid"))
+Line 918:             {
+Line 919:               ret = kill (status.pid, SIGKILL);
+Line 920:               if (UNLIKELY (ret < 0) && errno != ESRCH)
+Line 921:                 {
+Line 922:                   crun_make_error (err, errno, "kill cannot find process");
+Line 923:                   return ret;
+Line 924:                 }
+Line 925:             }
+Line 926:           else
+Line 927:             {
+Line 928:               ret = libcrun_cgroup_killall (status.cgroup_path, err);
+Line 929:               if (UNLIKELY (ret < 0))
+Line 930:                 return 0;
+Line 931:             }
+Line 932:         }
+Line 933:     }
+Line 934: 
+Line 935:   if (status.cgroup_path)
+Line 936:     {
+Line 937:       ret = libcrun_cgroup_destroy (id, status.cgroup_path, status.systemd_cgroup, err);
+Line 938:       if (UNLIKELY (ret < 0))
+Line 939:         crun_error_write_warning_and_release (context->output_handler_arg, &err);
+Line 940:     }
+Line 941: 
+Line 942:   ret = run_poststop_hooks (context, def, &status, state_root, id, err);
+Line 943:   if (UNLIKELY (ret < 0))
+Line 944:     crun_error_write_warning_and_release (context->output_handler_arg, &err);
+Line 945: 
+Line 946:  delete:
+Line 947:   ret = libcrun_container_delete_status (state_root, id, err);
+Line 948: 
+Line 949:   return ret;
+Line 950: }
+Line 951: 
+Line 952: int
+Line 953: libcrun_container_delete (libcrun_context_t *context, oci_container *def, const char *id, bool force, libcrun_error_t *err)
+Line 954: {
+Line 955:   return container_delete_internal (context, def, id, force, false, err);
+Line 956: }
+Line 957: 
+Line 958: int
+Line 959: libcrun_container_kill (libcrun_context_t *context, const char *id, int signal, libcrun_error_t *err)
+Line 960: {
+Line 961:   int ret;
+Line 962:   const char *state_root = context->state_root;
+Line 963:   cleanup_container_status libcrun_container_status_t status;
+Line 964: 
+Line 965:   memset (&status, 0, sizeof (status));
+Line 966: 
+Line 967:   ret = libcrun_read_container_status (&status, state_root, id, err);
+Line 968:   if (UNLIKELY (ret < 0))
+Line 969:     return ret;
+Line 970: 
+Line 971:   ret = kill (status.pid, signal);
+Line 972:   if (UNLIKELY (ret < 0))
+Line 973:     return crun_make_error (err, errno, "kill container");
+Line 974:   return 0;
+Line 975: }
+Line 976: 
+Line 977: int
+Line 978: libcrun_container_kill_all (libcrun_context_t *context, const char *id, int signal, libcrun_error_t *err)
+Line 979: {
+Line 980:   int ret;
+Line 981:   const char *state_root = context->state_root;
+Line 982:   cleanup_container_status libcrun_container_status_t status;
+Line 983: 
+Line 984:   memset (&status, 0, sizeof (status));
+Line 985: 
+Line 986:   ret = libcrun_read_container_status (&status, state_root, id, err);
+Line 987:   if (UNLIKELY (ret < 0))
+Line 988:     return ret;
+Line 989: 
+Line 990:   ret = libcrun_cgroup_killall_signal (status.cgroup_path, signal, err);
+Line 991:   if (UNLIKELY (ret < 0))
+Line 992:     return ret;
+Line 993:   return 0;
+Line 994: }
+Line 995: 
+Line 996: static int
+Line 997: write_container_status (libcrun_container_t *container, libcrun_context_t *context, pid_t pid,
+Line 998:                         char *cgroup_path, char *created, libcrun_error_t *err)
+Line 999: {
+Line 1000:   cleanup_free char *cwd = get_c
+
+Lines 1100 to 1450 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1100:     {
+Line 1101:       ret = 0;
+Line 1102:       TEMP_FAILURE_RETRY (write (container_ready_fd, &ret, sizeof (ret)));
+Line 1103:       close_and_reset (&container_ready_fd);
+Line 1104:     }
+Line 1105: 
+Line 1106:   sigfillset (&mask);
+Line 1107:   ret = sigprocmask (SIG_BLOCK, &mask, NULL);
+Line 1108:   if (UNLIKELY (ret < 0))
+Line 1109:     return crun_make_error (err, errno, "sigprocmask");
+Line 1110: 
+Line 1111:   signalfd = create_signalfd (&mask, err);
+Line 1112:   if (UNLIKELY (signalfd < 0))
+Line 1113:     return signalfd;
+Line 1114: 
+Line 1115:   ret = reap_subprocesses (pid, &container_exit_code, &last_process, err);
+Line 1116:   if (UNLIKELY (ret < 0))
+Line 1117:     return ret;
+Line 1118: 
+Line 1119:   if (last_process)
+Line 1120:     return container_exit_code;
+Line 1121: 
+Line 1122:   fds[fds_len++] = signalfd;
+Line 1123:   if (notify_socket >= 0)
+Line 1124:     fds[fds_len++] = notify_socket;
+Line 1125:   if (terminal_fd >= 0)
+Line 1126:     {
+Line 1127:       fds[fds_len++] = 0;
+Line 1128:       levelfds[levelfds_len++] = terminal_fd;
+Line 1129:     }
+Line 1130:   fds[fds_len++] = -1;
+Line 1131:   levelfds[levelfds_len++] = -1;
+Line 1132: 
+Line 1133:   epollfd = epoll_helper (fds, levelfds, err);
+Line 1134:   if (UNLIKELY (epollfd < 0))
+Line 1135:     return epollfd;
+Line 1136: 
+Line 1137:   while (1)
+Line 1138:     {
+Line 1139:       struct signalfd_siginfo si;
+Line 1140:       ssize_t res;
+Line 1141:       struct epoll_event events[10];
+Line 1142:       int i, nr_events;
+Line 1143: 
+Line 1144:       nr_events = TEMP_FAILURE_RETRY (epoll_wait (epollfd, events, 10, -1));
+Line 1145:       if (UNLIKELY (nr_events < 0))
+Line 1146:         return crun_make_error (err, errno, "epoll_wait");
+Line 1147: 
+Line 1148:       for (i = 0; i < nr_events; i++)
+Line 1149:         {
+Line 1150:           if (events[i].data.fd == 0)
+Line 1151:             {
+Line 1152:               ret = copy_from_fd_to_fd (0, terminal_fd, 0, err);
+Line 1153:               if (UNLIKELY (ret < 0))
+Line 1154:                 return ret;
+Line 1155:             }
+Line 1156:           else if (events[i].data.fd == terminal_fd)
+Line 1157:             {
+Line 1158:               ret = set_blocking_fd (terminal_fd, 0, err);
+Line 1159:               if (UNLIKELY (ret < 0))
+Line 1160:                 return ret;
+Line 1161: 
+Line 1162:               ret = copy_from_fd_to_fd (terminal_fd, 1, 1, err);
+Line 1163:               if (UNLIKELY (ret < 0))
+Line 1164:                 return ret;
+Line 1165: 
+Line 1166:               ret = set_blocking_fd (terminal_fd, 1, err);
+Line 1167:               if (UNLIKELY (ret < 0))
+Line 1168:                 return ret;
+Line 1169:             }
+Line 1170:           else if (events[i].data.fd == notify_socket)
+Line 1171:             {
+Line 1172:               ret = handle_notify_socket (notify_socket, err);
+Line 1173:               if (UNLIKELY (ret < 0))
+Line 1174:                 return ret;
+Line 1175:               if (ret && context->detach)
+Line 1176:                     return 0;
+Line 1177:             }
+Line 1178:           else if (events[i].data.fd == signalfd)
+Line 1179:             {
+Line 1180:               res = TEMP_FAILURE_RETRY (read (signalfd, &si, sizeof (si)));
+Line 1181:               if (UNLIKELY (res < 0))
+Line 1182:                 return crun_make_error (err, errno, "read from signalfd");
+Line 1183:               if (si.ssi_signo == SIGCHLD)
+Line 1184:                 {
+Line 1185:                   ret = reap_subprocesses (pid, &container_exit_code, &last_process, err);
+Line 1186:                   if (UNLIKELY (ret < 0))
+Line 1187:                     return ret;
+Line 1188:                   if (last_process)
+Line 1189:                     return container_exit_code;
+Line 1190:                 }
+Line 1191:               else
+Line 1192:                 {
+Line 1193:                   /* Send any other signal to the child process.  */
+Line 1194:                   ret = kill (pid, si.ssi_signo);
+
+Lines 1200 to 1700 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1200:             }
+Line 1201:         }
+Line 1202:     }
+Line 1203: 
+Line 1204:   return 0;
+Line 1205: }
+Line 1206: 
+Line 1207: static void
+Line 1208: flush_fd_to_err (libcrun_context_t *context, int terminal_fd)
+Line 1209: {
+Line 1210:   char buf[256];
+Line 1211:   int flags;
+Line 1212:   if (terminal_fd < 0 || stderr == NULL)
+Line 1213:     return;
+Line 1214: 
+Line 1215:   flags = fcntl (terminal_fd, F_GETFL, 0);
+Line 1216:   if (flags == -1)
+Line 1217:     return;
+Line 1218:   if (fcntl (terminal_fd, F_SETFL, flags | O_NONBLOCK) < 0)
+Line 1219:     return;
+Line 1220: 
+Line 1221:   for (;;)
+Line 1222:     {
+Line 1223:       int ret = read (terminal_fd, buf, sizeof (buf) - 1);
+Line 1224:       if (ret <= 0)
+Line 1225:         break;
+Line 1226:       buf[ret] = '\0';
+Line 1227:       if (context->output_handler)
+Line 1228:         context->output_handler (0, buf, false, context->output_handler_arg);
+Line 1229:     }
+Line 1230:   (void) fcntl (terminal_fd, F_SETFL, flags);
+Line 1231:   fflush (stderr);
+Line 1232:   fsync (1);
+Line 1233:   fsync (2);
+Line 1234: }
+Line 1235: 
+Line 1236: static void
+Line 1237: cleanup_watch (libcrun_context_t *context, pid_t init_pid, oci_container *def, const char *id, int sync_socket, int terminal_fd)
+Line 1238: {
+Line 1239:   libcrun_error_t err = NULL;
+Line 1240:   container_delete_internal (context, def, id, 1, true, &err);
+Line 1241:   crun_error_release (&err);
+Line 1242: 
+Line 1243:   if (init_pid)
+Line 1244:     kill (init_pid, SIGKILL);
+Line 1245: 
+Line 1246:   sync_socket_wait_sync (context, sync_socket, true, &err);
+Line 1247:   if (err)
+Line 1248:     {
+Line 1249:       if (context->output_handler)
+Line 1250:         context->output_handler (err->status, err->msg, false, context->output_handler_arg);
+Line 1251:       crun_error_release (&err);
+Line 1252:     }
+Line 1253: 
+Line 1254:   if (terminal_fd >= 0)
+Line 1255:     flush_fd_to_err (context, terminal_fd);
+Line 1256: }
+Line 1257: 
+Line 1258: static
+Line 1259: int open_seccomp_output (const char *id, int *fd, bool readonly, const char *state_root, libcrun_error_t *err)
+Line 1260: {
+Line 1261:   int ret;
+Line 1262:   cleanup_free char *dest_path = NULL;
+Line 1263:   cleanup_free char *dir = NULL;
+Line 1264: 
+Line 1265:   dir = libcrun_get_state_directory (state_root, id);
+Line 1266:   if (UNLIKELY (dir == NULL))
+Line 1267:         return crun_make_error (err, 0, "cannot get state directory");
+Line 1268: 
+Line 1269:   xasprintf (&dest_path, "%s/seccomp.bpf", dir);
+Line 1270: 
+Line 1271:   *fd = -1;
+Line 1272:   if (readonly)
+Line 1273:     {
+Line 1274:       ret = TEMP_FAILURE_RETRY (open (dest_path, O_RDONLY));
+Line 1275:       if (UNLIKELY (ret < 0))
+Line 1276:         {
+Line 1277:           if (errno == ENOENT)
+Line 1278:             return 0;
+Line 1279:           return crun_make_error (err, 0, "open seccomp.bpf");
+Line 1280:         }
+Line 1281:       *fd = ret;
+Line 1282:     }
+Line 1283:   else
+Line 1284:     {
+Line 1285:       ret = TEMP_FAILURE_RETRY (open (dest_path, O_RDWR | O_CREAT, 0700));
+Line 1286:       if (UNLIKELY (ret < 0))
+Line 1287:         return crun_make_error (err, 0, "open seccomp.bpf");
+Line 1288:       *fd = ret;
+Line 1289:     }
+Line 1290: 
+Line 1291:   return 0;
+Line 1292: }
+Line 1293: 
+Line 1294: /* Find the uid:gid that is mapped to root inside the container user namespace.  */
+Line 1295: static void
+Line 1296: get_root_in_the_userns_for_cgroups (oci_container *def, uid_t host_uid, gid_t host_gid, uid_t *uid, gid_t *gid)
+Line 1297: {
+Line 1298:   *uid = -1;
+Line 1299:   *gid = -1;
+Line 1300: 
+Line 1301:   /* Not root in the namespace.  */
+Line 1302:   if (host_uid)
+Line 1303:     return;
+Line 1304: 
+Line 1305:   if (def->linux && def->linux->uid_mappings)
+Line 1306:     {
+Line 1307:       size_t i;
+Line 1308: 
+Line 1309:       for (i = 0; i < def->linux->uid_mappings_len; i++)
+Line 1310:         if (def->linux->uid_mappings[i]->container_id == 0)
+Line 1311:           {
+Line 1312:             *uid
+
+Lines 1450 to 1900 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1450:     {
+Line 1451:       ret = libcrun_update_cgroup_resources (cgroup_mode, def->linux->resources, cgroup_path, err);
+Line 1452:       if (UNLIKELY (ret < 0))
+Line 1453:         {
+Line 1454:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1455:           return ret;
+Line 1456:         }
+Line 1457:     }
+Line 1458: 
+Line 1459:   ret = sync_socket_send_sync (sync_socket, true, err);
+Line 1460:   if (UNLIKELY (ret < 0))
+Line 1461:     {
+Line 1462:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1463:       return ret;
+Line 1464:     }
+Line 1465: 
+Line 1466:   ret = sync_socket_wait_sync (context, sync_socket, false, err);
+Line 1467:   if (UNLIKELY (ret < 0))
+Line 1468:     {
+Line 1469:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1470:       return ret;
+Line 1471:     }
+Line 1472: 
+Line 1473:   /* The container is waiting that we write back.  In this phase we can launch the
+Line 1474:      prestart hooks.  */
+Line 1475:   if (def->hooks && def->hooks->prestart_len)
+Line 1476:     {
+Line 1477:       ret = do_hooks (def, pid, context->id, false, def->root->path, NULL, "created",
+Line 1478:                       (struct hook_s **) def->hooks->prestart,
+Line 1479:                       def->hooks->prestart_len, err);
+Line 1480:       if (UNLIKELY (ret != 0))
+Line 1481:         {
+Line 1482:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1483:           return ret;
+Line 1484:         }
+Line 1485:     }
+Line 1486: 
+Line 1487:   ret = sync_socket_send_sync (sync_socket, true, err);
+Line 1488:   if (UNLIKELY (ret < 0))
+Line 1489:     {
+Line 1490:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1491:       return ret;
+Line 1492:     }
+Line 1493: 
+Line 1494:   ret = sync_socket_wait_sync (context, sync_socket, false, err);
+Line 1495:   if (UNLIKELY (ret < 0))
+Line 1496:     {
+Line 1497:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1498:       return ret;
+Line 1499:     }
+Line 1500: 
+Line 1501:   if (def->process && def->process->terminal && !detach && context->console_socket == NULL)
+Line 1502:     {
+Line 1503:       terminal_fd = receive_fd_from_socket (socket_pair_0, err);
+Line 1504:       if (UNLIKELY (terminal_fd < 0))
+Line 1505:         {
+Line 1506:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1507:           return terminal_fd;
+Line 1508:         }
+Line 1509: 
+Line 1510:       close_and_reset (&socket_pair_0);
+Line 1511: 
+Line 1512:       ret = libcrun_setup_terminal_master (terminal_fd, &orig_terminal, err);
+Line 1513:       if (UNLIKELY (ret < 0))
+Line 1514:         {
+Line 1515:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1516:           return terminal_fd;
+Line 1517:         }
+Line 1518:     }
+Line 1519: 
+Line 1520:   ret = close_and_reset (&sync_socket);
+Line 1521:   if (UNLIKELY (ret < 0))
+Line 1522:     {
+Line 1523:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1524:       return ret;
+Line 1525:     }
+Line 1526: 
+Line 1527:   get_current_timestamp (created);
+Line 1528:   ret = write_container_status (container, context, pid, cgroup_path, created, err);
+Line 1529:   if (UNLIKELY (ret < 0))
+Line 1530:     {
+Line 1531:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1532:       return ret;
+Line 1533:     }
+Line 1534: 
+Line 1535:   if (def->hooks && def->hooks->poststart_len)
+Line 1536:     {
+Line 1537:       ret = do_hooks (def, pid, context->id, true, def->root->path, NULL, "running",
+Line 1538:                       (struct hook_s **) def->hooks->poststart,
+Line 1539:                       def->hooks->poststart_len, err);
+Line 1540:       if (UNLIKELY (ret < 0))
+Line 1541:         {
+Line 1542:           cleanup_watch (context
+
+Lines 1228 to 1258 from file: src/libcrun/container.c
+Command read_range returned: Line 1228:         context->output_handler (0, buf, false, context->output_handler_arg);
+Line 1229:     }
+Line 1230:   (void) fcntl (terminal_fd, F_SETFL, flags);
+Line 1231:   fflush (stderr);
+Line 1232:   fsync (1);
+Line 1233:   fsync (2);
+Line 1234: }
+Line 1235: 
+Line 1236: static void
+Line 1237: cleanup_watch (libcrun_context_t *context, pid_t init_pid, oci_container *def, const char *id, int sync_socket, int terminal_fd)
+Line 1238: {
+Line 1239:   libcrun_error_t err = NULL;
+Line 1240:   container_delete_internal (context, def, id, 1, true, &err);
+Line 1241:   crun_error_release (&err);
+Line 1242: 
+Line 1243:   if (init_pid)
+Line 1244:     kill (init_pid, SIGKILL);
+Line 1245: 
+Line 1246:   sync_socket_wait_sync (context, sync_socket, true, &err);
+Line 1247:   if (err)
+Line 1248:     {
+Line 1249:       if (context->output_handler)
+Line 1250:         context->output_handler (err->status, err->msg, false, context->output_handler_arg);
+Line 1251:       crun_error_release (&err);
+Line 1252:     }
+Line 1253: 
+Line 1254:   if (terminal_fd >= 0)
+Line 1255:     flush_fd_to_err (context, terminal_fd);
+Line 1256: }
+Line 1257: 
+Line 1258: static
+
+
+## Executed search queries within the code base:
+Searching keywords: prestart, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: config.h:1: [r, e, t, a, r, t] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, e, t, a, r, t] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [p, r, e, s, a, r] /* Define if AppArmor is available */
+config.h:5: [p, r, e, a, r] #define HAVE_APPARMOR 1
+config.h:7: [p, e, t, a, t] /* Define to 1 if you have the `bpf' function. */
+config.h:8: [p, e, a] /* #undef HAVE_BPF */
+config.h:10: [p, e, s, a] /* Define if libcap is available */
+config.h:11: [p, e, a] #define HAVE_CAP 1
+config.h:13: [p, r, e, t, a, r, t] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:14: [p, r, e, a, r] #define HAVE_COPY_FILE_RANGE 1
+config.h:16: [r, e, t, a, r, t] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:17: [e, a] #define HAVE_DLFCN_H 1
+config.h:19: [p, e, s, a] /* Define if eBPF is available */
+config.h:20: [p, e, a] #define HAVE_EBPF 1
+config.h:22: [r, e, t, a, r, t] /* Define to 1 if you have the <error.h> header file. */
+config.h:23: [r, e, a, r] #define HAVE_ERROR_H 1
+config.h:25: [p, r, e, t, a, r, t] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:26: [p, r, e, t, a, r, t] #define HAVE_FGETPWENT_R 1
+config.h:28: [r, e, t, a, r, t] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:29: [r, e, t, a, r, t] #define HAVE_FGETXATTR 1
+config.h:31: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:32: [p, e, s, t, a, t] #define HAVE_INTTYPES_H 1
+config.h:34: [p, e, s, a] /* Define if seccomp is available */
+config.h:35: [p, e, s, a] #define HAVE_SECCOMP 1
+config.h:37: [e, s, a] /* Define if SELinux is available */
+config.h:38: [e, s, a] #define HAVE_SELINUX 1
+config.h:40: [e, s, t, a, t] /* Define to 1 if you have the `statx' function. */
+config.h:41: [e, s, t, a, t] #define HAVE_STATX 1
+config.h:43: [r, e, s, t, a, r, t] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:44: [e, s, t, a, t] #define HAVE_STDINT_H 1
+config.h:46: [r, e, s, t, a, r, t] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:47: [e, s, t, a, t] #define HAVE_STDIO_H 1
+config.h:49: [r, e, s, t, a, r, t] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:50: [e, s, t, a, t] #define HAVE_STDLIB_H 1
+config.h:52: [r, e, s, t, a, r, t] /* Define to 1 if you have the <strings.h> header file. */
+config.h:53: [r, e, s, t, a, r, t] #define HAVE_STRINGS_H 1
+config.h:55: [r, e, s, t, a, r, t] /* Define to 1 if you have the <string.h> header file. */
+config.h:56: [r, e, s, t, a, r, t] #define HAVE_STRING_H 1
+config.h:58: [e, s, t, a, t] /* Define if libsystemd is available */
+config.h:59: [e, s, t, a, t] #define HAVE_SYSTEMD 1
+config.h:61: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:62: [p, e, s, t, a, t] #define HAVE_SYS_CAPABILITY_H 1
+config.h:64: [r, e, s, t, a, r, t] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:65: [e, s, t, a, t] #define HAVE_SYS_STAT_H 1
+config.h:67: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:68: [p, e, s, t, a, t] #define HAVE_SYS_TYPES_H 1
+config.h:70: [r, e, s, t, a, r, t] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:71: [e, s, t, a, t] #define HAVE_UNISTD_H 1
+config.h:73: [e, s, a] /* Define if libyajl is available */
+config.h:74: [e, a] #define HAVE_YAJL 1
+config.h:76: [r, e, s, t, a, r, t] /* Define to the sub-directory where libtool stores uninstalled libraries. */
+config.h:77: [r, e, s, t, r, t] #define LT_OBJDIR ".libs/"
+config.h:79: [p, e, a] /* Name of package */
+config.h:80: [p, r, e, a, r] #define PACKAGE "crun"
+config.h:82: [p, r, e, s, t, a, r, t] /* Define to the address where bug reports for this package should be sent. */
+config.h:83: [p, r, e, s, t, a, r, t] #define PACKAGE_BUGREPORT "giuseppe@scrivano.org"
+config.h:85: [p, e, s, t, a, t] /* Define to the full name of this package
+
+Searching keywords: run_prestart_hooks hooks_len hook exit, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: config.h:1: [r, u, n, r, e, t, a, r, t, h, o, o, h, o, o, e, n, h, o, o, e, i, t] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, u, n, r, e, t, a, r, t, h, o, o, h, o, o, e, n, h, o, o, e, i, t] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [r, n, p, r, e, s, a, r, o, o, s, o, o, s, l, e, n, o, o, e, i] /* Define if AppArmor is available */
+config.h:5: [r, n, _, p, r, e, a, r, _, h, o, o, h, o, o, _, e, n, h, o, o, e, i] #define HAVE_APPARMOR 1
+config.h:7: [u, n, p, e, t, a, t, h, o, o, h, o, o, e, n, h, o, o, e, i, t] /* Define to 1 if you have the `bpf' function. */
+config.h:8: [u, n, _, p, e, a, _, h, h, _, e, n, h, e] /* #undef HAVE_BPF */
+config.h:10: [n, p, e, s, a, s, s, l, e, n, e, i] /* Define if libcap is available */
+config.h:11: [n, _, p, e, a, _, h, h, _, e, n, h, e, i] #define HAVE_CAP 1
+config.h:13: [r, u, n, _, p, r, e, t, a, r, t, _, h, o, o, h, o, o, _, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:14: [r, n, _, p, r, e, a, r, _, h, o, o, h, o, o, _, l, e, n, h, o, o, e, i] #define HAVE_COPY_FILE_RANGE 1
+config.h:16: [r, u, n, r, e, t, a, r, t, h, o, o, h, o, o, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:17: [n, _, e, a, _, h, h, _, l, e, n, h, e, i] #define HAVE_DLFCN_H 1
+config.h:19: [n, p, e, s, a, s, s, l, e, n, e, i] /* Define if eBPF is available */
+config.h:20: [n, _, p, e, a, _, h, h, _, e, n, h, e, i] #define HAVE_EBPF 1
+config.h:22: [r, u, n, r, e, t, a, r, t, h, o, o, h, o, o, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the <error.h> header file. */
+config.h:23: [r, n, _, r, e, a, r, _, h, o, o, h, o, o, _, e, n, h, o, o, e, i] #define HAVE_ERROR_H 1
+config.h:25: [r, u, n, _, p, r, e, t, a, r, t, _, h, o, o, h, o, o, _, e, n, h, o, o, e, i, t] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:26: [r, n, _, p, r, e, t, a, r, t, _, h, h, _, e, n, h, e, i, t] #define HAVE_FGETPWENT_R 1
+config.h:28: [r, u, n, r, e, t, a, r, t, h, o, o, h, o, o, e, n, h, o, o, e, x, i, t] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:29: [r, n, _, r, e, t, a, r, t, _, h, h, _, e, n, h, e, x, i, t] #define HAVE_FGETXATTR 1
+config.h:31: [r, u, n, p, r, e, s, t, a, r, t, h, o, o, s, h, o, o, s, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:32: [n, _, p, e, s, t, a, t, _, h, s, h, s, _, e, n, h, e, i, t] #define HAVE_INTTYPES_H 1
+config.h:34: [n, p, e, s, a, o, o, s, o, o, s, l, e, n, o, o, e, i] /* Define if seccomp is available */
+config.h:35: [n, _, p, e, s, a, _, h, o, o, s, h, o, o, s, _, e, n, h, o, o, e, i] #define HAVE_SECCOMP 1
+config.h:37: [u, n, e, s, a, s, s, l, e, n, e, x, i] /* Define if SELinux is available */
+config.h:38: [u, n, _, e, s, a, _, h, s, h, s, _, l, e, n, h, e, x, i] #define HAVE_SELINUX 1
+config.h:40: [u, n, e, s, t, a, t, h, o, o, s, h, o, o, s, e, n, h, o, o, e, x, i, t] /* Define to 1 if you have the `statx' function. */
+config.h:41: [n, _, e, s, t, a, t, _, h, s, h, s, _, e, n, h, e, x, i, t] #define HAVE_STATX 1
+config.h:43: [r, u, n, r, e, s, t, a, r, t, h, o, o, s, h, o, o, s, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:44: [n, _, e, s, t, a, t, _, h, s, h, s, _, e, n, h, e, i, t] #define HAVE_STDINT_H 1
+config.h:46: [r, u, n, r, e, s, t, a, r, t, h, o, o, s, h, o, o, s, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:47: [n, _, e, s, t, a, t, _, h, o, o, s, h, o, o, s, _, e, n, h, o, o, e, i, t] #define HAVE_STDIO_H 1
+config.h:49: [r, u, n, r, e, s, t, a, r, t, h, o, o, s, h, o, o, s, l, e, n, h, o, o, e, i, t] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:50: [n, _, e, s, t, a, t, _, h, s, h, s, _, l, e, n, h, e, i, t] #define HAVE_STDLIB_H 1
+config.h:52: [r, u, n, r, e, s, t, a, r, t, h, o, o, s, h, o, o, s, l, e, n, h, 
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case crun-129.
+
+Target runtime: crun
+Title: crun hangs when an OCI hook exists non-zero
+Upstream issue: https://github.com/containers/crun/issues/129
+Category: POSIX-platform Hooks
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-129
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-129
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-129
+Upstream URL: https://github.com/containers/crun/issues/129
+Category: POSIX-platform Hooks
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Expected differential behavior:
+A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-129
+
+## Upstream Issue Summary
+- Title: crun hangs when an OCI hook exists non-zero
+- URL: https://github.com/containers/crun/issues/129
+- Category: POSIX-platform Hooks
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a concrete crun release; the issue body only states that the reproducer is reliable. The current GitHub issue page is closed and shows a linked PR #76, but local git history shows PR #76 is a `.gitignore` change and is not semantically related to hook failure handling, so it is not used as the version oracle. The closest relevant fix in upstream git history is `e3b974cdeecebbe4f58b38905c639e89017e917c` (`container: exit immediately if a prestart hook fails`, 2017-11-19). Use its parent `fd0498a528e61218e5ebe173de666d687526951a` as the pre-fix buggy baseline. `git describe --contains` places the fix before `v0.2` (`v0.2~244`) and the parent at `v0.2~245`, so a revision at or before that parent is the version target for reproducing the hang/non-return behavior.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-129`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Oracle: A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original hang/non-return behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes exited promptly on the failing prestart hook and surfaced a hook failure. Reproducing the historical issue appears to require the affected pre-fix crun revision.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

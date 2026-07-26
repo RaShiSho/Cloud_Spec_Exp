@@ -1,0 +1,678 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case youki-2994.
+
+Target runtime: youki
+Title: [Bug]: youki does not conform with OCI runtime spec
+Upstream issue: https://github.com/youki-dev/youki/issues/2994
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-2994
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-2994
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-2994
+Upstream URL: https://github.com/youki-dev/youki/issues/2994
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: createRuntime
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-2994
+
+## Upstream Issue Summary
+- Title: [Bug]: youki does not conform with OCI runtime spec
+- URL: https://github.com/youki-dev/youki/issues/2994
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue explicitly reports youki `Version 0.4.1` in its System and Setup Info, with `Commit VERGEN_IDEMPOTENT_OUTPUT`; the user reproduced it by installing youki from `main` with a dev profile on 2024-11-14. The issue page is closed and links PR #3181 for the lifecycle-state fix. Local git history maps PR #3181 to `38822f90da250e9e00ddb807e9fbdd78ba21156e` (`running create_runtime hook after container is set to created (#3181)`, 2025-06-07). Use its parent `c2ab4de08c033ba6dae867fb3cc5bd393572fb3d` as the pre-fix buggy baseline. `git describe` identifies the parent as `v0.5.3-67-gc2ab4de08c03` and the fix as contained before `v0.5.4` (`v0.5.4~16`).
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-2994`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: createRuntime
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+
+Source files:
+crates/libcgroups/examples/bpf.rs
+crates/libcgroups/src/common.rs
+crates/libcgroups/src/lib.rs
+crates/libcgroups/src/stats.rs
+crates/libcgroups/src/stub/systemd/manager.rs
+crates/libcgroups/src/stub/systemd/mod.rs
+crates/libcgroups/src/stub/v1/manager.rs
+crates/libcgroups/src/stub/v1/mod.rs
+crates/libcgroups/src/stub/v2/manager.rs
+crates/libcgroups/src/stub/v2/mod.rs
+crates/libcgroups/src/systemd/controller.rs
+crates/libcgroups/src/systemd/controller_type.rs
+crates/libcgroups/src/systemd/cpu.rs
+crates/libcgroups/src/systemd/cpuset.rs
+crates/libcgroups/src/systemd/dbus_native/client.rs
+crates/libcgroups/src/systemd/dbus_native/dbus.rs
+crates/libcgroups/src/systemd/dbus_native/message.rs
+crates/libcgroups/src/systemd/dbus_native/mod.rs
+crates/libcgroups/src/systemd/dbus_native/proxy.rs
+crates/libcgroups/src/systemd/dbus_native/serialize.rs
+crates/libcgroups/src/systemd/dbus_native/utils.rs
+crates/libcgroups/src/systemd/manager.rs
+crates/libcgroups/src/systemd/memory.rs
+crates/libcgroups/src/systemd/mod.rs
+crates/libcgroups/src/systemd/pids.rs
+crates/libcgroups/src/systemd/unified.rs
+crates/libcgroups/src/test.rs
+crates/libcgroups/src/test_manager.rs
+crates/libcgroups/src/v1/blkio.rs
+crates/libcgroups/src/v1/controller.rs
+crates/libcgroups/src/v1/controller_type.rs
+crates/libcgroups/src/v1/cpu.rs
+crates/libcgroups/src/v1/cpuacct.rs
+crates/libcgroups/src/v1/cpuset.rs
+crates/libcgroups/src/v1/devices.rs
+crates/libcgroups/src/v1/freezer.rs
+crates/libcgroups/src/v1/hugetlb.rs
+crates/libcgroups/src/v1/manager.rs
+crates/libcgroups/src/v1/memory.rs
+crates/libcgroups/src/v1/mod.rs
+crates/libcgroups/src/v1/network_classifier.rs
+crates/libcgroups/src/v1/network_priority.rs
+crates/libcgroups/src/v1/perf_event.rs
+crates/libcgroups/src/v1/pids.rs
+crates/libcgroups/src/v1/util.rs
+crates/libcgroups/src/v2/controller.rs
+crates/libcgroups/src/v2/controller_type.rs
+crates/libcgroups/src/v2/cpu.rs
+crates/libcgroups/src/v2/cpuset.rs
+crates/libcgroups/src/v2/devices/bpf.rs
+crates/libcgroups/src/v2/devices/controller.rs
+crates/libcgroups/src/v2/devices/emulator.rs
+crates/libcgroups/src/v2/devices/mocks.rs
+crates/libcgroups/src/v2/devices/mod.rs
+crates/libcgroups/src/v2/devices/program.rs
+crates/libcgroups/src/v2/freezer.rs
+crates/libcgroups/src/v2/hugetlb.rs
+crates/libcgroups/src/v2/io.rs
+crates/libcgroups/src/v2/manager.rs
+crates/libcgroups/src/v2/memory.rs
+crates/libcgroups/src/v2/mod.rs
+crates/libcgroups/src/v2/pids.rs
+crates/libcgroups/src/v2/unified.rs
+crates/libcgroups/src/v2/util.rs
+crates/libcontainer/src/apparmor.rs
+crates/libcontainer/src/capabilities.rs
+crates/libcontainer/src/channel.rs
+crates/libcontainer/src/config.rs
+crates/libcontainer/src/container/builder.rs
+crates/libcontainer/src/container/builder_impl.rs
+crates/libcontainer/src/container/container.rs
+crates/libcontainer/src/container/container_checkpoint.rs
+crates/libcontainer/src/container/container_delete.rs
+crates/libcontainer/src/container/container_events.rs
+crates/libcontainer/src/container/container_kill.rs
+crates/libcontainer/src/container/container_pause.rs
+crates/libcontainer/src/container/container_resume.rs
+crates/libcontainer/src/container/container_start.rs
+crates/libcontainer/src/container/init_builder.rs
+crates/libcontainer/src/container/mod.rs
+crates/libcontainer/src/container/state.rs
+crates/libcontainer/src/container/tenant_builder.rs
+crates/libcontainer/src/error.rs
+crates/libcontainer/src/hooks.rs
+crates/libcontainer/src/lib.rs
+crates/libcontainer/src/namespaces.rs
+crates/libcontainer/src/notify_socket.rs
+crates/libcontainer/src/process/args.rs
+crates/libcontainer/src/process/channel.rs
+crates/libcontainer/src/process/container_intermediate_process.rs
+crates/libcontainer/src/process/container_main_process.rs
+crates/libcontainer/src/process/fork.rs
+crates/libcontainer/src/process/init/context.rs
+crates/libcontainer/src/process/init/error.rs
+crates/libcontainer/src/process/init/mod.rs
+crates/libcontainer/src/process/init/process.rs
+crates/libcontainer/src/process/intel_rdt.rs
+crates/libcontainer/src/process/message.rs
+crates/libcontainer/src/process/mod.rs
+crates/libcontainer/src/process/seccomp_listener.rs
+crates/libcontainer/src/rootfs/device.rs
+crates/libcontainer/src/rootfs/mod.rs
+crates/libcontainer/src/rootfs/mount.rs
+crates/libcontainer/src/rootfs/rootfs.rs
+crates/libcontainer/src/rootfs/symlink.rs
+crates/libcontainer/src/rootfs/utils.rs
+crates/libcontainer/src/seccomp/mod.rs
+crates/libcontainer/src/signal.rs
+crates/libcontainer/src/syscall/linux.rs
+crates/libcontainer/src/syscall/mod.rs
+crates/libcontainer/src/syscall/syscall.rs
+crates/libcontainer/src/syscall/test.rs
+crates/libcontainer/src/test_utils.rs
+crates/libcontainer/src/tty.rs
+crates/libcontainer/src/user_ns.rs
+crates/libcontainer/src/utils.rs
+crates/libcontainer/src/workload/default.rs
+crates/libcontainer/src/workload/mod.rs
+crates/libcontainer/tests/as_sibling.rs
+crates/liboci-cli/src/checkpoint.rs
+crates/liboci-cli/src/create.rs
+crates/liboci-cli/src/delete.rs
+crates/liboci-cli/src/events.rs
+crates/liboci-cli/src/exec.rs
+crates/liboci-cli/src/features.rs
+crates/liboci-cli/src/info.rs
+crates/liboci-cli/src/kill.rs
+crates/liboci-cli/src/lib.rs
+crates/liboci-cli/src/list.rs
+crates/liboci-cli/src/pause.rs
+crates/liboci-cli/src/ps.rs
+crates/liboci-cli/src/resume.rs
+crates/liboci-cli/src/run.rs
+crates/liboci-cli/src/spec.rs
+crates/liboci-cli/src/start.rs
+crates/liboci-cli/src/state.rs
+crates/liboci-cli/src/update.rs
+crates/youki/build.rs
+crates/youki/src/commands/checkpoint.rs
+crates/youki/src/commands/completion.rs
+crates/youki/src/commands/create.rs
+crates/youki/src/commands/delete.rs
+crates/youki/src/commands/events.rs
+crates/youki/src/commands/exec.rs
+crates/youki/src/commands/features.rs
+crates/youki/src/commands/info.rs
+crates/youki/src/commands/kill.rs
+crates/youki/src/commands/list.rs
+crates/youki/src/commands/mod.rs
+crates/youki/src/commands/pause.rs
+crates/youki/src/commands/ps.rs
+crates/youki/src/commands/resume.rs
+crates/youki/src/commands/run.rs
+crates/youki/src/commands/spec_json.rs
+crates/youki/src/commands/start.rs
+crates/youki/src/commands/state.rs
+crates/youki/src/commands/update.rs
+crates/youki/src/main.rs
+crates/youki/src/observability.rs
+crates/youki/src/rootpath.rs
+crates/youki/src/workload/executor.rs
+crates/youki/src/workload/mod.rs
+crates/youki/src/workload/wasmedge.rs
+crates/youki/src/workload/wasmer.rs
+crates/youki/src/workload/wasmtime.rs
+experiment/seccomp/src/instruction/arch.rs
+experiment/seccomp/src/instruction/consts.rs
+experiment/seccomp/src/instruction/inst.rs
+experiment/seccomp/src/instruction/mod.rs
+experiment/seccomp/src/lib.rs
+experiment/seccomp/src/main.rs
+experiment/seccomp/src/seccomp.rs
+experiment/selinux/src/lib.rs
+experiment/selinux/src/main.rs
+experiment/selinux/src/selinux.rs
+experiment/selinux/src/selinux_label.rs
+experiment/selinux/src/tools/mod.rs
+experiment/selinux/src/tools/sockopt.rs
+experiment/selinux/src/tools/xattr.rs
+tests/contest/contest/src/lib.rs
+tests/contest/contest/src/logger.rs
+tests/contest/contest/src/main.rs
+tests/contest/contest/src/tests/cgroups/blkio.rs
+tests/contest/contest/src/tests/cgroups/cpu/mod.rs
+tests/contest/contest/src/tests/cgroups/cpu/v1.rs
+tests/contest/contest/src/tests/cgroups/cpu/v2.rs
+tests/contest/contest/src/tests/cgroups/memory.rs
+tests/contest/contest/src/tests/cgroups/mod.rs
+tests/contest/contest/src/tests/cgroups/network/absolute_network.rs
+tests/contest/contest/src/tests/cgroups/network/mod.rs
+tests/contest/contest/src/tests/cgroups/network/relative_network.rs
+tests/contest/contest/src/tests/cgroups/pids.rs
+tests/contest/contest/src/tests/delete/delete_test.rs
+tests/contest/contest/src/tests/delete/mod.rs
+tests/contest/contest/src/tests/devices/devices_test.rs
+tests/contest/contest/src/tests/devices/mod.rs
+tests/contest/contest/src/tests/domainname/mod.rs
+tests/contest/contest/src/tests/example/hello_world.rs
+tests/contest/contest/src/tests/example/mod.rs
+tests/contest/contest/src/tests/fd_control/mod.rs
+... 70 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 260 from file: crates/libcontainer/src/container/builder_impl.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: use std::fs;
+Line 2: use std::io::Write;
+Line 3: use std::os::fd::{AsRawFd, OwnedFd};
+Line 4: use std::path::PathBuf;
+Line 5: use std::rc::Rc;
+Line 6: 
+Line 7: use libcgroups::common::CgroupManager;
+Line 8: use nix::unistd::Pid;
+Line 9: use oci_spec::runtime::Spec;
+Line 10: 
+Line 11: use super::{Container, ContainerStatus};
+Line 12: use crate::error::{CreateContainerError, LibcontainerError, MissingSpecError};
+Line 13: use crate::notify_socket::NotifyListener;
+Line 14: use crate::process::args::{ContainerArgs, ContainerType};
+Line 15: use crate::process::intel_rdt::delete_resctrl_subdirectory;
+Line 16: use crate::process::{self};
+Line 17: use crate::syscall::syscall::SyscallType;
+Line 18: use crate::user_ns::UserNamespaceConfig;
+Line 19: use crate::workload::Executor;
+Line 20: use crate::{hooks, utils};
+Line 21: 
+Line 22: pub(super) struct ContainerBuilderImpl {
+Line 23:     /// Flag indicating if an init or a tenant container should be created
+Line 24:     pub container_type: ContainerType,
+Line 25:     /// Interface to operating system primitives
+Line 26:     pub syscall: SyscallType,
+Line 27:     /// Flag indicating if systemd should be used for cgroup management
+Line 28:     pub use_systemd: bool,
+Line 29:     /// Id of the container
+Line 30:     pub container_id: String,
+Line 31:     /// OCI compliant runtime spec
+Line 32:     pub spec: Rc<Spec>,
+Line 33:     /// Root filesystem of the container
+Line 34:     pub rootfs: PathBuf,
+Line 35:     /// File which will be used to communicate the pid of the
+Line 36:     /// container process to the higher level runtime
+Line 37:     pub pid_file: Option<PathBuf>,
+Line 38:     /// Socket to communicate the file descriptor of the ptty
+Line 39:     pub console_socket: Option<OwnedFd>,
+Line 40:     /// Options for new user namespace
+Line 41:     pub user_ns_config: Option<UserNamespaceConfig>,
+Line 42:     /// Path to the Unix Domain Socket to communicate container start
+Line 43:     pub notify_path: PathBuf,
+Line 44:     /// Container state
+Line 45:     pub container: Option<Container>,
+Line 46:     /// File descriptos preserved/passed to the container init process.
+Line 47:     pub preserve_fds: i32,
+Line 48:     /// If the container is to be run in detached mode
+Line 49:     pub detached: bool,
+Line 50:     /// Default executes the specified execution of a generic command
+Line 51:     pub executor: Box<dyn Executor>,
+Line 52:     /// If do not use pivot root to jail process inside rootfs
+Line 53:     pub no_pivot: bool,
+Line 54:     // RawFd set to stdin of the container init process.
+Line 55:     pub stdin: Option<OwnedFd>,
+Line 56:     // RawFd set to stdout of the container init process.
+Line 57:     pub stdout: Option<OwnedFd>,
+Line 58:     // RawFd set to stderr of the container init process.
+Line 59:     pub stderr: Option<OwnedFd>,
+Line 60:     // Indicate if the init process should be a sibling of the main process.
+Line 61:     pub as_sibling: bool,
+Line 62: }
+Line 63: 
+Line 64: impl ContainerBuilderImpl {
+Line 65:     pub(super) fn create(&mut self) -> Result<Pid, LibcontainerError> {
+Line 66:         match self.run_container() {
+Line 67:             Ok(pid) => Ok(pid),
+Line 68:             Err(outer) => {
+Line 69:                 // Only the init container should be cleaned up in the case of
+Line 70:                 // an error.
+Line 71:                 let cleanup_err = if self.is_init_container() {
+Line 72:                     self.cleanup_container().err()
+Line 73:                 } else {
+Line 74:                     None
+Line 75:                 };
+Line 76: 
+Line 77:                 Err(CreateContainerError::new(outer, cleanup_err).into())
+Line 78:             }
+Line 79:         }
+Line 80:     }
+Line 81: 
+Line 82:     fn is_init_container(&self) -> bool {
+Line 83:         matches!(self.container_type, ContainerType::InitContainer)
+Line 84:     }
+Line 85: 
+Line 86:     fn run_container(&mut self) -> Result<Pid, LibcontainerError> {
+Line 87:         let linux = 
+
+Lines 86 to 210 from file: crates/libcontainer/src/container/builder_impl.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 86:     fn run_container(&mut self) -> Result<Pid, LibcontainerError> {
+Line 87:         let linux = self.spec.linux().as_ref().ok_or(MissingSpecError::Linux)?;
+Line 88:         let cgroups_path = utils::get_cgroup_path(linux.cgroups_path(), &self.container_id);
+Line 89:         let cgroup_config = libcgroups::common::CgroupConfig {
+Line 90:             cgroup_path: cgroups_path,
+Line 91:             systemd_cgroup: self.use_systemd || self.user_ns_config.is_some(),
+Line 92:             container_name: self.container_id.to_owned(),
+Line 93:         };
+Line 94:         let process = self
+Line 95:             .spec
+Line 96:             .process()
+Line 97:             .as_ref()
+Line 98:             .ok_or(MissingSpecError::Process)?;
+Line 99: 
+Line 100:         if matches!(self.container_type, ContainerType::InitContainer) {
+Line 101:             if let Some(hooks) = self.spec.hooks() {
+Line 102:                 hooks::run_hooks(
+Line 103:                     hooks.create_runtime().as_ref(),
+Line 104:                     self.container.as_ref(),
+Line 105:                     None,
+Line 106:                 )?
+Line 107:             }
+Line 108:         }
+Line 109: 
+Line 110:         // Need to create the notify socket before we pivot root, since the unix
+Line 111:         // domain socket used here is outside of the rootfs of container. During
+Line 112:         // exec, need to create the socket before we enter into existing mount
+Line 113:         // namespace. We also need to create to socket before entering into the
+Line 114:         // user namespace in the case that the path is located in paths only
+Line 115:         // root can access.
+Line 116:         let notify_listener = NotifyListener::new(&self.notify_path)?;
+Line 117: 
+Line 118:         // If Out-of-memory score adjustment is set in specification.  set the score
+Line 119:         // value for the current process check
+Line 120:         // https://dev.to/rrampage/surviving-the-linux-oom-killer-2ki9 for some more
+Line 121:         // information.
+Line 122:         //
+Line 123:         // This has to be done before !dumpable because /proc/self/oom_score_adj
+Line 124:         // is not writeable unless you're an privileged user (if !dumpable is
+Line 125:         // set). All children inherit their parent's oom_score_adj value on
+Line 126:         // fork(2) so this will always be propagated properly.
+Line 127:         if let Some(oom_score_adj) = process.oom_score_adj() {
+Line 128:             tracing::debug!("Set OOM score to {}", oom_score_adj);
+Line 129:             let mut f = fs::File::create("/proc/self/oom_score_adj").map_err(|err| {
+Line 130:                 tracing::error!("failed to open /proc/self/oom_score_adj: {}", err);
+Line 131:                 LibcontainerError::OtherIO(err)
+Line 132:             })?;
+Line 133:             f.write_all(oom_score_adj.to_string().as_bytes())
+Line 134:                 .map_err(|err| {
+Line 135:                     tracing::error!("failed to write to /proc/self/oom_score_adj: {}", err);
+Line 136:                     LibcontainerError::OtherIO(err)
+Line 137:                 })?;
+Line 138:         }
+Line 139: 
+Line 140:         // Make the process non-dumpable, to avoid various race conditions that
+Line 141:         // could cause processes in namespaces we're joining to access host
+Line 142:         // resources (or potentially execute code).
+Line 143:         //
+Line 144:         // However, if the number of namespaces we are joining is 0, we are not
+Line 145:         // going to be switching to a different security context. Thus setting
+Line 146:         // ourselves to be non-dumpable only breaks things (like rootless
+Line 147:         // containers), which is the recommendation from the kernel folks.
+Line 148:         if linux.namespaces().is_some() {
+Line 149:             prctl::set_dumpable(false).map_err(|e| {
+Line 150:                 LibcontainerError::Other(format!(
+Line 151:                     "error in setting d
+
+Lines 210 to 380 from file: crates/libcontainer/src/container/builder_impl.rs
+Command read_range returned: Line 210:         let linux = self.spec.linux().as_ref().ok_or(MissingSpecError::Linux)?;
+Line 211:         let cgroups_path = utils::get_cgroup_path(linux.cgroups_path(), &self.container_id);
+Line 212:         let cmanager =
+Line 213:             libcgroups::common::create_cgroup_manager(libcgroups::common::CgroupConfig {
+Line 214:                 cgroup_path: cgroups_path,
+Line 215:                 systemd_cgroup: self.use_systemd || self.user_ns_config.is_some(),
+Line 216:                 container_name: self.container_id.to_string(),
+Line 217:             })?;
+Line 218: 
+Line 219:         let mut errors = Vec::new();
+Line 220: 
+Line 221:         if let Err(e) = cmanager.remove() {
+Line 222:             tracing::error!(error = ?e, "failed to remove cgroup manager");
+Line 223:             errors.push(e.to_string());
+Line 224:         }
+Line 225: 
+Line 226:         if let Some(container) = &self.container {
+Line 227:             if let Some(true) = container.clean_up_intel_rdt_subdirectory() {
+Line 228:                 if let Err(e) = delete_resctrl_subdirectory(container.id()) {
+Line 229:                     tracing::error!(id = ?container.id(), error = ?e, "failed to delete resctrl subdirectory");
+Line 230:                     errors.push(e.to_string());
+Line 231:                 }
+Line 232:             }
+Line 233: 
+Line 234:             if container.root.exists() {
+Line 235:                 if let Err(e) = fs::remove_dir_all(&container.root) {
+Line 236:                     tracing::error!(container_root = ?container.root, error = ?e, "failed to delete container root");
+Line 237:                     errors.push(e.to_string());
+Line 238:                 }
+Line 239:             }
+Line 240:         }
+Line 241: 
+Line 242:         if !errors.is_empty() {
+Line 243:             return Err(LibcontainerError::Other(format!(
+Line 244:                 "failed to cleanup container: {}",
+Line 245:                 errors.join(";")
+Line 246:             )));
+Line 247:         }
+Line 248: 
+Line 249:         Ok(())
+Line 250:     }
+Line 251: }
+EOF
+
+Lines 150 to 210 from file: crates/libcontainer/src/container/builder_impl.rs
+Command read_range returned: Line 150:                 LibcontainerError::Other(format!(
+Line 151:                     "error in setting dumpable to false : {}",
+Line 152:                     nix::errno::Errno::from_raw(e)
+Line 153:                 ))
+Line 154:             })?;
+Line 155:         }
+Line 156: 
+Line 157:         // This container_args will be passed to the container processes,
+Line 158:         // therefore we will have to move all the variable by value. Since self
+Line 159:         // is a shared reference, we have to clone these variables here.
+Line 160:         let container_args = ContainerArgs {
+Line 161:             container_type: self.container_type,
+Line 162:             syscall: self.syscall,
+Line 163:             spec: Rc::clone(&self.spec),
+Line 164:             rootfs: self.rootfs.to_owned(),
+Line 165:             console_socket: self.console_socket.as_ref().map(|c| c.as_raw_fd()),
+Line 166:             notify_listener,
+Line 167:             preserve_fds: self.preserve_fds,
+Line 168:             container: self.container.to_owned(),
+Line 169:             user_ns_config: self.user_ns_config.to_owned(),
+Line 170:             cgroup_config,
+Line 171:             detached: self.detached,
+Line 172:             executor: self.executor.clone(),
+Line 173:             no_pivot: self.no_pivot,
+Line 174:             stdin: self.stdin.as_ref().map(|x| x.as_raw_fd()),
+Line 175:             stdout: self.stdout.as_ref().map(|x| x.as_raw_fd()),
+Line 176:             stderr: self.stderr.as_ref().map(|x| x.as_raw_fd()),
+Line 177:             as_sibling: self.as_sibling,
+Line 178:         };
+Line 179: 
+Line 180:         let (init_pid, need_to_clean_up_intel_rdt_dir) =
+Line 181:             process::container_main_process::container_main_process(&container_args).map_err(
+Line 182:                 |err| {
+Line 183:                     tracing::error!("failed to run container process {}", err);
+Line 184:                     LibcontainerError::MainProcess(err)
+Line 185:                 },
+Line 186:             )?;
+Line 187: 
+Line 188:         // if file to write the pid to is specified, write pid of the child
+Line 189:         if let Some(pid_file) = &self.pid_file {
+Line 190:             fs::write(pid_file, format!("{init_pid}")).map_err(|err| {
+Line 191:                 tracing::error!("failed to write pid to file: {}", err);
+Line 192:                 LibcontainerError::OtherIO(err)
+Line 193:             })?;
+Line 194:         }
+Line 195: 
+Line 196:         if let Some(container) = &mut self.container {
+Line 197:             // update status and pid of the container process
+Line 198:             container
+Line 199:                 .set_status(ContainerStatus::Created)
+Line 200:                 .set_creator(nix::unistd::geteuid().as_raw())
+Line 201:                 .set_pid(init_pid.as_raw())
+Line 202:                 .set_clean_up_intel_rdt_directory(need_to_clean_up_intel_rdt_dir)
+Line 203:                 .save()?;
+Line 204:         }
+Line 205: 
+Line 206:         Ok(init_pid)
+Line 207:     }
+Line 208: 
+Line 209:     fn cleanup_container(&self) -> Result<(), LibcontainerError> {
+Line 210:         let linux = self.spec.linux().as_ref().ok_or(MissingSpecError::Linux)?;
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case youki-2994.
+
+Target runtime: youki
+Title: [Bug]: youki does not conform with OCI runtime spec
+Upstream issue: https://github.com/youki-dev/youki/issues/2994
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-2994
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-2994
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-2994
+Upstream URL: https://github.com/youki-dev/youki/issues/2994
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: createRuntime
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-2994
+
+## Upstream Issue Summary
+- Title: [Bug]: youki does not conform with OCI runtime spec
+- URL: https://github.com/youki-dev/youki/issues/2994
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue explicitly reports youki `Version 0.4.1` in its System and Setup Info, with `Commit VERGEN_IDEMPOTENT_OUTPUT`; the user reproduced it by installing youki from `main` with a dev profile on 2024-11-14. The issue page is closed and links PR #3181 for the lifecycle-state fix. Local git history maps PR #3181 to `38822f90da250e9e00ddb807e9fbdd78ba21156e` (`running create_runtime hook after container is set to created (#3181)`, 2025-06-07). Use its parent `c2ab4de08c033ba6dae867fb3cc5bd393572fb3d` as the pre-fix buggy baseline. `git describe` identifies the parent as `v0.5.3-67-gc2ab4de08c03` and the fix as contained before `v0.5.4` (`v0.5.4~16`).
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-2994`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: createRuntime
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

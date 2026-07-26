@@ -1,0 +1,1009 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-5182.
+
+Target runtime: runc
+Title: poststop hook is not run if poststart hook fails
+Upstream issue: https://github.com/opencontainers/runc/issues/5182
+Category: POSIX-platform Hooks
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-5182
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-5182
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-5182
+Upstream URL: https://github.com/opencontainers/runc/issues/5182
+Category: POSIX-platform Hooks
+
+Payload under test:
+process args: ["/bin/sh", "-c", "exit 0"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: poststart, poststop
+
+Expected differential behavior:
+A reference runtime should run poststop cleanup after poststart failure. The affected behavior leaves /tmp/post-stop absent and prints poststop-missing.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-5182
+
+## Upstream Issue Summary
+- Title: poststop hook is not run if poststart hook fails
+- URL: https://github.com/opencontainers/runc/issues/5182
+- Category: POSIX-platform Hooks
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text was not reachable during this pass. Git log matched the poststart/poststop fix area, including PR #5186 merge `4c8d72d54daa`; use parent `80fc1cd34e1e` as the pre-fix buggy baseline for this case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-5182`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "exit 0"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: poststart, poststop
+
+Oracle: A reference runtime should run poststop cleanup after poststart failure. The affected behavior leaves /tmp/post-stop absent and prints poststop-missing.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original missing-poststop behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes left evidence that the poststop hook ran (`poststop-ran`), although their create/start status values differed. Reproducing the issue appears to require the affected runc revision where poststop was skipped after a poststart failure.
+
+
+Source files:
+checkpoint.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+internal/linux/doc.go
+internal/linux/eintr.go
+internal/linux/linux.go
+internal/pathrs/doc.go
+internal/pathrs/mkdirall.go
+internal/pathrs/mkdirall_pathrslite.go
+internal/pathrs/path.go
+internal/pathrs/path_test.go
+internal/pathrs/procfs_pathrslite.go
+internal/pathrs/retry.go
+internal/pathrs/root_pathrslite.go
+internal/sys/doc.go
+internal/sys/opath_linux.go
+internal/sys/sysctl_linux.go
+internal/sys/verify_inode_unix.go
+internal/third_party/systemd/activation/files_unix.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cmd_clone.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/doc.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/memorypolicy.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/netdevices.go
+libcontainer/configs/network.go
+libcontainer/configs/tocpuset_test.go
+libcontainer/configs/validate/doc.go
+libcontainer/configs/validate/intelrdt.go
+libcontainer/configs/validate/intelrdt_test.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_disabled_linux.go
+libcontainer/criu_linux.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/devices/doc.go
+libcontainer/env.go
+libcontainer/env_test.go
+libcontainer/error.go
+libcontainer/example_test.go
+libcontainer/exeseal/cloned_binary_linux.go
+libcontainer/exeseal/doc.go
+libcontainer/exeseal/overlayfs_linux.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/bench_test.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/internal/userns/doc.go
+libcontainer/internal/userns/userns_maps_linux.go
+libcontainer/internal/userns/usernsfd_linux.go
+libcontainer/internal/userns/usernsfd_linux_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/mount_linux_test.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/doc.go
+libcontainer/seccomp/patchbpf/doc.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/sync_unix.go
+libcontainer/system/doc.go
+libcontainer/system/kernelversion/kernel_linux.go
+libcontainer/system/kernelversion/kernel_linux_test.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/rlimit_linux.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+notify_socket_test.go
+pause.go
+ps.go
+restore.go
+rlimit_linux.go
+rootless_linux.go
+run.go
+signals.go
+spec.go
+start.go
+state.go
+tests/cmd/fs-idmap/fs-idmap.go
+tests/cmd/key_label/key_label.go
+tests/cmd/pidfd-kill/pidfd-kill.go
+tests/cmd/recvtty/recvtty.go
+tests/cmd/remap-rootfs/remap-rootfs.go
+tests/cmd/sd-helper/helper.go
+tests/cmd/seccompagent/seccompagent.go
+tests/cmd/seccompagent/unsupported.go
+tty.go
+types/events.go
+types/features/features.go
+update.go
+utils.go
+utils_linux.go
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+5 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 1 to 320 from file: utils_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package main
+Line 2: 
+Line 3: import (
+Line 4: 	"errors"
+Line 5: 	"fmt"
+Line 6: 	"io/fs"
+Line 7: 	"net"
+Line 8: 	"os"
+Line 9: 	"path/filepath"
+Line 10: 	"strconv"
+Line 11: 
+Line 12: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 13: 	selinux "github.com/opencontainers/selinux/go-selinux"
+Line 14: 	"github.com/sirupsen/logrus"
+Line 15: 	"github.com/urfave/cli"
+Line 16: 	"golang.org/x/sys/unix"
+Line 17: 
+Line 18: 	"github.com/opencontainers/runc/internal/pathrs"
+Line 19: 	"github.com/opencontainers/runc/internal/third_party/systemd/activation"
+Line 20: 	"github.com/opencontainers/runc/libcontainer"
+Line 21: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 22: 	"github.com/opencontainers/runc/libcontainer/specconv"
+Line 23: 	"github.com/opencontainers/runc/libcontainer/system"
+Line 24: 	"github.com/opencontainers/runc/libcontainer/system/kernelversion"
+Line 25: 	"github.com/opencontainers/runc/libcontainer/utils"
+Line 26: )
+Line 27: 
+Line 28: var errEmptyID = errors.New("container id cannot be empty")
+Line 29: 
+Line 30: // getContainer returns the specified container instance by loading it from
+Line 31: // a state directory (root).
+Line 32: func getContainer(context *cli.Context) (*libcontainer.Container, error) {
+Line 33: 	id := context.Args().First()
+Line 34: 	if id == "" {
+Line 35: 		return nil, errEmptyID
+Line 36: 	}
+Line 37: 	root := context.GlobalString("root")
+Line 38: 	return libcontainer.Load(root, id)
+Line 39: }
+Line 40: 
+Line 41: func getDefaultImagePath() string {
+Line 42: 	cwd, err := os.Getwd()
+Line 43: 	if err != nil {
+Line 44: 		panic(err)
+Line 45: 	}
+Line 46: 	return filepath.Join(cwd, "checkpoint")
+Line 47: }
+Line 48: 
+Line 49: // newProcess converts [specs.Process] to [libcontainer.Process].
+Line 50: func newProcess(p *specs.Process) (*libcontainer.Process, error) {
+Line 51: 	lp := &libcontainer.Process{
+Line 52: 		Args:            p.Args,
+Line 53: 		Env:             p.Env,
+Line 54: 		UID:             int(p.User.UID),
+Line 55: 		GID:             int(p.User.GID),
+Line 56: 		Cwd:             p.Cwd,
+Line 57: 		Label:           p.SelinuxLabel,
+Line 58: 		NoNewPrivileges: &p.NoNewPrivileges,
+Line 59: 		AppArmorProfile: p.ApparmorProfile,
+Line 60: 		Scheduler:       p.Scheduler,
+Line 61: 		IOPriority:      p.IOPriority,
+Line 62: 	}
+Line 63: 
+Line 64: 	if p.ConsoleSize != nil {
+Line 65: 		lp.ConsoleWidth = uint16(p.ConsoleSize.Width)
+Line 66: 		lp.ConsoleHeight = uint16(p.ConsoleSize.Height)
+Line 67: 	}
+Line 68: 
+Line 69: 	if p.Capabilities != nil {
+Line 70: 		lp.Capabilities = &configs.Capabilities{}
+Line 71: 		lp.Capabilities.Bounding = p.Capabilities.Bounding
+Line 72: 		lp.Capabilities.Effective = p.Capabilities.Effective
+Line 73: 		lp.Capabilities.Inheritable = p.Capabilities.Inheritable
+Line 74: 		lp.Capabilities.Permitted = p.Capabilities.Permitted
+Line 75: 		lp.Capabilities.Ambient = p.Capabilities.Ambient
+Line 76: 	}
+Line 77: 	if l := len(p.User.AdditionalGids); l > 0 {
+Line 78: 		lp.AdditionalGroups = make([]int, l)
+Line 79: 		for i, g := range p.User.AdditionalGids {
+Line 80: 			lp.AdditionalGroups[i] = int(g)
+Line 81: 		}
+Line 82: 	}
+Line 83: 	for _, rlimit := range p.Rlimits {
+Line 84: 		rl, err := createLibContainerRlimit(rlimit)
+Line 85: 		if err != nil {
+Line 86: 			return nil, err
+Line 87: 		}
+Line 88: 		lp.Rlimits = append(lp.Rlimits, rl)
+Line 89: 	}
+Line 90: 	aff, err := configs.ConvertCPUAffinity(p.ExecCPUAffinity)
+Line 91: 	if err != nil {
+Line 92: 		return nil, err
+Line 93: 	}
+Line 94: 	lp.CPUAffinity = aff
+Line 9
+[older content truncated]
+
+Lines 320 to 760 from file: utils_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 320: 	}
+Line 321: 	if detach {
+Line 322: 		return 0, nil
+Line 323: 	}
+Line 324: 	// For non-detached container, we should forward signals to the container.
+Line 325: 	handler := <-handlerCh
+Line 326: 	return handler.forward(process, tty)
+Line 327: }
+Line 328: 
+Line 329: func (r *runner) destroy() {
+Line 330: 	if r.shouldDestroy {
+Line 331: 		if err := r.container.Destroy(); err != nil {
+Line 332: 			logrus.Warn(err)
+Line 333: 		}
+Line 334: 	}
+Line 335: }
+Line 336: 
+Line 337: func (r *runner) terminate(p *libcontainer.Process) {
+Line 338: 	_ = p.Signal(unix.SIGKILL)
+Line 339: 	_, _ = p.Wait()
+Line 340: }
+Line 341: 
+Line 342: func (r *runner) checkTerminal(config *specs.Process) error {
+Line 343: 	detach := r.detach || (r.action == CT_ACT_CREATE)
+Line 344: 	// Check command-line for sanity.
+Line 345: 	if detach && config.Terminal && r.consoleSocket == "" {
+Line 346: 		return errors.New("cannot allocate tty if runc will detach without setting console socket")
+Line 347: 	}
+Line 348: 	if (!detach || !config.Terminal) && r.consoleSocket != "" {
+Line 349: 		return errors.New("cannot use console socket if runc will not detach or allocate tty")
+Line 350: 	}
+Line 351: 	return nil
+Line 352: }
+Line 353: 
+Line 354: func validateProcessSpec(spec *specs.Process) error {
+Line 355: 	if spec == nil {
+Line 356: 		return errors.New("process property must not be empty")
+Line 357: 	}
+Line 358: 	if spec.Cwd == "" {
+Line 359: 		return errors.New("Cwd property must not be empty")
+Line 360: 	}
+Line 361: 	if !filepath.IsAbs(spec.Cwd) {
+Line 362: 		return errors.New("Cwd must be an absolute path")
+Line 363: 	}
+Line 364: 	if len(spec.Args) == 0 {
+Line 365: 		return errors.New("args must not be empty")
+Line 366: 	}
+Line 367: 	if spec.SelinuxLabel != "" && !selinux.GetEnabled() {
+Line 368: 		return errors.New("selinux label is specified in config, but selinux is disabled or not supported")
+Line 369: 	}
+Line 370: 	return nil
+Line 371: }
+Line 372: 
+Line 373: type CtAct uint8
+Line 374: 
+Line 375: const (
+Line 376: 	CT_ACT_CREATE CtAct = iota + 1
+Line 377: 	CT_ACT_RUN
+Line 378: 	CT_ACT_RESTORE
+Line 379: )
+Line 380: 
+Line 381: func startContainer(context *cli.Context, action CtAct, criuOpts *libcontainer.CriuOpts) (int, error) {
+Line 382: 	if err := revisePidFile(context); err != nil {
+Line 383: 		return -1, err
+Line 384: 	}
+Line 385: 	spec, err := setupSpec(context)
+Line 386: 	if err != nil {
+Line 387: 		return -1, err
+Line 388: 	}
+Line 389: 
+Line 390: 	id := context.Args().First()
+Line 391: 	if id == "" {
+Line 392: 		return -1, errEmptyID
+Line 393: 	}
+Line 394: 
+Line 395: 	notifySocket := newNotifySocket(context, os.Getenv("NOTIFY_SOCKET"), id)
+Line 396: 	if notifySocket != nil {
+Line 397: 		notifySocket.setupSpec(spec)
+Line 398: 	}
+Line 399: 
+Line 400: 	container, err := createContainer(context, id, spec)
+Line 401: 	if err != nil {
+Line 402: 		return -1, err
+Line 403: 	}
+Line 404: 
+Line 405: 	if notifySocket != nil {
+Line 406: 		if err := notifySocket.setupSocketDirectory(); err != nil {
+Line 407: 			return -1, err
+Line 408: 		}
+Line 409: 		if action == CT_ACT_RUN {
+Line 410: 			if err := notifySocket.bindSocket(); err != nil {
+Line 411: 				return -1, err
+Line 412: 			}
+Line 413: 		}
+Line 414: 	}
+Line 415: 
+Line 416: 	r := &runner{
+Line 417: 		enableSubreaper: !context.Bool("no-subreaper"),
+Line 418: 		shouldDestroy:   !context.Bool("keep"),
+Line 419: 		container:       container,
+Line 420: 		listenFDs:       activation.Files(), // On-demand socket activation.
+Line 421: 		notifySocket:    notifySocket,
+Line 422: 		consoleSocket:   context.String("console-socket"),
+Line 423: 		pidfdSocket:     context.String("pidfd-socket"),
+Line 424: 		detach:          context.Bool("detach"),
+Line 425: 		pidFile:         context.String("pid-file"),
+Line 426: 		preserveFDs:     context.Int("preserve-fds"),
+Line 427: 		action:          action,
+Line 428: 		criuOpts:        criuOpts,
+Line 429: 		init:            true,
+Line 430: 	}
+Line 431: 	return r.run(spec.Process)
+Line 
+
+Lines 120 to 320 from file: utils_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 120: 		} else {
+Line 121: 			// the caller of runc will handle receiving the console master
+Line 122: 			conn, err := net.Dial("unix", sockpath)
+Line 123: 			if err != nil {
+Line 124: 				return nil, err
+Line 125: 			}
+Line 126: 			defer func() {
+Line 127: 				if Err != nil {
+Line 128: 					conn.Close()
+Line 129: 				}
+Line 130: 			}()
+Line 131: 			t.postStart = append(t.postStart, conn)
+Line 132: 			socket, err := conn.(*net.UnixConn).File()
+Line 133: 			if err != nil {
+Line 134: 				return nil, err
+Line 135: 			}
+Line 136: 			t.postStart = append(t.postStart, socket)
+Line 137: 			process.ConsoleSocket = socket
+Line 138: 		}
+Line 139: 		return t, nil
+Line 140: 	}
+Line 141: 	// when runc will detach the caller provides the stdio to runc via runc's 0,1,2
+Line 142: 	// and the container's process inherits runc's stdio.
+Line 143: 	if detach {
+Line 144: 		inheritStdio(process)
+Line 145: 		return &tty{}, nil
+Line 146: 	}
+Line 147: 
+Line 148: 	config := container.Config()
+Line 149: 	rootuid, err := config.HostRootUID()
+Line 150: 	if err != nil {
+Line 151: 		return nil, err
+Line 152: 	}
+Line 153: 	rootgid, err := config.HostRootGID()
+Line 154: 	if err != nil {
+Line 155: 		return nil, err
+Line 156: 	}
+Line 157: 
+Line 158: 	return setupProcessPipes(process, rootuid, rootgid)
+Line 159: }
+Line 160: 
+Line 161: // createPidFile creates a file containing the PID,
+Line 162: // doing so atomically (via create and rename).
+Line 163: func createPidFile(path string, process *libcontainer.Process) error {
+Line 164: 	pid, err := process.Pid()
+Line 165: 	if err != nil {
+Line 166: 		return err
+Line 167: 	}
+Line 168: 	var (
+Line 169: 		tmpDir  = filepath.Dir(path)
+Line 170: 		tmpName = filepath.Join(tmpDir, "."+filepath.Base(path))
+Line 171: 	)
+Line 172: 	f, err := os.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_SYNC, 0o666)
+Line 173: 	if err != nil {
+Line 174: 		return err
+Line 175: 	}
+Line 176: 	_, err = f.WriteString(strconv.Itoa(pid))
+Line 177: 	f.Close()
+Line 178: 	if err != nil {
+Line 179: 		return err
+Line 180: 	}
+Line 181: 	return os.Rename(tmpName, path)
+Line 182: }
+Line 183: 
+Line 184: func createContainer(context *cli.Context, id string, spec *specs.Spec) (*libcontainer.Container, error) {
+Line 185: 	rootlessCg, err := shouldUseRootlessCgroupManager(context)
+Line 186: 	if err != nil {
+Line 187: 		return nil, err
+Line 188: 	}
+Line 189: 	config, err := specconv.CreateLibcontainerConfig(&specconv.CreateOpts{
+Line 190: 		CgroupName:       id,
+Line 191: 		UseSystemdCgroup: context.GlobalBool("systemd-cgroup"),
+Line 192: 		NoPivotRoot:      context.Bool("no-pivot"),
+Line 193: 		NoNewKeyring:     context.Bool("no-new-keyring"),
+Line 194: 		Spec:             spec,
+Line 195: 		RootlessEUID:     os.Geteuid() != 0,
+Line 196: 		RootlessCgroups:  rootlessCg,
+Line 197: 	})
+Line 198: 	if err != nil {
+Line 199: 		return nil, err
+Line 200: 	}
+Line 201: 
+Line 202: 	root := context.GlobalString("root")
+Line 203: 	return libcontainer.Create(root, id, config)
+Line 204: }
+Line 205: 
+Line 206: type runner struct {
+Line 207: 	init            bool
+Line 208: 	enableSubreaper bool
+Line 209: 	shouldDestroy   bool
+Line 210: 	detach          bool
+Line 211: 	listenFDs       []*os.File
+Line 212: 	preserveFDs     int
+Line 213: 	pidFile         string
+Line 214: 	consoleSocket   string
+Line 215: 	pidfdSocket     string
+Line 216: 	container       *libcontainer.Container
+Line 217: 	action          CtAct
+Line 218: 	notifySocket    *notifySocket
+Line 219: 	criuOpts        *libcontainer.CriuOpts
+Line 220: 	subCgroupPaths  map[string]string
+Line 221: }
+Line 222: 
+Line 223: func (r *runner) run(config *specs.Process) (_ int, retErr error) {
+Line 224: 	detach := r.detach || (r.action == CT_ACT_CREATE)
+Line 225: 	defer func() {
+Line 226: 		// For a non-detached container, or we get an error, we
+Line 227: 		// should destroy the container.
+Line 228: 		if !detach || retErr != nil {
+Line 229: 			r.destroy()
+Line 230: 		}
+Line 231: 	}()
+Line 232: 	if err := r.checkTermina
+
+Lines 223 to 319 from file: utils_linux.go
+Command read_range returned: Line 223: func (r *runner) run(config *specs.Process) (_ int, retErr error) {
+Line 224: 	detach := r.detach || (r.action == CT_ACT_CREATE)
+Line 225: 	defer func() {
+Line 226: 		// For a non-detached container, or we get an error, we
+Line 227: 		// should destroy the container.
+Line 228: 		if !detach || retErr != nil {
+Line 229: 			r.destroy()
+Line 230: 		}
+Line 231: 	}()
+Line 232: 	if err := r.checkTerminal(config); err != nil {
+Line 233: 		return -1, err
+Line 234: 	}
+Line 235: 	process, err := newProcess(config)
+Line 236: 	if err != nil {
+Line 237: 		return -1, err
+Line 238: 	}
+Line 239: 	process.LogLevel = strconv.Itoa(int(logrus.GetLevel()))
+Line 240: 	// Populate the fields that come from runner.
+Line 241: 	process.Init = r.init
+Line 242: 	process.SubCgroupPaths = r.subCgroupPaths
+Line 243: 	if len(r.listenFDs) > 0 {
+Line 244: 		process.Env = append(process.Env, "LISTEN_FDS="+strconv.Itoa(len(r.listenFDs)), "LISTEN_PID=1")
+Line 245: 		process.ExtraFiles = append(process.ExtraFiles, r.listenFDs...)
+Line 246: 	}
+Line 247: 	baseFd := 3 + len(process.ExtraFiles)
+Line 248: 	procSelfFd, closer, err := pathrs.ProcThreadSelfOpen("fd/", unix.O_DIRECTORY|unix.O_CLOEXEC)
+Line 249: 	if err != nil {
+Line 250: 		return -1, err
+Line 251: 	}
+Line 252: 	defer closer()
+Line 253: 	defer procSelfFd.Close()
+Line 254: 	for i := baseFd; i < baseFd+r.preserveFDs; i++ {
+Line 255: 		err := unix.Faccessat(int(procSelfFd.Fd()), strconv.Itoa(i), unix.F_OK, 0)
+Line 256: 		if err != nil {
+Line 257: 			return -1, fmt.Errorf("unable to stat preserved-fd %d (of %d): %w", i-baseFd, r.preserveFDs, err)
+Line 258: 		}
+Line 259: 		process.ExtraFiles = append(process.ExtraFiles, os.NewFile(uintptr(i), "PreserveFD:"+strconv.Itoa(i)))
+Line 260: 	}
+Line 261: 	// Setting up IO is a two stage process. We need to modify process to deal
+Line 262: 	// with detaching containers, and then we get a tty after the container has
+Line 263: 	// started.
+Line 264: 	if r.enableSubreaper {
+Line 265: 		// set us as the subreaper before registering the signal handler for the container
+Line 266: 		if err := system.SetSubreaper(1); err != nil {
+Line 267: 			logrus.Warn(err)
+Line 268: 		}
+Line 269: 	}
+Line 270: 	var handlerCh chan *signalHandler
+Line 271: 	if !detach {
+Line 272: 		handlerCh = newSignalHandler()
+Line 273: 	}
+Line 274: 	tty, err := setupIO(process, r.container, config.Terminal, detach, r.consoleSocket)
+Line 275: 	if err != nil {
+Line 276: 		return -1, err
+Line 277: 	}
+Line 278: 	defer tty.Close()
+Line 279: 
+Line 280: 	if r.pidfdSocket != "" {
+Line 281: 		connClose, err := setupPidfdSocket(process, r.pidfdSocket)
+Line 282: 		if err != nil {
+Line 283: 			return -1, err
+Line 284: 		}
+Line 285: 		defer connClose()
+Line 286: 	}
+Line 287: 
+Line 288: 	switch r.action {
+Line 289: 	case CT_ACT_CREATE:
+Line 290: 		err = r.container.Start(process)
+Line 291: 	case CT_ACT_RESTORE:
+Line 292: 		err = r.container.Restore(process, r.criuOpts)
+Line 293: 	case CT_ACT_RUN:
+Line 294: 		err = r.container.Run(process)
+Line 295: 	default:
+Line 296: 		panic("Unknown action")
+Line 297: 	}
+Line 298: 	if err != nil {
+Line 299: 		return -1, err
+Line 300: 	}
+Line 301: 	defer func() {
+Line 302: 		// We should terminate the process once we got an error.
+Line 303: 		if retErr != nil {
+Line 304: 			r.terminate(process)
+Line 305: 		}
+Line 306: 	}()
+Line 307: 	if err = tty.waitConsole(); err != nil {
+Line 308: 		return -1, err
+Line 309: 	}
+Line 310: 	tty.ClosePostStart()
+Line 311: 	if r.pidFile != "" {
+Line 312: 		if err = createPidFile(r.pidFile, process); err != nil {
+Line 313: 			return -1, err
+Line 314: 		}
+Line 315: 	}
+Line 316: 	if r.notifySocket != nil {
+Line 317: 		if err = r.notifySocket.forward(process, detach); err != nil {
+Line 318: 			return -1, err
+Line 319: 		}
+
+Lines 319 to 380 from file: utils_linux.go
+Command read_range returned: Line 319: 		}
+Line 320: 	}
+Line 321: 	if detach {
+Line 322: 		return 0, nil
+Line 323: 	}
+Line 324: 	// For non-detached container, we should forward signals to the container.
+Line 325: 	handler := <-handlerCh
+Line 326: 	return handler.forward(process, tty)
+Line 327: }
+Line 328: 
+Line 329: func (r *runner) destroy() {
+Line 330: 	if r.shouldDestroy {
+Line 331: 		if err := r.container.Destroy(); err != nil {
+Line 332: 			logrus.Warn(err)
+Line 333: 		}
+Line 334: 	}
+Line 335: }
+Line 336: 
+Line 337: func (r *runner) terminate(p *libcontainer.Process) {
+Line 338: 	_ = p.Signal(unix.SIGKILL)
+Line 339: 	_, _ = p.Wait()
+Line 340: }
+Line 341: 
+Line 342: func (r *runner) checkTerminal(config *specs.Process) error {
+Line 343: 	detach := r.detach || (r.action == CT_ACT_CREATE)
+Line 344: 	// Check command-line for sanity.
+Line 345: 	if detach && config.Terminal && r.consoleSocket == "" {
+Line 346: 		return errors.New("cannot allocate tty if runc will detach without setting console socket")
+Line 347: 	}
+Line 348: 	if (!detach || !config.Terminal) && r.consoleSocket != "" {
+Line 349: 		return errors.New("cannot use console socket if runc will not detach or allocate tty")
+Line 350: 	}
+Line 351: 	return nil
+Line 352: }
+Line 353: 
+Line 354: func validateProcessSpec(spec *specs.Process) error {
+Line 355: 	if spec == nil {
+Line 356: 		return errors.New("process property must not be empty")
+Line 357: 	}
+Line 358: 	if spec.Cwd == "" {
+Line 359: 		return errors.New("Cwd property must not be empty")
+Line 360: 	}
+Line 361: 	if !filepath.IsAbs(spec.Cwd) {
+Line 362: 		return errors.New("Cwd must be an absolute path")
+Line 363: 	}
+Line 364: 	if len(spec.Args) == 0 {
+Line 365: 		return errors.New("args must not be empty")
+Line 366: 	}
+Line 367: 	if spec.SelinuxLabel != "" && !selinux.GetEnabled() {
+Line 368: 		return errors.New("selinux label is specified in config, but selinux is disabled or not supported")
+Line 369: 	}
+Line 370: 	return nil
+Line 371: }
+Line 372: 
+Line 373: type CtAct uint8
+Line 374: 
+Line 375: const (
+Line 376: 	CT_ACT_CREATE CtAct = iota + 1
+Line 377: 	CT_ACT_RUN
+Line 378: 	CT_ACT_RESTORE
+Line 379: )
+Line 380: 
+
+
+## Executed search queries within the code base:
+Searching keywords: Poststart Poststop Hooks, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, a, p, p, k] package main
+spec.go:3: [p, o, t, t, r, t, p, o, t, t, o, p, o, o] import (
+spec.go:4: [o, s, s, o, s, s, o, o, o, s] "encoding/json"
+spec.go:5: [o, s, s, r, o, s, s, o, o, o, s] "errors"
+spec.go:6: [t, t, t, t, t] "fmt"
+spec.go:7: [o, s, s, o, s, s, o, o, o, s] "os"
+spec.go:9: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [o, t, t, a, r, t, o, t, t, o, h, o, o] "github.com/urfave/cli"
+spec.go:15: [p, o, s, s, a, r, p, o, s, s, o, p, o, o, s] var specCommand = cli.Command{
+spec.go:16: [p, s, s, a, p, s, s, p, s] Name:      "spec",
+spec.go:17: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, o, o, s] Usage:     "create a new specification file",
+spec.go:18: [s, s, a, r, s, s, s] ArgsUsage: "",
+spec.go:19: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [t, t, t, t, t, h] the bundle.
+spec.go:22: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [o, s, t, s, t, a, r, t, o, s, t, s, t, o, h, o, o, k, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, k, s] work for containers that do not include the "sh" program.
+spec.go:28: [p, a, p, p] EXAMPLE:
+spec.go:29: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, k, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [o, s, t, s, t, a, r, t, o, s, t, s, t, o, h, o, o, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [o, t, t, a, r, t, o, t, t, o, h, o, o] command in a new hello-world container named container1:
+spec.go:35: [o, r, o, o, h, o, o, k] mkdir hello
+spec.go:36: [o, o, o, h, o, o] cd hello
+spec.go:37: [p, o, r, p, o, o, p, h, o, o, k] docker pull hello-world
+spec.go:38: [p, o, t, t, a, r, t, p, o, t, t, o, p, h, o, o, k] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [o, s, t, s, t, r, t, o, s, t, s, t, o, o, o, k, s] mkdir rootfs
+spec.go:40: [o, s, t, s, t, a, r, t, o, s, t, s, t, o, h, o, o, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, s, s, r, p, s, s, p, s] runc spec
+spec.go:42: [p, o, s, s, p, o, s, s, o, p, h, o, o, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [o, t, t, a, r, t, o, t, t, o, o, o] runc run container1
+spec.go:45: [o, s, t, s, t, a, r, t, o, s, t, s, t, o, h, o, o, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [o, s, t, s, t, r, t, o, s, t, s, t, o, h, o, o, s] must be unique on your host.
+spec.go:49: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, h, o, o, s] An alternative for generating a customized spec config is to use "o
+
+Searching keywords: runHooks HookName Poststop, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [n, k, k, n, a, m, e, p, p] package main
+spec.go:3: [r, o, o, o, o, m, p, o, t, t, o, p] import (
+spec.go:4: [n, o, o, s, o, o, n, e, o, s, s, o] "encoding/json"
+spec.go:5: [r, o, o, s, o, o, e, o, s, s, o] "errors"
+spec.go:6: [m, t, t] "fmt"
+spec.go:7: [o, o, s, o, o, o, s, s, o] "os"
+spec.go:9: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [r, u, h, o, o, h, o, o, a, m, e, o, t, t, o] "github.com/urfave/cli"
+spec.go:15: [r, n, o, o, s, o, o, n, a, m, e, p, o, s, s, o, p] var specCommand = cli.Command{
+spec.go:16: [n, s, n, a, m, e, p, s, s, p] Name:      "spec",
+spec.go:17: [r, u, n, o, o, s, o, o, n, a, e, p, o, s, t, s, t, o, p] Usage:     "create a new specification file",
+spec.go:18: [r, u, s, a, e, s, s] ArgsUsage: "",
+spec.go:19: [r, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [u, n, h, h, n, e, t, t] the bundle.
+spec.go:22: [r, u, n, h, o, o, s, h, o, o, n, a, e, p, o, s, t, s, t, o, p] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [r, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [r, u, n, h, o, o, k, s, h, o, o, k, n, a, m, e, o, s, t, s, t, o] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [r, u, n, h, o, o, k, s, h, o, o, k, n, a, m, e, p, o, s, t, s, t, o, p] work for containers that do not include the "sh" program.
+spec.go:28: [a, m, e, p, p] EXAMPLE:
+spec.go:29: [r, u, n, h, o, o, k, s, h, o, o, k, n, a, m, e, p, o, s, t, s, t, o, p] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, o, s, t, s, t, o] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [r, n, h, o, o, h, o, o, n, a, m, e, o, t, t, o] command in a new hello-world container named container1:
+spec.go:35: [r, h, o, o, k, h, o, o, k, m, e, o, o] mkdir hello
+spec.go:36: [h, o, o, h, o, o, e, o, o] cd hello
+spec.go:37: [r, u, h, o, o, k, h, o, o, k, e, p, o, o, p] docker pull hello-world
+spec.go:38: [r, h, o, o, k, h, o, o, k, a, e, p, o, t, t, o, p] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [r, o, o, k, s, o, o, k, m, o, s, t, s, t, o] mkdir rootfs
+spec.go:40: [r, h, o, o, s, h, o, o, a, e, o, s, t, s, t, o] tar -C rootfs -xf hello-world.tar
+spec.go:41: [r, u, n, s, n, e, p, s, s, p] runc spec
+spec.go:42: [n, h, o, o, s, h, o, o, n, e, p, o, s, s, o, p] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [r, u, n, o, o, o, o, n, a, e, o, t, t, o] runc run container1
+spec.go:45: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, o, s, t, s, t, o] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [r, u, n, h, o, o, s, h, o, o, n, a, m, e, p, o, s, t, s, t, o, p] container that you are starting. The name you provide for the container instance
+spec.go:47: [r, u, n, h, o, o, s, h, o, o, n, m, e, o, s, t, s, t, o] must be unique on your host.
+spec.go:49:
+
+Searching keywords: Poststart PostStart Poststop PostStop, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, a, p, a, p, p, p, p] package main
+spec.go:3: [p, o, t, t, r, t, p, o, t, t, r, t, p, o, t, t, o, p, p, o, t, t, o, p] import (
+spec.go:4: [o, s, s, o, s, s, o, s, s, o, o, s, s, o] "encoding/json"
+spec.go:5: [o, s, s, r, o, s, s, r, o, s, s, o, o, s, s, o] "errors"
+spec.go:6: [t, t, t, t, t, t, t, t, t, t] "fmt"
+spec.go:7: [o, s, s, o, s, s, o, s, s, o, o, s, s, o] "os"
+spec.go:9: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [o, t, t, a, r, t, o, t, t, a, r, t, o, t, t, o, o, t, t, o] "github.com/urfave/cli"
+spec.go:15: [p, o, s, s, a, r, p, o, s, s, a, r, p, o, s, s, o, p, p, o, s, s, o, p] var specCommand = cli.Command{
+spec.go:16: [p, s, s, a, p, s, s, a, p, s, s, p, p, s, s, p] Name:      "spec",
+spec.go:17: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] Usage:     "create a new specification file",
+spec.go:18: [s, s, a, r, s, s, a, r, s, s, s, s] ArgsUsage: "",
+spec.go:19: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [t, t, t, t, t, t, t, t, t, t] the bundle.
+spec.go:22: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [o, s, t, s, t, a, r, t, o, s, t, s, t, a, r, t, o, s, t, s, t, o, o, s, t, s, t, o] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] work for containers that do not include the "sh" program.
+spec.go:28: [p, a, p, a, p, p, p, p] EXAMPLE:
+spec.go:29: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [o, s, t, s, t, a, r, t, o, s, t, s, t, a, r, t, o, s, t, s, t, o, o, s, t, s, t, o] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, a, r, t, p, o, s, t, s, t, o, p, p, o, s, t, s, t, o, p] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [o, t, t, a, r, t, o, t, t, a, r, t, o, t, t, o, o, t, t, o] command in a new hello-world container named container1:
+spec.go:35: [o, r, o, r, o, o, o, o] mkdir hello
+spec.go:36: [o, o, o, o, o, o] cd hello
+spec.go:37: [p, o, r, p, o, r, p, o, o, p, p, o, o, p] docker pull hello-world
+spec.go:38: [p, o, t, t, a, r, t, p, o, t, t, a, r, t, p, o, t, t, o, p, p, o, t, t, o, p] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [o, s, t, s, t, r, t, o, s, t, s, t, r, t, o, s, t, s, t, o, o, s, t, s, t, o] mkdir rootfs
+spec.go:40: [o, s, t, s, t, a, r, t, o, s, t, s,
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-5182.
+
+Target runtime: runc
+Title: poststop hook is not run if poststart hook fails
+Upstream issue: https://github.com/opencontainers/runc/issues/5182
+Category: POSIX-platform Hooks
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-5182
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-5182
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-5182
+Upstream URL: https://github.com/opencontainers/runc/issues/5182
+Category: POSIX-platform Hooks
+
+Payload under test:
+process args: ["/bin/sh", "-c", "exit 0"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: poststart, poststop
+
+Expected differential behavior:
+A reference runtime should run poststop cleanup after poststart failure. The affected behavior leaves /tmp/post-stop absent and prints poststop-missing.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-5182
+
+## Upstream Issue Summary
+- Title: poststop hook is not run if poststart hook fails
+- URL: https://github.com/opencontainers/runc/issues/5182
+- Category: POSIX-platform Hooks
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text was not reachable during this pass. Git log matched the poststart/poststop fix area, including PR #5186 merge `4c8d72d54daa`; use parent `80fc1cd34e1e` as the pre-fix buggy baseline for this case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-5182`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "exit 0"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: poststart, poststop
+
+Oracle: A reference runtime should run poststop cleanup after poststart failure. The affected behavior leaves /tmp/post-stop absent and prints poststop-missing.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original missing-poststop behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes left evidence that the poststop hook ran (`poststop-ran`), although their create/start status values differed. Reproducing the issue appears to require the affected runc revision where poststop was skipped after a poststart failure.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

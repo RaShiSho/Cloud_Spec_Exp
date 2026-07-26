@@ -1,0 +1,1233 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-2430.
+
+Target runtime: runc
+Title: support seccomp flags such as SECCOMP_FILTER_FLAG_SPEC_ALLOW (OCI Runtime Spec v1.0.2)
+Upstream issue: https://github.com/opencontainers/runc/issues/2430
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-2430
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-2430
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2430-fuzz-crash1
+Derived from: fuzz-workspace/run-smoke-20260719-180837/crashes/id-1784455727806-7843c273
+Related upstream issue: https://github.com/opencontainers/runc/issues/2430
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo seccomp-flag-ok"]; linux.seccomp.flags: ["SECCOMP_FILTER_FLAG_SPEC_ALLOW"]; linux.seccomp.defaultAction: "SCMP_ACT_ALLOW"
+
+Expected differential behavior:
+Runtimes with OCI v1.0.2 seccomp flag support start and print `seccomp-flag-ok`. In the observed fuzz run, crun and youki exited 0 and printed the marker, while runc exited 1 with `seccomp flags are not yet supported by runc`.
+
+Validation procedure:
+1. Run `RUNTIME=/path/to/runc bash repro.sh` and record exit status, stdout, and stderr.
+2. Run `RUNTIME=/path/to/crun bash repro.sh` or `RUNTIME=/path/to/youki bash repro.sh` as references.
+3. Treat missing seccomp support, missing runtime binaries, insufficient privileges, or unsupported host kernels as environment failures rather than successful reproductions.
+4. This case is a fuzz-derived regression duplicate of the runc-2430 seccomp flag compatibility class; keep it to preserve the exact crash artifact that produced the differential result.
+
+Case README:
+# runc-2430-fuzz-crash1
+
+## Fuzz Discovery Summary
+- Source crash: `fuzz-workspace/run-smoke-20260719-180837/crashes/id-1784455727806-7843c273`.
+- Related upstream issue: https://github.com/opencontainers/runc/issues/2430
+- Category: Linux-specific Configuration
+- Summary: This case preserves the exact fuzz-discovered OCI configuration where `runc` rejected `SECCOMP_FILTER_FLAG_SPEC_ALLOW`, while `crun` and `youki` started the container successfully.
+
+## Runtime Version Assessment
+The observed run used `runc 1.1.14`, `crun 1.17`, and `youki 0.6.0` inside the local `oci-diff-runner:latest` image. In that environment, `runc` exited non-zero with `seccomp flags are not yet supported by runc`; `crun` and `youki` printed `seccomp-flag-ok`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the seccomp flag payload.
+- `buggy_config.json`: exact fuzz-discovered configuration from Crash 1.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Kernel and libseccomp support sufficient for seccomp filtering.
+
+## Reproduction Steps
+1. Change into `cases/runc-2430-fuzz-crash1`.
+2. Run `RUNTIME=/path/to/runc bash repro.sh`.
+3. Run `RUNTIME=/path/to/crun bash repro.sh` or `RUNTIME=/path/to/youki bash repro.sh`.
+4. Compare exit status, stdout, and stderr against `expected_diff.txt`.
+5. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo seccomp-flag-ok"]; linux.seccomp.defaultAction: `SCMP_ACT_ALLOW`; linux.seccomp.flags: [`SECCOMP_FILTER_FLAG_SPEC_ALLOW`].
+
+Oracle: runtimes with OCI v1.0.2 seccomp flag support start and print `seccomp-flag-ok`; runtimes without support fail while parsing or applying the seccomp flag.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/recvtty/recvtty.go
+create.go
+delete.go
+events.go
+exec.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_disabled.go
+libcontainer/capabilities_linux.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/cgroups_unsupported.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/ebpf/devicefilter/devicefilter.go
+libcontainer/cgroups/ebpf/devicefilter/devicefilter_test.go
+libcontainer/cgroups/ebpf/ebpf.go
+libcontainer/cgroups/fs/apply_raw.go
+libcontainer/cgroups/fs/apply_raw_test.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/devices_test.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs_unsupported.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/kmem.go
+libcontainer/cgroups/fs/kmem_disabled.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/devices.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fscommon/fscommon.go
+libcontainer/cgroups/fscommon/fscommon_test.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/unsupported.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/config_windows_test.go
+libcontainer/configs/device.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/devices.go
+libcontainer/devices/devices_test.go
+libcontainer/error.go
+libcontainer/error_test.go
+libcontainer/factory.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/generic_error.go
+libcontainer/generic_error_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_linux_v2.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/nsenter_unsupported.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_linux_test.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/stacktrace/capture.go
+libcontainer/stacktrace/capture_test.go
+libcontainer/stacktrace/frame.go
+libcontainer/stacktrace/frame_test.go
+libcontainer/stacktrace/stacktrace.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/linux_test.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+libcontainer/system/unsupported.go
+libcontainer/system/xattrs_linux.go
+libcontainer/user/lookup.go
+libcontainer/user/lookup_unix.go
+libcontainer/user/lookup_windows.go
+libcontainer/user/user.go
+libcontainer/user/user_test.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+pause.go
+ps.go
+restore.go
+rlimit_linux.go
+rootless_linux.go
+run.go
+signals.go
+spec.go
+start.go
+state.go
+tty.go
+types/events.go
+update.go
+utils.go
+utils_linux.go
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+5 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 1 to 260 from file: libcontainer/seccomp/config.go
+Command read_range returned: Line 1: package seccomp
+Line 2: 
+Line 3: import (
+Line 4: 	"fmt"
+Line 5: 
+Line 6: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 7: )
+Line 8: 
+Line 9: var operators = map[string]configs.Operator{
+Line 10: 	"SCMP_CMP_NE":        configs.NotEqualTo,
+Line 11: 	"SCMP_CMP_LT":        configs.LessThan,
+Line 12: 	"SCMP_CMP_LE":        configs.LessThanOrEqualTo,
+Line 13: 	"SCMP_CMP_EQ":        configs.EqualTo,
+Line 14: 	"SCMP_CMP_GE":        configs.GreaterThanOrEqualTo,
+Line 15: 	"SCMP_CMP_GT":        configs.GreaterThan,
+Line 16: 	"SCMP_CMP_MASKED_EQ": configs.MaskEqualTo,
+Line 17: }
+Line 18: 
+Line 19: var actions = map[string]configs.Action{
+Line 20: 	"SCMP_ACT_KILL":  configs.Kill,
+Line 21: 	"SCMP_ACT_ERRNO": configs.Errno,
+Line 22: 	"SCMP_ACT_TRAP":  configs.Trap,
+Line 23: 	"SCMP_ACT_ALLOW": configs.Allow,
+Line 24: 	"SCMP_ACT_TRACE": configs.Trace,
+Line 25: 	"SCMP_ACT_LOG":   configs.Log,
+Line 26: }
+Line 27: 
+Line 28: var archs = map[string]string{
+Line 29: 	"SCMP_ARCH_X86":         "x86",
+Line 30: 	"SCMP_ARCH_X86_64":      "amd64",
+Line 31: 	"SCMP_ARCH_X32":         "x32",
+Line 32: 	"SCMP_ARCH_ARM":         "arm",
+Line 33: 	"SCMP_ARCH_AARCH64":     "arm64",
+Line 34: 	"SCMP_ARCH_MIPS":        "mips",
+Line 35: 	"SCMP_ARCH_MIPS64":      "mips64",
+Line 36: 	"SCMP_ARCH_MIPS64N32":   "mips64n32",
+Line 37: 	"SCMP_ARCH_MIPSEL":      "mipsel",
+Line 38: 	"SCMP_ARCH_MIPSEL64":    "mipsel64",
+Line 39: 	"SCMP_ARCH_MIPSEL64N32": "mipsel64n32",
+Line 40: 	"SCMP_ARCH_PPC":         "ppc",
+Line 41: 	"SCMP_ARCH_PPC64":       "ppc64",
+Line 42: 	"SCMP_ARCH_PPC64LE":     "ppc64le",
+Line 43: 	"SCMP_ARCH_S390":        "s390",
+Line 44: 	"SCMP_ARCH_S390X":       "s390x",
+Line 45: }
+Line 46: 
+Line 47: // ConvertStringToOperator converts a string into a Seccomp comparison operator.
+Line 48: // Comparison operators use the names they are assigned by Libseccomp's header.
+Line 49: // Attempting to convert a string that is not a valid operator results in an
+Line 50: // error.
+Line 51: func ConvertStringToOperator(in string) (configs.Operator, error) {
+Line 52: 	if op, ok := operators[in]; ok == true {
+Line 53: 		return op, nil
+Line 54: 	}
+Line 55: 	return 0, fmt.Errorf("string %s is not a valid operator for seccomp", in)
+Line 56: }
+Line 57: 
+Line 58: // ConvertStringToAction converts a string into a Seccomp rule match action.
+Line 59: // Actions use the names they are assigned in Libseccomp's header, though some
+Line 60: // (notable, SCMP_ACT_TRACE) are not available in this implementation and will
+Line 61: // return errors.
+Line 62: // Attempting to convert a string that is not a valid action results in an
+Line 63: // error.
+Line 64: func ConvertStringToAction(in string) (configs.Action, error) {
+Line 65: 	if act, ok := actions[in]; ok == true {
+Line 66: 		return act, nil
+Line 67: 	}
+Line 68: 	return 0, fmt.Errorf("string %s is not a valid action for seccomp"
+[older content truncated]
+
+Lines 1 to 220 from file: libcontainer/configs/config_linux.go
+Command read_range returned: Line 1: package configs
+Line 2: 
+Line 3: import "fmt"
+Line 4: 
+Line 5: // HostUID gets the translated uid for the process on host which could be
+Line 6: // different when user namespaces are enabled.
+Line 7: func (c Config) HostUID(containerId int) (int, error) {
+Line 8: 	if c.Namespaces.Contains(NEWUSER) {
+Line 9: 		if c.UidMappings == nil {
+Line 10: 			return -1, fmt.Errorf("User namespaces enabled, but no uid mappings found.")
+Line 11: 		}
+Line 12: 		id, found := c.hostIDFromMapping(containerId, c.UidMappings)
+Line 13: 		if !found {
+Line 14: 			return -1, fmt.Errorf("User namespaces enabled, but no user mapping found.")
+Line 15: 		}
+Line 16: 		return id, nil
+Line 17: 	}
+Line 18: 	// Return unchanged id.
+Line 19: 	return containerId, nil
+Line 20: }
+Line 21: 
+Line 22: // HostRootUID gets the root uid for the process on host which could be non-zero
+Line 23: // when user namespaces are enabled.
+Line 24: func (c Config) HostRootUID() (int, error) {
+Line 25: 	return c.HostUID(0)
+Line 26: }
+Line 27: 
+Line 28: // HostGID gets the translated gid for the process on host which could be
+Line 29: // different when user namespaces are enabled.
+Line 30: func (c Config) HostGID(containerId int) (int, error) {
+Line 31: 	if c.Namespaces.Contains(NEWUSER) {
+Line 32: 		if c.GidMappings == nil {
+Line 33: 			return -1, fmt.Errorf("User namespaces enabled, but no gid mappings found.")
+Line 34: 		}
+Line 35: 		id, found := c.hostIDFromMapping(containerId, c.GidMappings)
+Line 36: 		if !found {
+Line 37: 			return -1, fmt.Errorf("User namespaces enabled, but no group mapping found.")
+Line 38: 		}
+Line 39: 		return id, nil
+Line 40: 	}
+Line 41: 	// Return unchanged id.
+Line 42: 	return containerId, nil
+Line 43: }
+Line 44: 
+Line 45: // HostRootGID gets the root gid for the process on host which could be non-zero
+Line 46: // when user namespaces are enabled.
+Line 47: func (c Config) HostRootGID() (int, error) {
+Line 48: 	return c.HostGID(0)
+Line 49: }
+Line 50: 
+Line 51: // Utility function that gets a host ID for a container ID from user namespace map
+Line 52: // if that ID is present in the map.
+Line 53: func (c Config) hostIDFromMapping(containerID int, uMap []IDMap) (int, bool) {
+Line 54: 	for _, m := range uMap {
+Line 55: 		if (containerID >= m.ContainerID) && (containerID <= (m.ContainerID + m.Size - 1)) {
+Line 56: 			hostID := m.HostID + (containerID - m.ContainerID)
+Line 57: 			return hostID, true
+Line 58: 		}
+Line 59: 	}
+Line 60: 	return -1, false
+Line 61: }
+EOF
+
+Lines 1 to 260 from file: libcontainer/seccomp/seccomp_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // +build linux,cgo,seccomp
+Line 2: 
+Line 3: package seccomp
+Line 4: 
+Line 5: import (
+Line 6: 	"bufio"
+Line 7: 	"errors"
+Line 8: 	"fmt"
+Line 9: 	"os"
+Line 10: 	"strings"
+Line 11: 
+Line 12: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 13: 	libseccomp "github.com/seccomp/libseccomp-golang"
+Line 14: 
+Line 15: 	"golang.org/x/sys/unix"
+Line 16: )
+Line 17: 
+Line 18: var (
+Line 19: 	actAllow = libseccomp.ActAllow
+Line 20: 	actTrap  = libseccomp.ActTrap
+Line 21: 	actKill  = libseccomp.ActKill
+Line 22: 	actTrace = libseccomp.ActTrace.SetReturnCode(int16(unix.EPERM))
+Line 23: 	actLog   = libseccomp.ActLog
+Line 24: 	actErrno = libseccomp.ActErrno.SetReturnCode(int16(unix.EPERM))
+Line 25: )
+Line 26: 
+Line 27: const (
+Line 28: 	// Linux system calls can have at most 6 arguments
+Line 29: 	syscallMaxArguments int = 6
+Line 30: )
+Line 31: 
+Line 32: // Filters given syscalls in a container, preventing them from being used
+Line 33: // Started in the container init process, and carried over to all child processes
+Line 34: // Setns calls, however, require a separate invocation, as they are not children
+Line 35: // of the init until they join the namespace
+Line 36: func InitSeccomp(config *configs.Seccomp) error {
+Line 37: 	if config == nil {
+Line 38: 		return errors.New("cannot initialize Seccomp - nil config passed")
+Line 39: 	}
+Line 40: 
+Line 41: 	defaultAction, err := getAction(config.DefaultAction, nil)
+Line 42: 	if err != nil {
+Line 43: 		return errors.New("error initializing seccomp - invalid default action")
+Line 44: 	}
+Line 45: 
+Line 46: 	filter, err := libseccomp.NewFilter(defaultAction)
+Line 47: 	if err != nil {
+Line 48: 		return fmt.Errorf("error creating filter: %s", err)
+Line 49: 	}
+Line 50: 
+Line 51: 	// Add extra architectures
+Line 52: 	for _, arch := range config.Architectures {
+Line 53: 		scmpArch, err := libseccomp.GetArchFromString(arch)
+Line 54: 		if err != nil {
+Line 55: 			return fmt.Errorf("error validating Seccomp architecture: %s", err)
+Line 56: 		}
+Line 57: 
+Line 58: 		if err := filter.AddArch(scmpArch); err != nil {
+Line 59: 			return fmt.Errorf("error adding architecture to seccomp filter: %s", err)
+Line 60: 		}
+Line 61: 	}
+Line 62: 
+Line 63: 	// Unset no new privs bit
+Line 64: 	if err := filter.SetNoNewPrivsBit(false); err != nil {
+Line 65: 		return fmt.Errorf("error setting no new privileges: %s", err)
+Line 66: 	}
+Line 67: 
+Line 68: 	// Add a rule for each syscall
+Line 69: 	for _, call := range config.Syscalls {
+Line 70: 		if call == nil {
+Line 71: 			return errors.New("encountered nil syscall while initializing Seccomp")
+Line 72: 		}
+Line 73: 
+Line 74: 		if err = matchCall(filter, call); err != nil {
+Line 75: 			return err
+Line 76: 		}
+Line 77: 	}
+Line 78: 
+Line 79: 	if err = filter.Load(); err != nil {
+Line 80: 		return fmt.Errorf("error loading seccomp filter into kernel: %s", err)
+Line 81: 	}
+Line 82: 
+Line 83: 	return nil
+Line 84: }
+Line 85: 
+Line 86: // IsEnabled returns if the kernel has been configured to support seccomp.
+Line 87: func IsEnabled() bool {
+Line 88: 	// Try to read from /proc/self/status for kernels > 3.8
+Line 89: 	s, err := parseStatusFile("/proc/self/status")
+Line 90: 	if err != nil {
+Line 91: 		// Check if Seccomp is supported, via CONFIG_SECCOMP.
+Line 92: 		if err := unix.Prctl(unix.PR_GET_SECCOMP, 0, 0, 0, 0); err != unix.EINVAL {
+Line 93: 			// Make sure the kernel has CONFIG_SECCOMP_FILTER.
+Line 94: 			if err := unix.Prctl(unix.PR_SET_SECCOMP, unix.SECCOMP_MODE_FILTER, 0, 0, 0); err != unix.EINVAL {
+Line 95: 				return true
+Line 96: 			}
+Line 97: 		}
+Line 98: 		return false
+Line 99: 	}
+Line 100: 	_, ok := s["Seccomp"]
+Line 101: 	return ok
+Line 102: }
+Line 103: 
+Line 104: // Convert Libcontainer Action to Libseccomp ScmpAction
+Line 105: func getAction(act configs.Action, errnoRet *uint) (libseccomp.ScmpAction, error) {
+Line 106: 	switch act {
+Line 107: 	case configs.Kill:
+Line 108: 		return actKill, nil
+Line 109: 	case configs.Errno:
+Line 110: 		if errnoRet != nil {
+
+
+Lines 1 to 220 from file: spec.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // +build linux
+Line 2: 
+Line 3: package main
+Line 4: 
+Line 5: import (
+Line 6: 	"encoding/json"
+Line 7: 	"fmt"
+Line 8: 	"io/ioutil"
+Line 9: 	"os"
+Line 10: 
+Line 11: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 12: 	"github.com/opencontainers/runc/libcontainer/specconv"
+Line 13: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 14: 	"github.com/urfave/cli"
+Line 15: )
+Line 16: 
+Line 17: var specCommand = cli.Command{
+Line 18: 	Name:      "spec",
+Line 19: 	Usage:     "create a new specification file",
+Line 20: 	ArgsUsage: "",
+Line 21: 	Description: `The spec command creates the new specification file named "` + specConfig + `" for
+Line 22: the bundle.
+Line 23: 
+Line 24: The spec generated is just a starter file. Editing of the spec is required to
+Line 25: achieve desired results. For example, the newly generated spec includes an args
+Line 26: parameter that is initially set to call the "sh" command when the container is
+Line 27: started. Calling "sh" may work for an ubuntu container or busybox, but will not
+Line 28: work for containers that do not include the "sh" program.
+Line 29: 
+Line 30: EXAMPLE:
+Line 31:   To run docker's hello-world container one needs to set the args parameter
+Line 32: in the spec to call hello. This can be done using the sed command or a text
+Line 33: editor. The following commands create a bundle for hello-world, change the
+Line 34: default args parameter in the spec from "sh" to "/hello", then run the hello
+Line 35: command in a new hello-world container named container1:
+Line 36: 
+Line 37:     mkdir hello
+Line 38:     cd hello
+Line 39:     docker pull hello-world
+Line 40:     docker export $(docker create hello-world) > hello-world.tar
+Line 41:     mkdir rootfs
+Line 42:     tar -C rootfs -xf hello-world.tar
+Line 43:     runc spec
+Line 44:     sed -i 's;"sh";"/hello";' ` + specConfig + `
+Line 45:     runc run container1
+Line 46: 
+Line 47: In the run command above, "container1" is the name for the instance of the
+Line 48: container that you are starting. The name you provide for the container instance
+Line 49: must be unique on your host.
+Line 50: 
+Line 51: An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+Line 52: sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+Line 53: customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+Line 54: to get more information.
+Line 55: 
+Line 56: When starting a container through runc, runc needs root privilege. If not
+Line 57: already running as root, you can use sudo to give runc root privilege. For
+Line 58: example: "sudo runc start container1" will give runc root privilege to start the
+Line 59: container on your host.
+Line 60: 
+Line 61: Alternatively, you can start a rootless container, which has the ability to run
+Line 62: without root privileges. For this to work, the specification file needs to be
+Line 63: adjusted accordingly. You can pass the parameter --rootless to this command to
+Line 64: generate a proper rootless spec file.
+Line 65: 
+Line 66: Note that --rootless is not needed when you execute runc as the root in a user namespace
+Line 67: created by an unprivileged user.
+Line 68: `,
+Line 69: 	Flags: []cli.Flag{
+Line 70: 		cli.StringFlag{
+Line 71: 			Name:  "bundle, b",
+Line 72: 			Value: "",
+Line 73: 			Usage: "path to the root of the bundle directory",
+Line 74: 		},
+Line 75: 		cli.BoolFlag{
+Line 76: 			Name:  "rootless",
+Line 77: 			Usage: "generate a configuration for a rootless container",
+Line 78: 		},
+Line 79: 	},
+Line 80: 	Action: func(context *cli.Context) error {
+Line 81: 		if err := checkArgs(context, 0, exactArgs); err != nil {
+Line 82: 			return err
+Line 83: 		}
+Line 84: 		spec := specconv.Example()
+Line 85: 
+Line 86: 		rootless := context.Bool("rootless")
+Line 87: 		if rootless {
+Line 88: 			specconv.ToRootless(spec)
+Line 89: 		}
+Line 90: 
+Line 91: 		checkNoFile := func(name string) error {
+Line 92: 			
+
+Lines 1 to 220 from file: libcontainer/configs/config.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package configs
+Line 2: 
+Line 3: import (
+Line 4: 	"bytes"
+Line 5: 	"encoding/json"
+Line 6: 	"fmt"
+Line 7: 	"os/exec"
+Line 8: 	"time"
+Line 9: 
+Line 10: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 11: 
+Line 12: 	"github.com/sirupsen/logrus"
+Line 13: )
+Line 14: 
+Line 15: type Rlimit struct {
+Line 16: 	Type int    `json:"type"`
+Line 17: 	Hard uint64 `json:"hard"`
+Line 18: 	Soft uint64 `json:"soft"`
+Line 19: }
+Line 20: 
+Line 21: // IDMap represents UID/GID Mappings for User Namespaces.
+Line 22: type IDMap struct {
+Line 23: 	ContainerID int `json:"container_id"`
+Line 24: 	HostID      int `json:"host_id"`
+Line 25: 	Size        int `json:"size"`
+Line 26: }
+Line 27: 
+Line 28: // Seccomp represents syscall restrictions
+Line 29: // By default, only the native architecture of the kernel is allowed to be used
+Line 30: // for syscalls. Additional architectures can be added by specifying them in
+Line 31: // Architectures.
+Line 32: type Seccomp struct {
+Line 33: 	DefaultAction Action     `json:"default_action"`
+Line 34: 	Architectures []string   `json:"architectures"`
+Line 35: 	Syscalls      []*Syscall `json:"syscalls"`
+Line 36: }
+Line 37: 
+Line 38: // Action is taken upon rule match in Seccomp
+Line 39: type Action int
+Line 40: 
+Line 41: const (
+Line 42: 	Kill Action = iota + 1
+Line 43: 	Errno
+Line 44: 	Trap
+Line 45: 	Allow
+Line 46: 	Trace
+Line 47: 	Log
+Line 48: )
+Line 49: 
+Line 50: // Operator is a comparison operator to be used when matching syscall arguments in Seccomp
+Line 51: type Operator int
+Line 52: 
+Line 53: const (
+Line 54: 	EqualTo Operator = iota + 1
+Line 55: 	NotEqualTo
+Line 56: 	GreaterThan
+Line 57: 	GreaterThanOrEqualTo
+Line 58: 	LessThan
+Line 59: 	LessThanOrEqualTo
+Line 60: 	MaskEqualTo
+Line 61: )
+Line 62: 
+Line 63: // Arg is a rule to match a specific syscall argument in Seccomp
+Line 64: type Arg struct {
+Line 65: 	Index    uint     `json:"index"`
+Line 66: 	Value    uint64   `json:"value"`
+Line 67: 	ValueTwo uint64   `json:"value_two"`
+Line 68: 	Op       Operator `json:"op"`
+Line 69: }
+Line 70: 
+Line 71: // Syscall is a rule to match a syscall in Seccomp
+Line 72: type Syscall struct {
+Line 73: 	Name     string `json:"name"`
+Line 74: 	Action   Action `json:"action"`
+Line 75: 	ErrnoRet *uint  `json:"errnoRet"`
+Line 76: 	Args     []*Arg `json:"args"`
+Line 77: }
+Line 78: 
+Line 79: // TODO Windows. Many of these fields should be factored out into those parts
+Line 80: // which are common across platforms, and those which are platform specific.
+Line 81: 
+Line 82: // Config defines configuration options for executing a process inside a contained environment.
+Line 83: type Config struct {
+Line 84: 	// NoPivotRoot will use MS_MOVE and a chroot to jail the process into the container's rootfs
+Line 85: 	// This is a common option when the container is running in ramdisk
+Line 86: 	NoPivotRoot bool `json:"no_pivot_root"`
+Line 87: 
+Line 88: 	// ParentDeathSignal specifies the signal that is sent to the container's process in the case
+Line 89: 	// that the parent process dies.
+Line 90: 	ParentDeathSignal int `json:"parent_death_signal"`
+Line 91: 
+Line 92: 	// Path to a directory containing the container's root filesystem.
+Line 93: 	Rootfs string `json:"rootfs"`
+Line 94: 
+Line 95: 	// Readonlyfs will remount the container's rootfs as readonly where only externally mounted
+Line 96: 	// bind mounts are writtable.
+Line 97: 	Readonlyfs bool `json:"readonlyfs"`
+Line 98: 
+Line 99: 	// Specifies the mount propagation flags to be applied to /.
+Line 100: 	RootPropagation int `json:"rootPropagation"`
+Line 101: 
+Line 102: 	// Mounts specify additional source and destination paths that will be mounted inside the container's
+Line 103: 	// rootfs and mount namespace if specified
+Line 104: 	Mounts []*Mount `json:"mounts"`
+Line 105: 
+Line 106: 	// The device nodes that should be automatically created within the container upon container start.  Note, make sure that the node is marked as allowed in the cgroup as well!
+Line 107: 	Devices []*
+
+
+## The list of implementations of some methods in the code base:
+Command extract_method_code returned: Line 283: 		config.MaskPaths = spec.Linux.MaskedPaths
+Line 284: 		config.ReadonlyPaths = spec.Linux.ReadonlyPaths
+Line 285: 		config.MountLabel = spec.Linux.MountLabel
+Line 286: 		config.Sysctl = spec.Linux.Sysctl
+Line 287: 		if spec.Linux.Seccomp != nil {
+Line 288: 			seccomp, err := SetupSeccomp(spec.Linux.Seccomp)
+Line 289: 			if err != nil {
+Line 290: 				return nil, err
+Line 291: 			}
+Line 292: 			config.Seccomp = seccomp
+Line 293: 		}
+Line 294: 		if spec.Linux.IntelRdt != nil {
+Line 295: 			config.IntelRdt = &configs.IntelRdt{}
+Line 296: 			if spec.Linux.IntelRdt.L3CacheSchema != "" {
+Line 297: 				config.IntelRdt.L3CacheSchema = spec.Linux.IntelRdt.L3CacheSchema
+Line 298: 			}
+Line 299: 			if spec.Linux.IntelRdt.MemBwSchema != "" {
+Line 300: 				config.IntelRdt.MemBwSchema = spec.Linux.IntelRdt.MemBwSchema
+Line 301: 			}
+Line 302: 		}
+Line 303: 	}
+Line 304: 	if spec.Process != nil {
+Line 305: 		config.OomScoreAdj = spec.Process.OOMScoreAdj
+Line 306: 		config.NoNewPrivileges = spec.Process.NoNewPrivileges
+Line 307: 		if spec.Process.SelinuxLabel != "" {
+Line 308: 			config.ProcessLabel = spec.Process.SelinuxLabel
+Line 309: 		}
+Line 310: 		if spec.Process.Capabilities != nil {
+Line 311: 			config.Capabilities = &configs.Capabilities{
+Line 312: 				Bounding:    spec.Process.Capabilities.Bounding,
+Line 313: 				Effective:   spec.Process.Capabilities.Effective,
+Line 314: 				Permitted:   spec.Process.Capabilities.Permitted,
+Line 315: 				Inheritable: spec.Process.Capabilities.Inheritable,
+Line 316: 				Ambient:     spec.Process.Capabilities.Ambient,
+Line 317: 			}
+Line 318: 		}
+Line 319: 	}
+Line 320: 	createHooks(spec, config)
+Line 321: 	config.Version = specs.Version
+Line 322: 	return config, nil
+Line 323: }
+Line 324: 
+Line 325: func createLibcontainerMount(cwd string, m specs.Mount) *configs.Mount {
+Line 326: 	flags, pgflags, data, ext := parseMountOptions(m.Options)
+Line 327: 	source := m.Source
+Line 328: 	device := m.Type
+Line 329: 	if flags&unix.MS_BIND != 0 {
+Line 330: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 331: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 332: 		// (incorrectly) relies on this for some checks.
+Line 333: 		device = "bind"
+Line 334: 		if !filepath.IsAbs(source) {
+Line 335: 			source = filepath.Join(cwd, m.Source)
+Line 336: 		}
+Line 337: 	}
+Line 338: 	return &configs.Mount{
+Line 339: 		Device:           device,
+Line 340: 		Source:           source,
+Line 341: 		Destination:      m.Destination,
+Line 342: 		Data:             data,
+Line 343: 		Flags:            flags,
+Line 344: 		PropagationFlags: pgflags,
+Line 345: 		Extensions:       ext,
+Line 346: 	}
+Line 347: }
+Line 348: 
+Line 349: // systemd property name check: latin letters only, at least 3 of them
+Line 350: var isValidName = regexp.MustCompile(`^[a-zA-Z]{3,}$`).MatchString
+Line 351: 
+Line 352: var isSecSuffix = regexp.MustCompile(`[a-z]Sec$`).MatchString
+Line 353: 
+Line 354: // Some systemd properties are documented as having "Sec" suffix
+Line 355: // (e.g. TimeoutStopSec) but are expected to have "USec" suffix
+Line 356: // here, so let's provide conversion to improve compatibility.
+Line 357: func convertSecToUSec(value dbus.Variant) (dbus.Variant, error) {
+Line 358: 	var sec uint64
+Line 359: 	const M = 1000000
+Line 360: 	vi := value.Value()
+Line 361: 	switch value.Signature().String() {
+Line 362: 	case "y":
+Line 363: 		sec = uint64(vi.(byte)) * M
+Line 364: 	case "n":
+Line 365: 		sec = uint64(vi.(int16)) * M
+Line 366: 	case "q":
+Line 367: 		sec = uint64(vi.(uint16)) * M
+Command extract_method_code returned: Line 283: 		config.MaskPaths = spec.Linux.MaskedPaths
+Line 284: 		config.ReadonlyPaths = spec.Linux.ReadonlyPaths
+Line 285: 		config.MountLabel = spec.Linux.MountLabel
+Line 286: 		config.Sysctl = spec.Linux.Sysctl
+Line 287: 		if spec.Linux.Seccomp != nil {
+Line 288: 			seccomp, err := SetupSeccomp(spec.Linux.Seccomp)
+Line 289: 			if err != nil {
+Line 290: 				return nil, err
+Line 291: 			}
+Line 292: 			config.Seccomp = seccomp
+Line 293: 		}
+Line 294: 		if spec.Linux.IntelRdt != nil {
+Line 295: 			config.IntelRdt = &configs.IntelRdt{}
+Line 296: 			if spec.Linux.IntelRdt.L3CacheSchema != "" {
+Line 297: 				config.IntelRdt.L3CacheSchema = spec.Linux.IntelRdt.L3CacheSchema
+Line 298: 			}
+Line 299: 			if spec.Linux.IntelRdt.MemBwSchema != "" {
+Line 300: 				config.IntelRdt.MemBwSchema = spec.Linux.IntelRdt.MemBwSchema
+Line 301: 			}
+Line 302: 		}
+Line 303: 	}
+Line 304: 	if spec.Process != nil {
+Line 305: 		config.OomScoreAdj = spec.Process.OOMScoreAdj
+Line 306: 		config.NoNewPrivileges = spec.Process.NoNewPrivileges
+Line 307: 		if spec.Process.SelinuxLabel != "" {
+Line 308: 			config.ProcessLabel = spec.Process.SelinuxLabel
+Line 309: 		}
+Line 310: 		if spec.Process.Capabilities != nil {
+Line 311: 			config.Capabilities = &configs.Capabilities{
+Line 312: 				Bounding:    spec.Process.Capabilities.Bounding,
+Line 313: 				Effective:   spec.Process.Capabilities.Effective,
+Line 314: 				Permitted:   spec.Process.Capabilities.Permitted,
+Line 315: 				Inheritable: spec.Process.Capabilities.Inheritable,
+Line 316: 				Ambient:     spec.Process.Capabilities.Ambient,
+Line 317: 			}
+Line 318: 		}
+Line 319: 	}
+Line 320: 	createHooks(spec, config)
+Line 321: 	config.Version = specs.Version
+Line 322: 	return config, nil
+Line 323: }
+Line 324: 
+Line 325: func createLibcontainerMount(cwd string, m specs.Mount) *configs.Mount {
+Line 326: 	flags, pgflags, data, ext := parseMountOptions(m.Options)
+Line 327: 	source := m.Source
+Line 328: 	device := m.Type
+Line 329: 	if flags&unix.MS_BIND != 0 {
+Line 330: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 331: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 332: 		// (incorrectly) relies on this for some checks.
+Line 333: 		device = "bind"
+Line 334: 		if !filepath.IsAbs(source) {
+Line 335: 			source = filepath.Join(cwd, m.Source)
+Line 336: 		}
+Line 337: 	}
+Line 338: 	return &configs.Mount{
+Line 339: 		Device:           device,
+Line 340: 		Source:           source,
+Line 341: 		Destination:      m.Destination,
+Line 342: 		Data:             data,
+Line 343: 		Flags:            flags,
+Line 344: 		PropagationFlags: pgflags,
+Line 345: 		Extensions:       ext,
+Line 346: 	}
+Line 347: }
+Line 348: 
+Line 349: // systemd property name check: latin letters only, at least 3 of them
+Line 350: var isValidName = regexp.MustCompile(`^[a-zA-Z]{3,}$`).MatchString
+Line 351: 
+Line 352: var isSecSuffix = regexp.MustCompile(`[a-z]Sec$`).MatchString
+Line 353: 
+Line 354: // Some systemd properties are documented as having "Sec" suffix
+Line 355: // (e.g. TimeoutStopSec) but are expected to have "USec" suffix
+Line 356: // here, so let's provide conversion to improve compatibility.
+Line 357: func convertSecToUSec(value dbus.Variant) (dbus.Variant, error) {
+Line 358: 	var sec uint64
+Line 359: 	const M = 1000000
+Line 360: 	vi := value.Value()
+Line 361: 	switch value.Signature().String() {
+Line 362: 	case "y":
+Line 363: 		sec = uint64(vi.(byte)) * M
+Line 364: 	case "n":
+Line 365: 		sec = uint64(vi.(int16)) * M
+Line 366: 	case "q":
+Line 367: 		sec = uint64(vi.(uint16)) * M
+
+## Executed search queries within the code base:
+Searching keywords: seccomp flags are not yet supported Seccomp struct Flags, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [l, n, u, d, u, l] // +build linux
+spec.go:3: [e, c, c, m, p, a, g, a, e, n, e, p, p, e, e, c, c, m, p, c, a, g] package main
+spec.go:5: [o, m, p, r, o, t, t, p, p, o, r, t, o, m, p, t, r, t] import (
+spec.go:6: [s, e, c, c, o, g, s, e, n, o, e, s, o, e, d, s, e, c, c, o, s, c, g, s] "encoding/json"
+spec.go:7: [m, f, t, t, t, m, t, t, f] "fmt"
+spec.go:8: [o, l, o, t, t, u, o, t, o, t, u, t, l] "io/ioutil"
+spec.go:9: [s, o, s, o, s, o, s, o, s, s] "os"
+spec.go:11: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, s, e, c, c, o, m, p, s, t, r, u, c, t, f, l, a, g, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:12: [s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, s, e, c, c, o, m, p, s, t, r, u, c, t, l, a, g, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:13: [s, e, c, c, o, m, p, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, s, e, c, c, o, m, p, s, t, r, u, c, t, a, g, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:14: [e, c, c, o, m, f, l, a, g, a, r, e, o, t, e, t, u, o, r, t, e, e, c, c, o, m, t, r, u, c, t, f, l, a, g] "github.com/urfave/cli"
+spec.go:17: [s, e, c, c, o, m, p, l, a, s, a, r, e, n, o, e, s, p, p, o, r, e, d, s, e, c, c, o, m, p, s, r, c, l, a, s] var specCommand = cli.Command{
+spec.go:18: [s, e, c, c, m, p, a, s, a, e, n, e, s, p, p, e, s, e, c, c, m, p, s, c, a, s] Name:      "spec",
+spec.go:19: [s, e, c, c, o, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, s, e, c, c, o, p, s, t, r, u, c, t, f, l, a, g, s] Usage:     "create a new specification file",
+spec.go:20: [s, e, a, g, s, a, r, e, e, s, u, r, e, s, e, s, r, u, a, g, s] ArgsUsage: "",
+spec.go:21: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, p, p, o, r, t, e, d, s, e, c, c, o, m, p, s, t, r, c, t, f, l, a, g, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:22: [e, l, e, n, t, e, t, u, t, e, d, e, t, u, t, l] the bundle.
+spec.go:24: [s, e, c, c, o, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d, s, e, c, c, o, p, s, t, r, u, c, t, f, l, a, g, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:25: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, y, e, t, s, u, p, p, o, r, t, e, d, s, e, c, c, o, m, p, s, t, r, u, c, t, f, l, a, g, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:26: [s, e, c, c, o, m, p, l, a, s, a, r, e, n, o, t, y, e, t, s, p, p, o, r, t, e, d, s, e, c, c, o, m, p, s, t, r, c, t, l, a, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:27: [s, e, c, c, o, m, f, l, a, g, s, a, r, e, n, o, t, y, e, t, s, u, o, r, t, e, d, s, e, c, c, o, m, s, t, r, u, c, t, f, l, a, g, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:28: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d, s, e, c, c, o, m, p, s, t, r, u, c, t, f, l, a, g, s] work for containers that do not include the "sh" program.
+spec.go:30: [e, m, p, l, a, a, e, e, p, p, e, e, m, p, l, a] EXAMPLE:
+spec.go:31: [s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d, s, e, c, c, o, m, p, s, t, r, u, c, t, l, a, g, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:32: [s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d, s, e, c, c, o, m, p, s, t, r, u, c, t, l, a, g, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:33: [s, e, c, c, o, m, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, o, r, t, e, d, s, e, c, c, o, m, s, t, r, u, c, t, f, l, a, g, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:34: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p,
+
+Searching keywords: seccomp flags are not yet supported, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [l, n, u, d] // +build linux
+spec.go:3: [e, c, c, m, p, a, g, a, e, n, e, p, p, e] package main
+spec.go:5: [o, m, p, r, o, t, t, p, p, o, r, t] import (
+spec.go:6: [s, e, c, c, o, g, s, e, n, o, e, s, o, e, d] "encoding/json"
+spec.go:7: [m, f, t, t, t] "fmt"
+spec.go:8: [o, l, o, t, t, u, o, t] "io/ioutil"
+spec.go:9: [s, o, s, o, s, o] "os"
+spec.go:11: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:12: [s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:13: [s, e, c, c, o, m, p, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:14: [e, c, c, o, m, f, l, a, g, a, r, e, o, t, e, t, u, o, r, t, e] "github.com/urfave/cli"
+spec.go:17: [s, e, c, c, o, m, p, l, a, s, a, r, e, n, o, e, s, p, p, o, r, e, d] var specCommand = cli.Command{
+spec.go:18: [s, e, c, c, m, p, a, s, a, e, n, e, s, p, p, e] Name:      "spec",
+spec.go:19: [s, e, c, c, o, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] Usage:     "create a new specification file",
+spec.go:20: [s, e, a, g, s, a, r, e, e, s, u, r, e] ArgsUsage: "",
+spec.go:21: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, p, p, o, r, t, e, d] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:22: [e, l, e, n, t, e, t, u, t, e, d] the bundle.
+spec.go:24: [s, e, c, c, o, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:25: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, y, e, t, s, u, p, p, o, r, t, e, d] achieve desired results. For example, the newly generated spec includes an args
+spec.go:26: [s, e, c, c, o, m, p, l, a, s, a, r, e, n, o, t, y, e, t, s, p, p, o, r, t, e, d] parameter that is initially set to call the "sh" command when the container is
+spec.go:27: [s, e, c, c, o, m, f, l, a, g, s, a, r, e, n, o, t, y, e, t, s, u, o, r, t, e, d] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:28: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] work for containers that do not include the "sh" program.
+spec.go:30: [e, m, p, l, a, a, e, e, p, p, e] EXAMPLE:
+spec.go:31: [s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] To run docker's hello-world container one needs to set the args parameter
+spec.go:32: [s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] in the spec to call hello. This can be done using the sed command or a text
+spec.go:33: [s, e, c, c, o, m, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, o, r, t, e, d] editor. The following commands create a bundle for hello-world, change the
+spec.go:34: [s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:35: [e, c, c, o, m, l, a, a, r, e, n, o, t, e, t, o, r, t, e, d] command in a new hello-world container named container1:
+spec.go:37: [e, o, m, l, r, e, o, e, o, r, e, d] mkdir hello
+spec.go:38: [e, c, c, o, l, e, o, e, o, e, d] cd hello
+spec.go:39: [e, c, c, o, p, l, r, e, o, e, u, p, p, o, r, e, d] docker pull hello-world
+spec.go:40: [e, c, c, o, p, l, a, a, r, e, o, t, e, t, p, p, o, r, t, e, d] docker export $(docker create hello-world) > hello-world.tar
+spec.go:41: [s, o, m, f, s, r, o, t, t, s, o, r, t, d] mkdir rootfs
+spec.go:42: [s, e, c, c, o, f, l, a, s, a, r, e, o, t, e, t, s, o, r, t, e, d] tar -C rootfs -xf hello-world.tar
+spec.go:43: [s, e, c, c, p, s, r, e, n, e, s, u, p, p, r, e] runc spec
+spec.go:44: [s, e, c, c, o, p, f, l, g, s, e, n, o, e, s, p, p, o, e, d] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:
+
+Searching keywords: type Seccomp struct, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [u] // +build linux
+spec.go:3: [p, e, e, c, c, m, p, c] package main
+spec.go:5: [t, p, o, m, p, t, r, t] import (
+spec.go:6: [e, s, e, c, c, o, s, c] "encoding/json"
+spec.go:7: [t, m, t, t] "fmt"
+spec.go:8: [t, o, t, u, t] "io/ioutil"
+spec.go:9: [s, o, s] "os"
+spec.go:11: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:12: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:13: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:14: [t, e, e, c, c, o, m, t, r, u, c, t] "github.com/urfave/cli"
+spec.go:17: [p, e, s, e, c, c, o, m, p, s, r, c] var specCommand = cli.Command{
+spec.go:18: [p, e, s, e, c, c, m, p, s, c] Name:      "spec",
+spec.go:19: [t, p, e, s, e, c, c, o, p, s, t, r, u, c, t] Usage:     "create a new specification file",
+spec.go:20: [e, s, e, s, r, u] ArgsUsage: "",
+spec.go:21: [t, p, e, s, e, c, c, o, m, p, s, t, r, c, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:22: [t, e, e, t, u, t] the bundle.
+spec.go:24: [t, p, e, s, e, c, c, o, p, s, t, r, u, c, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:25: [t, y, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:26: [t, y, p, e, s, e, c, c, o, m, p, s, t, r, c, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:27: [t, y, e, s, e, c, c, o, m, s, t, r, u, c, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:28: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] work for containers that do not include the "sh" program.
+spec.go:30: [p, e, e, m, p] EXAMPLE:
+spec.go:31: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:32: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:33: [t, e, s, e, c, c, o, m, s, t, r, u, c, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:34: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:35: [t, e, e, c, c, o, m, t, r, c, t] command in a new hello-world container named container1:
+spec.go:37: [e, e, o, m, r] mkdir hello
+spec.go:38: [e, e, c, c, o, c] cd hello
+spec.go:39: [p, e, e, c, c, o, p, r, u, c] docker pull hello-world
+spec.go:40: [t, p, e, e, c, c, o, p, t, r, c, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:41: [t, s, o, m, s, t, r, t] mkdir rootfs
+spec.go:42: [t, e, s, e, c, c, o, s, t, r, c, t] tar -C rootfs -xf hello-world.tar
+spec.go:43: [p, e, s, e, c, c, p, s, r, u, c] runc spec
+spec.go:44: [p, e, s, e, c, c, o, p, s, c] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:45: [t, e, e, c, c, o, t, r, u, c, t] runc run container1
+spec.go:47: [t, e, s, e, c, c, o, m, s, t, r, u, c, t] In the run command above, "container1" is the name for the instance of the
+spec.go:48: [t, y, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] container that you are starting. The name you provide for the container instance
+spec.go:49: [t, y, e, s, e, o, m, s, t, r, u, t] must be unique on your host.
+spec.go:51: [t, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:52: [t, y, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:53: [t, y, p, e, s, e, c, c, o, m, p, s, t, r, u, c, t] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:54: [t, e, e, o, m, t, r, t] to get more inf
+
+Searching keywords: SetupSeccomp seccomp flags not yet supported, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [u, l, n, u, d] // +build linux
+spec.go:3: [e, p, e, c, c, m, p, e, c, c, m, p, a, g, n, e, p, p, e] package main
+spec.go:5: [t, p, o, m, p, o, m, p, o, t, t, p, p, o, r, t] import (
+spec.go:6: [s, e, s, e, c, c, o, s, e, c, c, o, g, s, n, o, e, s, o, e, d] "encoding/json"
+spec.go:7: [t, m, m, f, t, t, t] "fmt"
+spec.go:8: [t, u, o, o, l, o, t, t, u, o, t] "io/ioutil"
+spec.go:9: [s, s, o, s, o, s, o, s, o] "os"
+spec.go:11: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, f, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:12: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:13: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:14: [e, t, u, e, c, c, o, m, e, c, c, o, m, f, l, a, g, o, t, e, t, u, o, r, t, e] "github.com/urfave/cli"
+spec.go:17: [s, e, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, l, a, s, n, o, e, s, p, p, o, r, e, d] var specCommand = cli.Command{
+spec.go:18: [s, e, p, s, e, c, c, m, p, s, e, c, c, m, p, a, s, n, e, s, p, p, e] Name:      "spec",
+spec.go:19: [s, e, t, u, p, s, e, c, c, o, p, s, e, c, c, o, p, f, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e] Usage:     "create a new specification file",
+spec.go:20: [s, e, u, s, e, s, e, a, g, s, e, s, u, r, e] ArgsUsage: "",
+spec.go:21: [s, e, t, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, f, l, a, g, s, n, o, t, e, t, s, p, p, o, r, t, e, d] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:22: [e, t, u, e, e, l, n, t, e, t, u, t, e, d] the bundle.
+spec.go:24: [s, e, t, u, p, s, e, c, c, o, p, s, e, c, c, o, p, f, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e, d] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:25: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, f, l, a, g, s, n, o, t, y, e, t, s, u, p, p, o, r, t, e, d] achieve desired results. For example, the newly generated spec includes an args
+spec.go:26: [s, e, t, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, l, a, s, n, o, t, y, e, t, s, p, p, o, r, t, e, d] parameter that is initially set to call the "sh" command when the container is
+spec.go:27: [s, e, t, u, s, e, c, c, o, m, s, e, c, c, o, m, f, l, a, g, s, n, o, t, y, e, t, s, u, o, r, t, e, d] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:28: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, f, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e, d] work for containers that do not include the "sh" program.
+spec.go:30: [e, p, e, m, p, e, m, p, l, a, e, p, p, e] EXAMPLE:
+spec.go:31: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e, d] To run docker's hello-world container one needs to set the args parameter
+spec.go:32: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e, d] in the spec to call hello. This can be done using the sed command or a text
+spec.go:33: [s, e, t, u, s, e, c, c, o, m, s, e, c, c, o, m, f, l, a, g, s, n, o, t, e, t, s, u, o, r, t, e, d] editor. The following commands create a bundle for hello-world, change the
+spec.go:34: [s, e, t, u, p, s, e, c, c, o, m, p, s, e, c, c, o, m, p, f, l, a, g, s, n, o, t, e, t, s, u, p, p, o, r, t, e, d] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:35: [e, t, e, c, c, o, m, e, c, c, o, m, l, a, n, o, t, e, t, o, r, t, e, d] command in a new hello-world container named container1:
+spec.go:37: [e, e, o, m, e, o, m, l, o, e, o, r, e, d] mkdir hello
+spec.go:38: [e, e, c, c, o, e, c, c, o, l, o, e, o, e, d] cd hello
+spec.go:39: [e, u, p, e, c, c, o, p, e, c, c, o, p, l, o, e, u, p,
+
+Searching keywords: SetAttribute ScmpFilterAttr FilterFlag SpecAllow SECCOMP_FILTER_FLAG_SPEC_ALLOW, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [i, b, u, i, l, i, l, l, l, l, i, l, l, l, l] // +build linux
+spec.go:3: [e, a, i, e, c, m, p, i, e, a, i, e, a, g, p, e, c, a, e, c, c, m, p, i, e, a, g, p, e, c, a] package main
+spec.go:5: [t, t, t, r, i, t, m, p, i, t, r, t, t, r, i, t, r, p, o, o, m, p, i, t, r, p, o] import (
+spec.go:6: [s, e, i, e, s, c, i, e, i, e, g, s, e, c, o, s, e, c, c, o, i, e, g, s, e, c, o] "encoding/json"
+spec.go:7: [t, t, t, t, m, f, t, t, t, f, t, f, m, f, t, f] "fmt"
+spec.go:8: [t, t, t, i, u, t, i, l, t, t, t, i, l, t, l, l, l, o, o, i, l, t, l, l, l, o] "io/ioutil"
+spec.go:9: [s, s, s, o, s, o, s, o] "os"
+spec.go:11: [s, e, t, a, t, t, r, i, b, u, t, e, s, c, m, p, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, s, e, c, c, o, m, p, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:12: [s, e, t, a, t, t, r, i, b, u, t, e, s, c, m, p, i, l, t, e, r, a, t, t, r, i, l, t, e, r, l, a, g, s, p, e, c, a, l, l, o, s, e, c, c, o, m, p, i, l, t, e, r, l, a, g, s, p, e, c, a, l, l, o] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:13: [s, e, t, a, t, t, r, i, b, u, t, e, s, c, m, p, i, t, e, r, a, t, t, r, i, t, e, r, a, g, s, p, e, c, a, o, s, e, c, c, o, m, p, i, t, e, r, a, g, s, p, e, c, a, o] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:14: [e, t, a, t, t, r, i, b, u, t, e, c, m, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, e, c, a, l, l, o, e, c, c, o, m, f, i, l, t, e, r, f, l, a, g, e, c, a, l, l, o] "github.com/urfave/cli"
+spec.go:17: [s, e, a, r, i, e, s, c, m, p, i, l, e, r, a, r, i, l, e, r, l, a, s, p, e, c, a, l, l, o, s, e, c, c, o, m, p, i, l, e, r, l, a, s, p, e, c, a, l, l, o] var specCommand = cli.Command{
+spec.go:18: [s, e, a, e, s, c, m, p, e, a, e, a, s, p, e, c, a, s, e, c, c, m, p, e, a, s, p, e, c, a] Name:      "spec",
+spec.go:19: [s, e, t, a, t, t, r, i, u, t, e, s, c, p, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, w, s, e, c, c, o, p, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, w] Usage:     "create a new specification file",
+spec.go:20: [s, e, a, r, u, e, s, e, r, a, r, e, r, a, g, s, e, a, s, e, e, r, a, g, s, e, a] ArgsUsage: "",
+spec.go:21: [s, e, t, a, t, t, r, i, t, e, s, c, m, p, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, w, s, e, c, c, o, m, p, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, w] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:22: [e, t, t, t, b, u, t, e, l, t, e, t, t, l, t, e, l, e, l, l, e, l, t, e, l, e, l, l] the bundle.
+spec.go:24: [s, e, t, a, t, t, r, i, u, t, e, s, c, p, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, s, e, c, c, o, p, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:25: [s, e, t, a, t, t, r, i, u, t, e, s, c, m, p, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, w, s, e, c, c, o, m, p, f, i, l, t, e, r, f, l, a, g, s, p, e, c, a, l, l, o, w] achieve desired results. For example, the newly generated spec includes an args
+spec.go:26: [s, e, t, a, t, t, r, i, t, e, s, c, m, p, i, l, t, e, r, a, t, t, r, i, l, t, e, r, l, a, s, p, e, c, a, l, l, o, w, s, e, c, c, o, m, p, i, l, t, e, r, l, a, s, p, e, c, a, l, l, o, w] parameter that is initially set to call the "sh" command when the container is
+spec.go:27: [s, e, t, a, t, t, r, i, b, u, t, e, s, c, m, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, e, c, a, l, l, o, w, s, e, c, c, o, m, f, i, l, t, e, r, f, l, a, g, s, e, c, a, l, l, o, w] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:28: [s, e, t, a, t, t, r, i, u, t, e, s, c, m, p, f, i, l, t, e, r, a, t, t, r, f, i, l, t, e, r, f, l, a, g, s, p, e, c,
+
+Searching keywords: func SetupSeccomp Flags seccomp flags are not yet supported, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [u, n, u, l, l, n, u, d] // +build linux
+spec.go:3: [n, c, e, p, e, c, c, m, p, a, g, e, c, c, m, p, a, g, a, e, n, e, p, p, e] package main
+spec.go:5: [t, p, o, m, p, o, m, p, r, o, t, t, p, p, o, r, t] import (
+spec.go:6: [n, c, s, e, s, e, c, c, o, g, s, s, e, c, c, o, g, s, e, n, o, e, s, o, e, d] "encoding/json"
+spec.go:7: [f, t, m, f, m, f, t, t, t] "fmt"
+spec.go:8: [u, t, u, o, l, o, l, o, t, t, u, o, t] "io/ioutil"
+spec.go:9: [s, s, o, s, s, o, s, o, s, o] "os"
+spec.go:11: [f, u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, f, l, a, g, s, s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:12: [u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, l, a, g, s, s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:13: [u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, a, g, s, s, e, c, c, o, m, p, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:14: [f, u, c, e, t, u, e, c, c, o, m, f, l, a, g, e, c, c, o, m, f, l, a, g, a, r, e, o, t, e, t, u, o, r, t, e] "github.com/urfave/cli"
+spec.go:17: [n, c, s, e, p, s, e, c, c, o, m, p, l, a, s, s, e, c, c, o, m, p, l, a, s, a, r, e, n, o, e, s, p, p, o, r, e, d] var specCommand = cli.Command{
+spec.go:18: [n, c, s, e, p, s, e, c, c, m, p, a, s, s, e, c, c, m, p, a, s, a, e, n, e, s, p, p, e] Name:      "spec",
+spec.go:19: [f, u, n, c, s, e, t, u, p, s, e, c, c, o, p, f, l, a, g, s, s, e, c, c, o, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e] Usage:     "create a new specification file",
+spec.go:20: [u, s, e, u, s, e, a, g, s, s, e, a, g, s, a, r, e, e, s, u, r, e] ArgsUsage: "",
+spec.go:21: [f, n, c, s, e, t, p, s, e, c, c, o, m, p, f, l, a, g, s, s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, p, p, o, r, t, e, d] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:22: [u, n, e, t, u, e, l, e, l, e, n, t, e, t, u, t, e, d] the bundle.
+spec.go:24: [f, u, n, c, s, e, t, u, p, s, e, c, c, o, p, f, l, a, g, s, s, e, c, c, o, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:25: [f, u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, f, l, a, g, s, s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, y, e, t, s, u, p, p, o, r, t, e, d] achieve desired results. For example, the newly generated spec includes an args
+spec.go:26: [n, c, s, e, t, p, s, e, c, c, o, m, p, l, a, s, s, e, c, c, o, m, p, l, a, s, a, r, e, n, o, t, y, e, t, s, p, p, o, r, t, e, d] parameter that is initially set to call the "sh" command when the container is
+spec.go:27: [f, u, n, c, s, e, t, u, s, e, c, c, o, m, f, l, a, g, s, s, e, c, c, o, m, f, l, a, g, s, a, r, e, n, o, t, y, e, t, s, u, o, r, t, e, d] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:28: [f, u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, f, l, a, g, s, s, e, c, c, o, m, p, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] work for containers that do not include the "sh" program.
+spec.go:30: [e, p, e, m, p, l, a, e, m, p, l, a, a, e, e, p, p, e] EXAMPLE:
+spec.go:31: [u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, l, a, g, s, s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] To run docker's hello-world container one needs to set the args parameter
+spec.go:32: [u, n, c, s, e, t, u, p, s, e, c, c, o, m, p, l, a, g, s, s, e, c, c, o, m, p, l, a, g, s, a, r, e, n, o, t, e, t, s, u, p, p, o, r, t, e, d] in the spec to call hello. This can be done using the sed command or a text
+spec.go:33: [f, u, n, c, s, e, t, u, s, e, c, c, o, m, f, l, a, g, s, s, e, c, c, o, m, f, l, a, g, s, a, r, e, n, o, t, e, t, s, u, o, r, t, e, d] editor. The follow
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-2430.
+
+Target runtime: runc
+Title: support seccomp flags such as SECCOMP_FILTER_FLAG_SPEC_ALLOW (OCI Runtime Spec v1.0.2)
+Upstream issue: https://github.com/opencontainers/runc/issues/2430
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-2430
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-2430
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2430-fuzz-crash1
+Derived from: fuzz-workspace/run-smoke-20260719-180837/crashes/id-1784455727806-7843c273
+Related upstream issue: https://github.com/opencontainers/runc/issues/2430
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo seccomp-flag-ok"]; linux.seccomp.flags: ["SECCOMP_FILTER_FLAG_SPEC_ALLOW"]; linux.seccomp.defaultAction: "SCMP_ACT_ALLOW"
+
+Expected differential behavior:
+Runtimes with OCI v1.0.2 seccomp flag support start and print `seccomp-flag-ok`. In the observed fuzz run, crun and youki exited 0 and printed the marker, while runc exited 1 with `seccomp flags are not yet supported by runc`.
+
+Validation procedure:
+1. Run `RUNTIME=/path/to/runc bash repro.sh` and record exit status, stdout, and stderr.
+2. Run `RUNTIME=/path/to/crun bash repro.sh` or `RUNTIME=/path/to/youki bash repro.sh` as references.
+3. Treat missing seccomp support, missing runtime binaries, insufficient privileges, or unsupported host kernels as environment failures rather than successful reproductions.
+4. This case is a fuzz-derived regression duplicate of the runc-2430 seccomp flag compatibility class; keep it to preserve the exact crash artifact that produced the differential result.
+
+Case README:
+# runc-2430-fuzz-crash1
+
+## Fuzz Discovery Summary
+- Source crash: `fuzz-workspace/run-smoke-20260719-180837/crashes/id-1784455727806-7843c273`.
+- Related upstream issue: https://github.com/opencontainers/runc/issues/2430
+- Category: Linux-specific Configuration
+- Summary: This case preserves the exact fuzz-discovered OCI configuration where `runc` rejected `SECCOMP_FILTER_FLAG_SPEC_ALLOW`, while `crun` and `youki` started the container successfully.
+
+## Runtime Version Assessment
+The observed run used `runc 1.1.14`, `crun 1.17`, and `youki 0.6.0` inside the local `oci-diff-runner:latest` image. In that environment, `runc` exited non-zero with `seccomp flags are not yet supported by runc`; `crun` and `youki` printed `seccomp-flag-ok`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the seccomp flag payload.
+- `buggy_config.json`: exact fuzz-discovered configuration from Crash 1.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Kernel and libseccomp support sufficient for seccomp filtering.
+
+## Reproduction Steps
+1. Change into `cases/runc-2430-fuzz-crash1`.
+2. Run `RUNTIME=/path/to/runc bash repro.sh`.
+3. Run `RUNTIME=/path/to/crun bash repro.sh` or `RUNTIME=/path/to/youki bash repro.sh`.
+4. Compare exit status, stdout, and stderr against `expected_diff.txt`.
+5. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo seccomp-flag-ok"]; linux.seccomp.defaultAction: `SCMP_ACT_ALLOW`; linux.seccomp.flags: [`SECCOMP_FILTER_FLAG_SPEC_ALLOW`].
+
+Oracle: runtimes with OCI v1.0.2 seccomp flag support start and print `seccomp-flag-ok`; runtimes without support fail while parsing or applying the seccomp flag.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

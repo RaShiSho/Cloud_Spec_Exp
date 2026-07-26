@@ -1,0 +1,65 @@
+[
+  {
+    "source": "write_fix",
+    "patch": [
+      {
+        "file_name": "crates/libcontainer/src/process/init/process.rs",
+        "insertions": [
+          {
+            "line_number": 320,
+            "new_lines": [
+              "    // Apply OCI linux.personality after entering the container context but",
+              "    // before seccomp and exec so the payload observes the requested domain.",
+              "    if let Some(personality) = ctx.linux.personality() {",
+              "        apply_personality(personality.domain())?;",
+              "    }",
+              ""
+            ]
+          },
+          {
+            "line_number": 432,
+            "new_lines": [
+              "",
+              "fn apply_personality<T: std::fmt::Debug>(domain: T) -> Result<()> {",
+              "    let domain = format!(\"{domain:?}\");",
+              "",
+              "    // libc in this dependency set provides personality(2) but not the PER_*",
+              "    // constants, so use Linux's stable execution-domain values directly.",
+              "    let persona: libc::c_ulong = if domain.eq_ignore_ascii_case(\"linux\") {",
+              "        0x0000",
+              "    } else if domain.eq_ignore_ascii_case(\"linux32\") {",
+              "        0x0008",
+              "    } else {",
+              "        tracing::warn!(?domain, \"unsupported OCI linux.personality domain\");",
+              "        return Ok(());",
+              "    };",
+              "",
+              "    // Set personality before seccomp/exec so the container payload inherits",
+              "    // the requested OCI execution domain, e.g. LINUX32 for uname -m.",
+              "    let ret = unsafe { libc::personality(persona) };",
+              "    if ret == -1 {",
+              "        return Err(InitProcessError::NixOther(nix::errno::Errno::last()));",
+              "    }",
+              "",
+              "    Ok(())",
+              "}"
+            ]
+          }
+        ],
+        "deletions": [],
+        "modifications": []
+      },
+      {
+        "file_name": "rust-toolchain.toml",
+        "insertions": [],
+        "deletions": [],
+        "modifications": [
+          {
+            "line_number": 3,
+            "modified_line": "channel=\"stable\""
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,1150 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-4769.
+
+Target runtime: runc
+Title: Behavior change when duplicate additionalGids are specified
+Upstream issue: https://github.com/opencontainers/runc/issues/4769
+Category: Process & Execution
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4769
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4769
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4769
+Upstream URL: https://github.com/opencontainers/runc/issues/4769
+Category: Process & Execution
+
+Payload under test:
+process.user: {"uid": 0, "gid": 0, "additionalGids": [1000, 2000, 3000, 3000]}; process args: ["/usr/bin/id"]
+
+Expected differential behavior:
+runc v1.3.0 preserves duplicate additionalGids, so `id` reports `groups=1000,2000,3000,3000`.
+runc v1.2.6 deduplicates duplicate additionalGids, so `id` reports `groups=1000,2000,3000`.
+crun 1.14.1 also preserves duplicate additionalGids, while youki follows the older runc behavior and deduplicates them.
+
+Validation procedure:
+1. Run this case with the affected runtime, for example `RUNTIME=/path/to/runc-v1.3.0 bash repro.sh`.
+2. Run the same `buggy_config.json` with a reference runtime, for example `RUNTIME=/path/to/runc-v1.2.6 bash repro.sh`.
+3. Compare stdout from `id`; the useful signal is whether the second `3000` is preserved or removed.
+4. Run `CONFIG=base_config.json bash repro.sh` as a sanity check; the baseline should report `groups=1000,2000,3000`.
+5. Treat missing runtime binaries, missing rootfs archive, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4769
+
+## Upstream Issue Summary
+- Title: Behavior change when duplicate additionalGids are specified
+- URL: https://github.com/opencontainers/runc/issues/4769
+- Category: Process & Execution
+- Summary: This case reduces the issue to a small OCI process user configuration whose `additionalGids` list contains a duplicate GID.
+
+## Runtime Version Assessment
+The upstream report compares runc v1.3.0 with runc v1.2.6. runc v1.3.0 preserves duplicate `additionalGids`, while runc v1.2.6 deduplicates them. The report also notes that crun preserves duplicates and youki follows the older runc deduplication behavior.
+
+## Buggy Version Identification
+Issue text identifies `runc version 1.3.0` as the behavior-changing version. The reported behavior changed after opencontainers/runc PR #3999 removed the older path that indirectly deduplicated group IDs through a map.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration with `additionalGids` set to `[1000, 2000, 3000]`.
+- `buggy_config.json`: modified OCI configuration with `additionalGids` set to `[1000, 2000, 3000, 3000]`.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- A rootfs containing `/usr/bin/id`; the repository Alpine rootfs provides it.
+
+## Reproduction Steps
+1. Change into `cases/runc-4769`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/runc-v1.3.0 bash repro.sh` and `RUNTIME=/path/to/runc-v1.2.6 bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh`.
+5. Compare stdout from `id` against `expected_diff.txt`.
+
+## Result Validation
+Payload: process.user: {"uid": 0, "gid": 0, "additionalGids": [1000, 2000, 3000, 3000]}; process args: ["/usr/bin/id"]
+
+Oracle: runc v1.3.0 and crun preserve the duplicate group, producing `groups=1000,2000,3000,3000`. runc v1.2.6 and youki deduplicate it, producing `groups=1000,2000,3000`. The baseline config should always produce `groups=1000,2000,3000`.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/memfd-bind/memfd-bind.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+internal/linux/eintr.go
+internal/linux/linux.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/configs/cgroup_deprecated.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/tocpuset_test.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_disabled_linux.go
+libcontainer/criu_linux.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device_deprecated.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/env.go
+libcontainer/env_test.go
+libcontainer/error.go
+libcontainer/exeseal/cloned_binary_linux.go
+libcontainer/exeseal/overlayfs_linux.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/bench_test.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/internal/userns/userns_maps_linux.go
+libcontainer/internal/userns/usernsfd_linux.go
+libcontainer/internal/userns/usernsfd_linux_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/mount_linux_test.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/sync_unix.go
+libcontainer/system/kernelversion/kernel_linux.go
+libcontainer/system/kernelversion/kernel_linux_test.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/rlimit_linux.go
+libcontainer/user/lookup_deprecated.go
+libcontainer/user/user_deprecated.go
+libcontainer/userns/userns_deprecated.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+notify_socket_test.go
+pause.go
+ps.go
+restore.go
+rlimit_linux.go
+rootless_linux.go
+run.go
+signals.go
+spec.go
+start.go
+state.go
+tests/cmd/fs-idmap/fs-idmap.go
+tests/cmd/key_label/key_label.go
+tests/cmd/pidfd-kill/pidfd-kill.go
+tests/cmd/recvtty/recvtty.go
+tests/cmd/remap-rootfs/remap-rootfs.go
+tests/cmd/sd-helper/helper.go
+tests/cmd/seccompagent/seccompagent.go
+tests/cmd/seccompagent/unsupported.go
+tty.go
+types/events.go
+types/features/features.go
+update.go
+utils.go
+utils_linux.go
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+2 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 371 to 520 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 371: 	config := &configs.Config{
+Line 372: 		Rootfs:          rootfsPath,
+Line 373: 		NoPivotRoot:     opts.NoPivotRoot,
+Line 374: 		Readonlyfs:      spec.Root.Readonly,
+Line 375: 		Hostname:        spec.Hostname,
+Line 376: 		Domainname:      spec.Domainname,
+Line 377: 		Labels:          append(labels, "bundle="+cwd),
+Line 378: 		NoNewKeyring:    opts.NoNewKeyring,
+Line 379: 		RootlessEUID:    opts.RootlessEUID,
+Line 380: 		RootlessCgroups: opts.RootlessCgroups,
+Line 381: 	}
+Line 382: 
+Line 383: 	for _, m := range spec.Mounts {
+Line 384: 		cm, err := createLibcontainerMount(cwd, m)
+Line 385: 		if err != nil {
+Line 386: 			return nil, fmt.Errorf("invalid mount %+v: %w", m, err)
+Line 387: 		}
+Line 388: 		config.Mounts = append(config.Mounts, cm)
+Line 389: 	}
+Line 390: 
+Line 391: 	defaultDevs, err := createDevices(spec, config)
+Line 392: 	if err != nil {
+Line 393: 		return nil, err
+Line 394: 	}
+Line 395: 
+Line 396: 	c, err := CreateCgroupConfig(opts, defaultDevs)
+Line 397: 	if err != nil {
+Line 398: 		return nil, err
+Line 399: 	}
+Line 400: 
+Line 401: 	config.Cgroups = c
+Line 402: 	// set linux-specific config
+Line 403: 	if spec.Linux != nil {
+Line 404: 		initMaps()
+Line 405: 
+Line 406
+[older content truncated]
+
+Lines 520 to 760 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 520: 		//    will be checked elsewhere, so we can ignore it here.
+Line 521: 		//
+Line 522: 		if err == nil {
+Line 523: 			config.Cgroups.OwnerUID = &ownerUid
+Line 524: 		}
+Line 525: 	}
+Line 526: 
+Line 527: 	if spec.Process != nil {
+Line 528: 		config.OomScoreAdj = spec.Process.OOMScoreAdj
+Line 529: 		config.NoNewPrivileges = spec.Process.NoNewPrivileges
+Line 530: 		config.Umask = spec.Process.User.Umask
+Line 531: 		config.ProcessLabel = spec.Process.SelinuxLabel
+Line 532: 		if spec.Process.Capabilities != nil {
+Line 533: 			config.Capabilities = &configs.Capabilities{
+Line 534: 				Bounding:    spec.Process.Capabilities.Bounding,
+Line 535: 				Effective:   spec.Process.Capabilities.Effective,
+Line 536: 				Permitted:   spec.Process.Capabilities.Permitted,
+Line 537: 				Inheritable: spec.Process.Capabilities.Inheritable,
+Line 538: 				Ambient:     spec.Process.Capabilities.Ambient,
+Line 539: 			}
+Line 540: 		}
+Line 541: 		if spec.Process.Scheduler != nil {
+Line 542: 			s := *spec.Process.Scheduler
+Line 543: 			config.Scheduler = &s
+Line 544: 		}
+Line 545: 
+Line 546: 		if spec.Process.IOPriority != nil {
+Line 547: 			ioPriority := *spec.Process.IOPriority
+Line 548: 			config.IOPriority = &ioPriority
+Line 549: 		}
+Line 550: 		config.ExecCPUAffinity, err = configs.ConvertCPUAffinity(spec.Process.ExecCPUAffinity)
+Line 551: 		if err != nil {
+Line 552: 			return nil, err
+Line 553: 		}
+Line 554: 
+Line 555: 	}
+Line 556: 	createHooks(spec, config)
+Line 557: 	config.Version = specs.Version
+Line 558: 	return config, nil
+Line 559: }
+Line 560: 
+Line 561: func toConfigIDMap(specMaps []specs.LinuxIDMapping) []configs.IDMap {
+Line 562: 	if specMaps == nil {
+Line 563: 		return nil
+Line 564: 	}
+Line 565: 	idmaps := make([]configs.IDMap, len(specMaps))
+Line 566: 	for i, id := range specMaps {
+Line 567: 		idmaps[i] = configs.IDMap{
+Line 568: 			ContainerID: int64(id.ContainerID),
+Line 569: 			HostID:      int64(id.HostID),
+Line 570: 			Size:        int64(id.Size),
+Line 571: 		}
+Line 572: 	}
+Line 573: 	return idmaps
+Line 574: }
+Line 575: 
+Line 576: func createLibcontainerMount(cwd string, m specs.Mount) (*configs.Mount, error) {
+Line 577: 	if !filepath.IsAbs(m.Destination) {
+Line 578: 		// Relax validation for backward compatibility
+Line 579: 		// TODO (runc v1.x.x): change warning to an error
+Line 580: 		// return nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)
+Line 581: 		logrus.Warnf("mount destination %s is not absolute. Support for non-absolute mount destinations will be removed in a future release.", m.Destination)
+Line 582: 	}
+Line 583: 	mnt := parseMountOptions(m.Options)
+Line 584: 
+Line 585: 	mnt.Destination = m.Destination
+Line 586: 	mnt.Source = m.Source
+Line 587: 	mnt.Device = m.Type
+Line 588: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 589: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 590: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 591: 		// (incorrectly) relies on this for some checks.
+Line 592: 		mnt.Device = "bind"
+Line 593: 		if !filepath.IsAbs(mnt.Source) {
+Line 594: 			mnt.Source = filepath.Join(cwd, m.Source)
+Line 595: 		}
+Line 596: 	}
+Line 597: 
+Line 598: 	if m.UIDMappings != nil || m.GIDMappings != nil {
+Line 599: 		if mnt.IDMapping == nil {
+Line 600: 			// Neither "idmap" nor "ridmap" were specified.
+Line 601: 			mnt.IDMapping = new(configs.MountIDMapping)
+Line 602: 		}
+Line 603: 		mnt.IDMapping.UIDMappings = toConfigIDMap(m.UIDMappings)
+Line 604: 		mnt.IDMapping.GIDMappings = toConfigIDMap(m.GIDMappings)
+Line 605: 	}
+Line 606: 
+Line 607: 	// None of the mount arguments can contain a null byte. Normally such
+Line 608: 	// strings would either cause some other failure or would just be truncated
+Line 609: 	// when we hit the null byte, but because we serialise these strings as
+Line 610: 	// netlink messages (which don't have special null-byte handling) we need
+Line 611: 	// to block this as early as possible.
+Line 612: 	if strings.IndexByte(mnt.Sour
+
+Lines 760 to 1040 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 760: 	} else {
+Line 761: 		if myCgroupPath == "" {
+Line 762: 			c.Name = name
+Line 763: 		}
+Line 764: 		c.Path = myCgroupPath
+Line 765: 	}
+Line 766: 
+Line 767: 	// In rootless containers, any attempt to make cgroup changes is likely to fail.
+Line 768: 	// libcontainer will validate this but ignores the error.
+Line 769: 	if spec.Linux != nil {
+Line 770: 		r := spec.Linux.Resources
+Line 771: 		if r != nil {
+Line 772: 			for i, d := range r.Devices {
+Line 773: 				var (
+Line 774: 					t     = "a"
+Line 775: 					major = int64(-1)
+Line 776: 					minor = int64(-1)
+Line 777: 				)
+Line 778: 				if d.Type != "" {
+Line 779: 					t = d.Type
+Line 780: 				}
+Line 781: 				if d.Major != nil {
+Line 782: 					major = *d.Major
+Line 783: 				}
+Line 784: 				if d.Minor != nil {
+Line 785: 					minor = *d.Minor
+Line 786: 				}
+Line 787: 				if d.Access == "" {
+Line 788: 					return nil, fmt.Errorf("device access at %d field cannot be empty", i)
+Line 789: 				}
+Line 790: 				dt, err := stringToCgroupDeviceRune(t)
+Line 791: 				if err != nil {
+Line 792: 					return nil, err
+Line 793: 				}
+Line 794: 				c.Resources.Devices = append(c.Resources.Devices, &devices.Rule{
+Line 795: 					Type:        dt,
+Line 796: 					Major:       major,
+Line 797: 					Minor:       minor,
+Line 798: 					Permissions: devices.Permissions(d.Access),
+Line 799: 					Allow:       d.Allow,
+Line 800: 				})
+Line 801: 			}
+Line 802: 			if r.Memory != nil {
+Line 803: 				if r.Memory.Limit != nil {
+Line 804: 					c.Resources.Memory = *r.Memory.Limit
+Line 805: 				}
+Line 806: 				if r.Memory.Reservation != nil {
+Line 807: 					c.Resources.MemoryReservation = *r.Memory.Reservation
+Line 808: 				}
+Line 809: 				if r.Memory.Swap != nil {
+Line 810: 					c.Resources.MemorySwap = *r.Memory.Swap
+Line 811: 				}
+Line 812: 				if r.Memory.Kernel != nil || r.Memory.KernelTCP != nil { //nolint:staticcheck // Ignore SA1019. Need to keep deprecated package for compatibility.
+Line 813: 					logrus.Warn("Kernel memory settings are ignored and will be removed")
+Line 814: 				}
+Line 815: 				if r.Memory.Swappiness != nil {
+Line 816: 					c.Resources.MemorySwappiness = r.Memory.Swappiness
+Line 817: 				}
+Line 818: 				if r.Memory.DisableOOMKiller != nil {
+Line 819: 					c.Resources.OomKillDisable = *r.Memory.DisableOOMKiller
+Line 820: 				}
+Line 821: 				if r.Memory.CheckBeforeUpdate != nil {
+Line 822: 					c.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+Line 823: 				}
+Line 824: 			}
+Line 825: 			if r.CPU != nil {
+Line 826: 				if r.CPU.Shares != nil {
+Line 827: 					c.Resources.CpuShares = *r.CPU.Shares
+Line 828: 
+Line 829: 					// CpuWeight is used for cgroupv2 and should be converted
+Line 830: 					c.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
+Line 831: 				}
+Line 832: 				if r.CPU.Quota != nil {
+Line 833: 					c.Resources.CpuQuota = *r.CPU.Quota
+Line 834: 				}
+Line 835: 				if r.CPU.Burst != nil {
+Line 836: 					c.Resources.CpuBurst = r.CPU.Burst
+Line 837: 				}
+Line 838: 				if r.CPU.Period != nil {
+Line 839: 					c.Resources.CpuPeriod = *r.CPU.Period
+Line 840: 				}
+Line 841: 				if r.CPU.RealtimeRuntime != nil {
+Line 842: 					c.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+Line 843: 				}
+Line 844: 				if r.CPU.RealtimePeriod != nil {
+Line 845: 					c.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+Line 846: 				}
+Line 847: 				c.Resources.CpusetCpus = r.CPU.Cpus
+Line 848: 				c.Resources.CpusetMems = r.CPU.Mems
+Line 849: 				c.Resources.CPUIdle = r.CPU.Idle
+Line 850: 			}
+Line 851: 			if r.Pids != nil {
+Line 852: 				c.Resources.PidsLimit = r.Pids.Limit
+Line 853: 			}
+Line 854: 			if r.BlockIO != nil {
+Line 855: 				if r.BlockIO.Weight != nil {
+Line 856: 					c.Resources.BlkioWeight = *r.BlockIO.Weight
+Line 857: 				}
+Line 858: 				if r.BlockIO.LeafWeight != nil {
+Line 859: 					c.Resources.BlkioLeafWeight = *r.BlockIO.LeafWeight
+Line 860: 				}
+Line 861: 				for _, wd := range r.BlockIO.WeightDevice {
+Line 862: 					var weig
+
+Lines 1040 to 1320 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1040: 			if !userns.IsSameMapping(uidMap, config.UIDMappings) ||
+Line 1041: 				!userns.IsSameMapping(gidMap, config.GIDMappings) {
+Line 1042: 				return errors.New("user namespaces enabled, but both namespace path and non-matching mapping specified -- you may only provide one")
+Line 1043: 			}
+Line 1044: 			logrus.Warnf("config.json has both a userns path to join and a matching userns mapping specified -- you may only provide one. Future versions of runc may return an error with this configuration, please report a bug on <https://github.com/opencontainers/runc> if you see this warning and cannot update your configuration.")
+Line 1045: 		}
+Line 1046: 
+Line 1047: 		config.UIDMappings = uidMap
+Line 1048: 		config.GIDMappings = gidMap
+Line 1049: 		logrus.WithFields(logrus.Fields{
+Line 1050: 			"uid_map": uidMap,
+Line 1051: 			"gid_map": gidMap,
+Line 1052: 		}).Debugf("config uses path-based userns configuration -- current uid and gid mappings cached")
+Line 1053: 	}
+Line 1054: 	rootUID, err := config.HostRootUID()
+Line 1055: 	if err != nil {
+Line 1056: 		return err
+Line 1057: 	}
+Line 1058: 	rootGID, err := config.HostRootGID()
+Line 1059: 	if err != nil {
+Line 1060: 		return err
+Line 1061: 	}
+Line 1062: 	for _, node := range config.Devices {
+Line 1063: 		node.Uid = uint32(rootUID)
+Line 1064: 		node.Gid = uint32(rootGID)
+Line 1065: 	}
+Line 1066: 	return nil
+Line 1067: }
+Line 1068: 
+Line 1069: // parseMountOptions parses options and returns a configs.Mount
+Line 1070: // structure with fields that depends on options set accordingly.
+Line 1071: func parseMountOptions(options []string) *configs.Mount {
+Line 1072: 	var (
+Line 1073: 		data                   []string
+Line 1074: 		m                      configs.Mount
+Line 1075: 		recAttrSet, recAttrClr uint64
+Line 1076: 	)
+Line 1077: 	initMaps()
+Line 1078: 	for _, o := range options {
+Line 1079: 		// If the option does not exist in the mountFlags table,
+Line 1080: 		// or the flag is not supported on the platform,
+Line 1081: 		// then it is a data value for a specific fs type.
+Line 1082: 		if f, exists := mountFlags[o]; exists && f.flag != 0 {
+Line 1083: 			// FIXME: The *atime flags are special (they are more of an enum
+Line 1084: 			// with quite hairy semantics) and thus arguably setting some of
+Line 1085: 			// them should clear unrelated flags.
+Line 1086: 			if f.clear {
+Line 1087: 				m.Flags &= ^f.flag
+Line 1088: 				m.ClearedFlags |= f.flag
+Line 1089: 			} else {
+Line 1090: 				m.Flags |= f.flag
+Line 1091: 				m.ClearedFlags &= ^f.flag
+Line 1092: 			}
+Line 1093: 		} else if f, exists := mountPropagationMapping[o]; exists && f != 0 {
+Line 1094: 			m.PropagationFlags = append(m.PropagationFlags, f)
+Line 1095: 		} else if f, exists := recAttrFlags[o]; exists {
+Line 1096: 			if f.clear {
+Line 1097: 				recAttrClr |= f.flag
+Line 1098: 				recAttrSet &= ^f.flag
+Line 1099: 			} else {
+Line 1100: 				recAttrSet |= f.flag
+Line 1101: 				recAttrClr &= ^f.flag
+Line 1102: 				if f.flag&unix.MOUNT_ATTR__ATIME == f.flag {
+Line 1103: 					// https://man7.org/linux/man-pages/man2/mount_setattr.2.html
+Line 1104: 					// "cannot simply specify the access-time setting in attr_set, but must also include MOUNT_ATTR__ATIME in the attr_clr field."
+Line 1105: 					recAttrClr |= unix.MOUNT_ATTR__ATIME
+Line 1106: 				}
+Line 1107: 			}
+Line 1108: 		} else if f, exists := extensionFlags[o]; exists {
+Line 1109: 			if f.clear {
+Line 1110: 				m.Extensions &= ^f.flag
+Line 1111: 			} else {
+Line 1112: 				m.Extensions |= f.flag
+Line 1113: 			}
+Line 1114: 		} else if fn, exists := complexFlags[o]; exists {
+Line 1115: 			fn(&m)
+Line 1116: 		} else {
+Line 1117: 			data = append(data, o)
+Line 1118: 		}
+Line 1119: 	}
+Line 1120: 	m.Data = strings.Join(data, ",")
+Line 1121: 	if recAttrSet != 0 || recAttrClr != 0 {
+Line 1122: 		m.RecAttr = &unix.MountAttr{
+Line 1123: 			Attr_set: recAttrSet,
+Line 1124: 			Attr_clr: recAttrClr,
+Line 1125: 		}
+Line 1126: 	}
+Line 1127: 	return &m
+Line 1128: }
+Line 1129: 
+Line 1130: func
+
+Lines 1 to 260 from file: libcontainer/process_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package libcontainer
+Line 2: 
+Line 3: import (
+Line 4: 	"context"
+Line 5: 	"encoding/json"
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"io"
+Line 9: 	"net"
+Line 10: 	"os"
+Line 11: 	"os/exec"
+Line 12: 	"path/filepath"
+Line 13: 	"runtime"
+Line 14: 	"strconv"
+Line 15: 	"sync"
+Line 16: 	"time"
+Line 17: 
+Line 18: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 19: 	"github.com/sirupsen/logrus"
+Line 20: 	"golang.org/x/sys/unix"
+Line 21: 
+Line 22: 	"github.com/opencontainers/cgroups"
+Line 23: 	"github.com/opencontainers/cgroups/fs2"
+Line 24: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 25: 	"github.com/opencontainers/runc/libcontainer/intelrdt"
+Line 26: 	"github.com/opencontainers/runc/libcontainer/internal/userns"
+Line 27: 	"github.com/opencontainers/runc/libcontainer/logs"
+Line 28: 	"github.com/opencontainers/runc/libcontainer/system"
+Line 29: 	"github.com/opencontainers/runc/libcontainer/utils"
+Line 30: )
+Line 31: 
+Line 32: type parentProcess interface {
+Line 33: 	// pid returns the pid for the running process.
+Line 34: 	pid() int
+Line 35: 
+Line 36: 	// start starts the process execution.
+Line 37: 	start() error
+Line 38: 
+Line 39: 	// send a SIGKILL to the process and wait for the exit.
+Line 40: 	terminate() error
+Line 41: 
+Line 42: 	// wait waits on the process returning the process state.
+Line 43: 	wait() (*os.ProcessState, error)
+Line 44: 
+Line 45: 	// startTime returns the process start time.
+Line 46: 	startTime() (uint64, error)
+Line 47: 	signal(os.Signal) error
+Line 48: 	externalDescriptors() []string
+Line 49: 	setExternalDescriptors(fds []string)
+Line 50: 	forwardChildLogs() chan error
+Line 51: }
+Line 52: 
+Line 53: type processComm struct {
+Line 54: 	// Used to send initial configuration to "runc init" and for "runc init" to
+Line 55: 	// indicate that it is ready.
+Line 56: 	initSockParent *os.File
+Line 57: 	initSockChild  *os.File
+Line 58: 	// Used for control messages between parent and "runc init".
+Line 59: 	syncSockParent *syncSocket
+Line 60: 	syncSockChild  *syncSocket
+Line 61: 	// Used for log forwarding from "runc init" to the parent.
+Line 62: 	logPipeParent *os.File
+Line 63: 	logPipeChild  *os.File
+Line 64: }
+Line 65: 
+Line 66: func newProcessComm() (*processComm, error) {
+Line 67: 	var (
+Line 68: 		comm processComm
+Line 69: 		err  error
+Line 70: 	)
+Line 71: 	comm.initSockParent, comm.initSockChild, err = utils.NewSockPair("init")
+Line 72: 	if err != nil {
+Line 73: 		return nil, fmt.Errorf("unable to create init pipe: %w", err)
+Line 74: 	}
+Line 75: 	comm.syncSockParent, comm.syncSockChild, err = newSyncSockpair("sync")
+Line 76: 	if err != nil {
+Line 77: 		return nil, fmt.Errorf("unable to create sync pipe: %w", err)
+Line 78: 	}
+Line 79: 	comm.logPipeParent, comm.logPipeChild, err = os.Pipe()
+Line 80: 	if err != nil {
+Line 81: 		return nil, fmt.Errorf("unable to create log pipe: %w", err)
+Line 82: 	}
+Line 83: 	return &comm, nil
+Line 84: }
+Line 85: 
+Line 86: func (c *processComm) closeChild() {
+Line 87: 	_ = c.initSockChild.Close()
+Line 88: 	_ = c.syncSockChild.Close()
+Line 89: 	_ = c.logPipeChild.Close()
+Line 90: }
+Line 91: 
+Line 92: func (c *processComm) closeParent() {
+Line 93: 	_ = c.initSockParent.Close()
+Line 94: 	_ = c.syncSockParent.Close()
+Line 95: 	// c.logPipeParent is kept alive for ForwardLogs
+Line 96: }
+Line 97: 
+Line 98: type containerProcess struct {
+Line 99: 	cmd           *exec.Cmd
+Line 100: 	comm          *processComm
+Line 101: 	config        *initConfig
+Line 102: 	manager       cgroups.Manager
+Line 103: 	fds           []string
+Line 104: 	process       *Process
+Line 105: 	bootstrapData io.Reader
+Line 106: 	container     *Container
+Line 107: }
+Line 108: 
+Line 109: func (p *containerProcess) pid() int {
+Line 110: 	return p.cmd.Process.Pid
+Line 111: }
+Line 112: 
+Line 113: func (p *containerProcess) startTime() (uint64, error) {
+Line 114: 	stat, err := system.Stat(p.pid())
+Line 115: 	return stat.StartTime, err
+Line 116: }
+Line 117: 
+Line 118: func (p *containerProcess) signal(
+
+
+## Executed search queries within the code base:
+Searching keywords: AdditionalGids, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, i] package main
+spec.go:3: [i, t, i, o, i] import (
+spec.go:4: [d, d, i, i, o, n, g, i, d, s] "encoding/json"
+spec.go:5: [o, s] "errors"
+spec.go:6: [t] "fmt"
+spec.go:7: [o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, i, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, i, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, i, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, i] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, i, d, s] var specCommand = cli.Command{
+spec.go:16: [a, n, a, s] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, i, s] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, s] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, d] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, i, d, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i, o, n, a, l, i, d] command in a new hello-world container named container1:
+spec.go:35: [d, d, i, i, o, l, i, d] mkdir hello
+spec.go:36: [d, d, o, l, d] cd hello
+spec.go:37: [d, d, o, l, d] docker pull hello-world
+spec.go:38: [a, d, d, t, o, a, l, d] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [d, d, i, t, i, o, i, d, s] mkdir rootfs
+spec.go:40: [a, d, d, t, o, a, l, d, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [n, s] runc spec
+spec.go:42: [d, d, i, i, o, n, l, g, i, d, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [a, i, t, i, o, n, a, i] runc run container1
+spec.go:45: [a, d, d, i, t, i, o, n, a, i, d, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [a, d, d, i, t, i, o, n, a, g, i, d, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, t, i, o, n, i, s] must be unique on your host.
+spec.go:49: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [a, i, t, i, o, n, a, l, g, i, s] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [a, i, t, i, o, n, a, g, i] to get more information.
+spec.go:54: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] example:
+
+Searching keywords: AdditionalGroups Setgroups SupplementaryGids Gids, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, p, e, g, p, p, p, e, m, e, n, a, g, i, g, i] package main
+spec.go:3: [i, t, i, o, r, o, p, t, r, o, p, p, p, m, t, r, i, i] import (
+spec.go:4: [d, d, i, i, o, n, g, o, s, s, e, g, o, s, s, e, e, n, g, i, d, s, g, i, d, s] "encoding/json"
+spec.go:5: [o, r, o, s, s, e, r, o, s, s, e, e, r, s, s] "errors"
+spec.go:6: [t, t, m, t] "fmt"
+spec.go:7: [o, o, s, s, o, s, s, s, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, g, i, s, g, i, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, g, i, s, g, i, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, e, m, e, n, t, a, r, g, i, s, g, i, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, r, o, u, e, t, g, r, o, u, u, l, e, m, e, t, a, r, g, i, g, i] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, r, o, p, s, s, e, r, o, p, s, s, p, p, l, e, m, e, n, a, r, i, d, s, i, d, s] var specCommand = cli.Command{
+spec.go:16: [a, n, a, p, s, s, e, p, s, s, p, p, e, m, e, n, a, s, s] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, e, n, t, a, r, g, i, s, g, i, s] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, r, u, s, s, e, g, r, u, s, s, u, e, e, a, r, g, s, g, s] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, r, o, p, s, s, e, t, g, r, o, p, s, s, p, p, l, e, m, e, n, t, a, r, g, i, d, s, g, i, d, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, u, e, t, u, u, l, e, e, n, t, d, d] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, e, n, t, a, r, g, i, d, s, g, i, d, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, y, g, i, d, s, g, i, d, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, r, o, p, s, s, e, t, r, o, p, s, s, p, p, l, e, m, e, n, t, a, r, y, i, d, s, i, d, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, s, e, t, g, r, o, u, s, s, u, l, e, m, e, n, t, a, r, y, g, i, d, s, g, i, d, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, g, i, d, s, g, i, d, s] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, p, e, p, p, p, l, e, m, e, a] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, g, i, d, s, g, i, d, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, g, i, d, s, g, i, d, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, s, e, t, g, r, o, u, s, s, u, l, e, m, e, n, t, a, r, g, i, d, s, g, i, d, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, u, p, p, l, e, m, e, n, t, a, r, g, i, d, s, g, i, d, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i, o, n, a, l, r, o, e, t
+
+Searching keywords: AdditionalGroups AdditionalGids Setgroups setgroups Credential, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, p, a, i, i, n, a, g, i, e, g, p, e, g, p, c, e, e, n, i, a] package main
+spec.go:3: [i, t, i, o, r, o, p, i, t, i, o, i, t, r, o, p, t, r, o, p, r, t, i] import (
+spec.go:4: [d, d, i, i, o, n, g, o, s, d, d, i, i, o, n, g, i, d, s, s, e, g, o, s, s, e, g, o, s, c, e, d, e, n, i] "encoding/json"
+spec.go:5: [o, r, o, s, o, s, s, e, r, o, s, s, e, r, o, s, r, e, e] "errors"
+spec.go:6: [t, t, t, t, t] "fmt"
+spec.go:7: [o, o, s, o, s, s, o, s, s, o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, a, i, t, i, o, n, a, l, g, i, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, a, i, t, i, o, n, a, l, g, i, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, r, o, u, p, s, a, i, t, i, o, n, a, g, i, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, r, o, u, a, i, t, i, o, a, l, g, i, e, t, g, r, o, u, e, t, g, r, o, u, c, r, e, e, t, i, a, l] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, r, o, p, s, a, d, d, i, i, o, n, a, l, i, d, s, s, e, r, o, p, s, s, e, r, o, p, s, c, r, e, d, e, n, i, a, l] var specCommand = cli.Command{
+spec.go:16: [a, n, a, p, s, a, n, a, s, s, e, p, s, s, e, p, s, c, e, e, n, a] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, a, i, t, i, o, n, a, l, g, i, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, r, u, s, a, a, g, s, s, e, g, r, u, s, s, e, g, r, u, s, r, e, e, a] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, r, o, p, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o, p, s, s, e, t, g, r, o, p, s, c, r, e, d, e, n, t, i, a, l] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, u, d, d, t, n, l, d, e, t, u, e, t, u, e, d, e, n, t, l] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, r, o, p, s, a, d, d, i, t, i, o, n, a, l, i, d, s, s, e, t, r, o, p, s, s, e, t, r, o, p, s, c, r, e, d, e, n, t, i, a, l] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o, u, s, s, e, t, g, r, o, u, s, c, r, e, d, e, n, t, i, a, l] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, p, a, a, l, e, p, e, p, e, e, a, l] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, a, d, d, i, t, i, o, n, a, l, g, i, d, s, s, e, t, g, r, o
+
+Searching keywords: spec.Process.User.AdditionalGids AdditionalGroups:, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, e, c, p, c, e, e, a, i, i, n, a, g, i, a, i, i, n, a, g, p] package main
+spec.go:3: [p, p, r, o, r, i, t, i, o, i, i, t, i, o, r, o, p] import (
+spec.go:4: [s, e, c, o, c, e, s, s, s, e, d, d, i, i, o, n, g, i, d, s, d, d, i, i, o, n, g, o, s] "encoding/json"
+spec.go:5: [s, e, r, o, e, s, s, s, e, r, o, s, o, r, o, s] "errors"
+spec.go:6: [t, t] "fmt"
+spec.go:7: [s, o, s, s, s, o, s, o, o, s] "os"
+spec.go:9: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, i, t, i, o, n, a, l, g, i, s, a, i, t, i, o, n, a, l, g, r, o, u, p, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, i, t, i, o, n, a, l, g, i, s, a, i, t, i, o, n, a, l, g, r, o, u, p, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, i, t, i, o, n, a, g, i, s, a, i, t, i, o, n, a, g, r, o, u, p, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [e, c, ., r, o, c, e, ., u, e, r, ., a, i, t, i, o, a, l, g, i, a, i, t, i, o, a, l, g, r, o, u] "github.com/urfave/cli"
+spec.go:15: [s, p, e, c, ., p, r, o, c, e, s, s, ., s, e, r, ., a, d, d, i, i, o, n, a, l, i, d, s, a, d, d, i, i, o, n, a, l, r, o, p, s] var specCommand = cli.Command{
+spec.go:16: [s, p, e, c, p, c, e, s, s, s, e, a, n, a, s, a, n, a, p, s, :] Name:      "spec",
+spec.go:17: [s, p, e, c, p, r, o, c, e, s, s, u, s, e, r, a, i, t, i, o, n, a, l, g, i, s, a, i, t, i, o, n, a, l, g, r, o, u, p, s, :] Usage:     "create a new specification file",
+spec.go:18: [s, e, r, e, s, s, u, s, e, r, a, a, g, s, a, a, g, r, u, s, :] ArgsUsage: "",
+spec.go:19: [s, p, e, c, p, r, o, c, e, s, s, s, e, r, a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, p, s, :] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [e, ., e, ., u, e, ., d, d, t, n, l, d, d, d, t, n, l, u] the bundle.
+spec.go:22: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [s, p, e, c, p, r, o, c, e, s, s, s, e, r, a, d, d, i, t, i, o, n, a, l, i, d, s, a, d, d, i, t, i, o, n, a, l, r, o, p, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [s, e, c, ., r, o, c, e, s, s, ., u, s, e, r, ., a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] work for containers that do not include the "sh" program.
+spec.go:28: [p, e, p, e, e, a, a, l, a, a, l, p, :] EXAMPLE:
+spec.go:29: [s, p, e, c, p, r, o, c, e, s, s, u, s, e, r, a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [s, p, e, c, ., p, r, o, c, e, s, s, ., u, s, e, r, ., a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [s, e, c, ., r, o, c, e, s, s, ., u, s, e, r, ., a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [s, p, e, c, p, r, o, c, e, s, s, u, s, e, r, a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p
+
+Searching keywords: AdditionalGroups, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, p] package main
+spec.go:3: [i, t, i, o, r, o, p] import (
+spec.go:4: [d, d, i, i, o, n, g, o, s] "encoding/json"
+spec.go:5: [o, r, o, s] "errors"
+spec.go:6: [t] "fmt"
+spec.go:7: [o, o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, r, o, u, p, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, r, o, u, p, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, r, o, u, p, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, r, o, u] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, r, o, p, s] var specCommand = cli.Command{
+spec.go:16: [a, n, a, p, s] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, r, o, u, p, s] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, r, u, s] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, r, o, p, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, u] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, r, o, p, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, p] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i, o, n, a, l, r, o] command in a new hello-world container named container1:
+spec.go:35: [d, d, i, i, o, l, r, o] mkdir hello
+spec.go:36: [d, d, o, l, o] cd hello
+spec.go:37: [d, d, o, l, r, o, u, p] docker pull hello-world
+spec.go:38: [a, d, d, t, o, a, l, r, o, p] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [d, d, i, t, i, o, r, o, s] mkdir rootfs
+spec.go:40: [a, d, d, t, o, a, l, r, o, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [n, r, u, p, s] runc spec
+spec.go:42: [d, d, i, i, o, n, l, g, o, p, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [a, i, t, i, o, n, a, r, o, u] runc run container1
+spec.go:45: [a, d, d, i, t, i, o, n, a, r, o, u, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [a, d, d, i, t, i, o, n, a, g, r, o, u, p, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, t, i, o, n, r, o, u, s] must be unique on your host.
+spec.go:49: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [a, i, t, i, o, n, a, l, g, r, o, u, p, s] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [a, i, t, i, o, n, a, g, r, o] to get more information.
+spec.go:54: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s] When starting a container through runc, runc needs root privilege. If no
+
+Searching keywords: AdditionalGids Credential Gid Uid, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, i, c, e, e, n, i, a, g, i, i] package main
+spec.go:3: [i, t, i, o, i, r, t, i, i, i] import (
+spec.go:4: [d, d, i, i, o, n, g, i, d, s, c, e, d, e, n, i, g, i, d, i, d] "encoding/json"
+spec.go:5: [o, s, r, e, e] "errors"
+spec.go:6: [t, t] "fmt"
+spec.go:7: [o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, i, s, c, r, e, e, n, t, i, a, l, g, i, u, i] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, i, s, c, r, e, e, n, t, i, a, l, g, i, u, i] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, i, s, c, r, e, e, n, t, i, a, g, i, u, i] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, i, c, r, e, e, t, i, a, l, g, i, u, i] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, i, d, s, c, r, e, d, e, n, i, a, l, i, d, i, d] var specCommand = cli.Command{
+spec.go:16: [a, n, a, s, c, e, e, n, a] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, i, s, c, r, e, e, n, t, i, a, l, g, i, u, i] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, s, r, e, e, a, g, u] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, i, d] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, d, e, d, e, n, t, l, d, u, d] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, i, d, s, c, r, e, d, e, n, t, i, a, l, i, d, i, d] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, e, e, a, l] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, c, r, e, d, e, n, t, i, a, l, g, i, d, u, i, d] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i, o, n, a, l, i, d, c, r, e, d, e, n, t, i, a, l, i, d, i, d] command in a new hello-world container named container1:
+spec.go:35: [d, d, i, i, o, l, i, d, r, e, d, e, i, l, i, d, i, d] mkdir hello
+spec.go:36: [d, d, o, l, d, c, e, d, e, l, d, d] cd hello
+spec.go:37: [d, d, o, l, d, c, r, e, d, e, l, d, u, d] docker pull hello-world
+spec.go:38: [a, d, d, t, o, a, l, d, c, r, e, d, e, t, a, l, d, d] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [d, d, i, t, i, o, i, d, s, r, d, t, i, i, d, i, d] mkdir rootfs
+spec.go:40: [a, d, d, t, o, a, l, d, s, c, r, e, d, e, t, a, l, d, d] tar -C rootfs -xf hello-world.tar
+spec.go:41: [n, s, c, r, e, e, n, u] runc spec
+spec.go:42: [d, d, i, i, o, n, l, g, i, d, s, c, e, d, e, n, i, l, g, i, d, i, d] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [a, i, t, i, o, n, a, i, c, r, e, e, n, t, i, a, i, u, i] runc r
+
+Searching keywords: AdditionalGroups setgroups Setgroups Credential, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, p, e, g, p, e, g, p, c, e, e, n, i, a] package main
+spec.go:3: [i, t, i, o, r, o, p, t, r, o, p, t, r, o, p, r, t, i] import (
+spec.go:4: [d, d, i, i, o, n, g, o, s, s, e, g, o, s, s, e, g, o, s, c, e, d, e, n, i] "encoding/json"
+spec.go:5: [o, r, o, s, s, e, r, o, s, s, e, r, o, s, r, e, e] "errors"
+spec.go:6: [t, t, t, t] "fmt"
+spec.go:7: [o, o, s, s, o, s, s, o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, r, o, u, e, t, g, r, o, u, e, t, g, r, o, u, c, r, e, e, t, i, a, l] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, r, o, p, s, s, e, r, o, p, s, s, e, r, o, p, s, c, r, e, d, e, n, i, a, l] var specCommand = cli.Command{
+spec.go:16: [a, n, a, p, s, s, e, p, s, s, e, p, s, c, e, e, n, a] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, r, u, s, s, e, g, r, u, s, s, e, g, r, u, s, r, e, e, a] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, r, o, p, s, s, e, t, g, r, o, p, s, s, e, t, g, r, o, p, s, c, r, e, d, e, n, t, i, a, l] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, u, e, t, u, e, t, u, e, d, e, n, t, l] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, r, o, p, s, s, e, t, r, o, p, s, s, e, t, r, o, p, s, c, r, e, d, e, n, t, i, a, l] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, s, e, t, g, r, o, u, s, s, e, t, g, r, o, u, s, c, r, e, d, e, n, t, i, a, l] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, p, e, p, e, p, e, e, a, l] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, s, e, t, g, r, o, u, s, s, e, t, g, r, o, u, s, c, r, e, d, e, n, t, i, a, l] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, s, e, t, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i, o, n, a, l, r, o, e, t, r, o, e, t, r, o, c, r, e
+
+Searching keywords: AdditionalGids AdditionalGroups Credential Groups, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, i, a, i, i, n, a, g, p, c, e, e, n, i, a, g, p] package main
+spec.go:3: [i, t, i, o, i, i, t, i, o, r, o, p, r, t, i, r, o, p] import (
+spec.go:4: [d, d, i, i, o, n, g, i, d, s, d, d, i, i, o, n, g, o, s, c, e, d, e, n, i, g, o, s] "encoding/json"
+spec.go:5: [o, s, o, r, o, s, r, e, e, r, o, s] "errors"
+spec.go:6: [t, t, t] "fmt"
+spec.go:7: [o, s, o, o, s, o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, i, s, a, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l, g, r, o, u, p, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, i, s, a, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l, g, r, o, u, p, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, i, s, a, i, t, i, o, n, a, g, r, o, u, p, s, c, r, e, e, n, t, i, a, g, r, o, u, p, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, i, a, i, t, i, o, a, l, g, r, o, u, c, r, e, e, t, i, a, l, g, r, o, u] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, i, d, s, a, d, d, i, i, o, n, a, l, r, o, p, s, c, r, e, d, e, n, i, a, l, r, o, p, s] var specCommand = cli.Command{
+spec.go:16: [a, n, a, s, a, n, a, p, s, c, e, e, n, a, p, s] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, i, s, a, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, e, n, t, i, a, l, g, r, o, u, p, s] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, s, a, a, g, r, u, s, r, e, e, a, g, r, u, s] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, p, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, d, d, d, t, n, l, u, e, d, e, n, t, l, u] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, p, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, p, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, i, d, s, a, d, d, i, t, i, o, n, a, l, r, o, p, s, c, r, e, d, e, n, t, i, a, l, r, o, p, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, p, s] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, a, a, l, p, e, e, a, l, p] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, p, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, p, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, a, d, d, i, t, i, o, n, a, l, g, r, o, u, p, s, c, r, e, d, e, n, t, i, a, l, g, r, o, u, p, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i
+
+Searching keywords: AdditionalGids:, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [a, i, i, n, a, g, i] package main
+spec.go:3: [i, t, i, o, i] import (
+spec.go:4: [d, d, i, i, o, n, g, i, d, s] "encoding/json"
+spec.go:5: [o, s] "errors"
+spec.go:6: [t] "fmt"
+spec.go:7: [o, s] "os"
+spec.go:9: [a, i, t, i, o, n, a, l, g, i, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [a, i, t, i, o, n, a, l, g, i, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [a, i, t, i, o, n, a, g, i, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [a, i, t, i, o, a, l, g, i] "github.com/urfave/cli"
+spec.go:15: [a, d, d, i, i, o, n, a, l, i, d, s] var specCommand = cli.Command{
+spec.go:16: [a, n, a, s, :] Name:      "spec",
+spec.go:17: [a, i, t, i, o, n, a, l, g, i, s, :] Usage:     "create a new specification file",
+spec.go:18: [a, a, g, s, :] ArgsUsage: "",
+spec.go:19: [a, d, d, i, t, i, o, n, a, l, g, i, d, s, :] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, d, t, n, l, d] the bundle.
+spec.go:22: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [a, d, d, i, t, i, o, n, a, l, i, d, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] work for containers that do not include the "sh" program.
+spec.go:28: [a, a, l, :] EXAMPLE:
+spec.go:29: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [a, d, d, i, t, i, o, n, a, l, i, d, :] command in a new hello-world container named container1:
+spec.go:35: [d, d, i, i, o, l, i, d] mkdir hello
+spec.go:36: [d, d, o, l, d] cd hello
+spec.go:37: [d, d, o, l, d] docker pull hello-world
+spec.go:38: [a, d, d, t, o, a, l, d] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [d, d, i, t, i, o, i, d, s] mkdir rootfs
+spec.go:40: [a, d, d, t, o, a, l, d, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [n, s] runc spec
+spec.go:42: [d, d, i, i, o, n, l, g, i, d, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [a, i, t, i, o, n, a, i] runc run container1
+spec.go:45: [a, d, d, i, t, i, o, n, a, i, d, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [a, d, d, i, t, i, o, n, a, g, i, d, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, t, i, o, n, i, s] must be unique on your host.
+spec.go:49: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [a, i, t, i, o, n, a, l, g, i, s, :] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [a, i, t, i, o, n, a, g, i] to get more information.
+spec.go:54: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [a, d, d, i, t, i, o, n, a, l, g, i, d, s] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [a, d, d, i, t, i, o, n, a, l,
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-4769.
+
+Target runtime: runc
+Title: Behavior change when duplicate additionalGids are specified
+Upstream issue: https://github.com/opencontainers/runc/issues/4769
+Category: Process & Execution
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4769
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4769
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4769
+Upstream URL: https://github.com/opencontainers/runc/issues/4769
+Category: Process & Execution
+
+Payload under test:
+process.user: {"uid": 0, "gid": 0, "additionalGids": [1000, 2000, 3000, 3000]}; process args: ["/usr/bin/id"]
+
+Expected differential behavior:
+runc v1.3.0 preserves duplicate additionalGids, so `id` reports `groups=1000,2000,3000,3000`.
+runc v1.2.6 deduplicates duplicate additionalGids, so `id` reports `groups=1000,2000,3000`.
+crun 1.14.1 also preserves duplicate additionalGids, while youki follows the older runc behavior and deduplicates them.
+
+Validation procedure:
+1. Run this case with the affected runtime, for example `RUNTIME=/path/to/runc-v1.3.0 bash repro.sh`.
+2. Run the same `buggy_config.json` with a reference runtime, for example `RUNTIME=/path/to/runc-v1.2.6 bash repro.sh`.
+3. Compare stdout from `id`; the useful signal is whether the second `3000` is preserved or removed.
+4. Run `CONFIG=base_config.json bash repro.sh` as a sanity check; the baseline should report `groups=1000,2000,3000`.
+5. Treat missing runtime binaries, missing rootfs archive, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4769
+
+## Upstream Issue Summary
+- Title: Behavior change when duplicate additionalGids are specified
+- URL: https://github.com/opencontainers/runc/issues/4769
+- Category: Process & Execution
+- Summary: This case reduces the issue to a small OCI process user configuration whose `additionalGids` list contains a duplicate GID.
+
+## Runtime Version Assessment
+The upstream report compares runc v1.3.0 with runc v1.2.6. runc v1.3.0 preserves duplicate `additionalGids`, while runc v1.2.6 deduplicates them. The report also notes that crun preserves duplicates and youki follows the older runc deduplication behavior.
+
+## Buggy Version Identification
+Issue text identifies `runc version 1.3.0` as the behavior-changing version. The reported behavior changed after opencontainers/runc PR #3999 removed the older path that indirectly deduplicated group IDs through a map.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration with `additionalGids` set to `[1000, 2000, 3000]`.
+- `buggy_config.json`: modified OCI configuration with `additionalGids` set to `[1000, 2000, 3000, 3000]`.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- A rootfs containing `/usr/bin/id`; the repository Alpine rootfs provides it.
+
+## Reproduction Steps
+1. Change into `cases/runc-4769`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/runc-v1.3.0 bash repro.sh` and `RUNTIME=/path/to/runc-v1.2.6 bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh`.
+5. Compare stdout from `id` against `expected_diff.txt`.
+
+## Result Validation
+Payload: process.user: {"uid": 0, "gid": 0, "additionalGids": [1000, 2000, 3000, 3000]}; process args: ["/usr/bin/id"]
+
+Oracle: runc v1.3.0 and crun preserve the duplicate group, producing `groups=1000,2000,3000,3000`. runc v1.2.6 and youki deduplicate it, producing `groups=1000,2000,3000`. The baseline config should always produce `groups=1000,2000,3000`.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

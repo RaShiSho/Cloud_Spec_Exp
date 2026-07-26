@@ -1,0 +1,971 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case crun-13.
+
+Target runtime: crun
+Title: $PATH lookup before exec'ing the container process
+Upstream issue: https://github.com/containers/crun/issues/13
+Category: Process & Execution
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-13
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-13
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-13
+Upstream URL: https://github.com/containers/crun/issues/13
+Category: Process & Execution
+
+Payload under test:
+process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-13
+
+## Upstream Issue Summary
+- Title: $PATH lookup before exec'ing the container process
+- URL: https://github.com/containers/crun/issues/13
+- Category: Process & Execution
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Upstream git log matched the PATH lookup fix `620b91b5a076` (`utils: fix PATH lookup`); use its parent `cc27fd6c1b28` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-13`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original PATH lookup issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes successfully resolved `sh`, printed `process-path-13`, and reported `/bin/sh`. Reproducing the issue appears to require the affected pre-fix crun build that did not perform the same PATH lookup.
+
+
+Source files:
+contrib/terminal-receiver/terminal-receiver.c
+python/crun_python.c
+src/create.c
+src/create.h
+src/crun.c
+src/crun.h
+src/delete.c
+src/delete.h
+src/exec.c
+src/exec.h
+src/kill.c
+src/kill.h
+src/libcrun/cgroup.c
+src/libcrun/cgroup.h
+src/libcrun/chroot_realpath.c
+src/libcrun/cloned_binary.c
+src/libcrun/container.c
+src/libcrun/container.h
+src/libcrun/ebpf.c
+src/libcrun/ebpf.h
+src/libcrun/error.c
+src/libcrun/error.h
+src/libcrun/intprops.h
+src/libcrun/linux.c
+src/libcrun/linux.h
+src/libcrun/seccomp.c
+src/libcrun/seccomp.h
+src/libcrun/sig2str.c
+src/libcrun/sig2str.h
+src/libcrun/status.c
+src/libcrun/status.h
+src/libcrun/terminal.c
+src/libcrun/terminal.h
+src/libcrun/utils.c
+src/libcrun/utils.h
+src/list.c
+src/list.h
+src/pause.c
+src/pause.h
+src/run.c
+src/run.h
+src/spec.c
+src/spec.h
+src/start.c
+src/start.h
+src/state.c
+src/state.h
+src/unpause.c
+src/unpause.h
+src/update.c
+src/update.h
+tests/init.c
+tests/tests_libcrun_errors.c
+tests/tests_libcrun_utils.c
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+1 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 260 to 620 from file: src/libcrun/utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 260: 
+Line 261:           *it = '\0';
+Line 262:           ret = ensure_directory_internal (path, len - 1, mode, err);
+Line 263:           *it = '/';
+Line 264:           if (UNLIKELY (ret < 0))
+Line 265:             break;
+Line 266:         }
+Line 267:     }
+Line 268:   return ret;
+Line 269: }
+Line 270: 
+Line 271: int
+Line 272: crun_ensure_directory (const char *path, int mode, libcrun_error_t *err)
+Line 273: {
+Line 274:   cleanup_free char *tmp = xstrdup (path);
+Line 275:   return ensure_directory_internal (tmp, strlen (tmp), mode, err);
+Line 276: }
+Line 277: 
+Line 278: int
+Line 279: crun_ensure_file (const char *path, int mode, libcrun_error_t *err)
+Line 280: {
+Line 281:   cleanup_free char *tmp = xstrdup (path);
+Line 282:   size_t len = strlen (tmp);
+Line 283:   char *it = tmp + len - 1;
+Line 284:   int ret;
+Line 285: 
+Line 286:   while (*it != '/' && it > tmp)
+Line 287:     it--;
+Line 288:   if (it > tmp)
+Line 289:     {
+Line 290:       *it = '\0';
+Line 291:       ret = crun_ensure_directory (tmp, mode, err);
+Line 292:       if (UNLIKELY (ret < 0))
+Line 293:         return ret;
+Line 294:       *it = '/';
+Line 295: 
+Line 296:       return create_file_if_missing (tmp, err);
+Line 297:     }
+Line 298:   return 0;
+Line 299: }
+Line 300: 
+Line 301: 
+[older content truncated]
+
+Lines 620 to 980 from file: src/libcrun/utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 620:       nread = TEMP_FAILURE_RETRY (read (src, buffer, BUFFER_SIZE));
+Line 621:       if (consume && nread < 0 && errno == EAGAIN)
+Line 622:         return 0;
+Line 623:       if (nread < 0 && errno == EIO)
+Line 624:         return 0;
+Line 625:       if (UNLIKELY (nread < 0))
+Line 626:         return crun_make_error (err, errno, "read");
+Line 627: 
+Line 628:       remaining = nread;
+Line 629:       while (remaining)
+Line 630:         {
+Line 631:           ret = TEMP_FAILURE_RETRY (write (dst, buffer, nread));
+Line 632:           if (UNLIKELY (ret < 0))
+Line 633:             return crun_make_error (err, errno, "write");
+Line 634:           remaining -= ret;
+Line 635:         }
+Line 636:     }
+Line 637:   while (consume && nread);
+Line 638: 
+Line 639:   return 0;
+Line 640: 
+Line 641: }
+Line 642: 
+Line 643: int
+Line 644: run_process (char **args, libcrun_error_t *err)
+Line 645: {
+Line 646:   pid_t pid = fork ();
+Line 647:   if (UNLIKELY (pid < 0))
+Line 648:     return crun_make_error (err, errno, "fork");
+Line 649:   if (pid)
+Line 650:     {
+Line 651:       int r, status;
+Line 652:       r = TEMP_FAILURE_RETRY (waitpid (pid, &status, 0));
+Line 653:       if (r < 0)
+Line 654:         return crun_make_error (err, errno, "waitpid");
+Line 655:       if (WIFEXITED (status) || WIFSIGNALED (status))
+Line 656:         return WEXITSTATUS (status);
+Line 657:     }
+Line 658: 
+Line 659:   execvp (args[0], args);
+Line 660:   _exit (EXIT_FAILURE);
+Line 661: }
+Line 662: 
+Line 663: /*if subuid or subgid exist, take the first range for the user */
+Line 664: static int
+Line 665: getsubidrange (uid_t id, int is_uid, uint32_t *from, uint32_t *len)
+Line 666: {
+Line 667:   cleanup_file FILE *input = NULL;
+Line 668:   cleanup_free char *lineptr = NULL;
+Line 669:   size_t lenlineptr = 0, len_name;
+Line 670:   long buf_size;
+Line 671:   cleanup_free char *buf = NULL;
+Line 672:   const char *name;
+Line 673:   struct passwd pwd;
+Line 674: 
+Line 675:   buf_size = sysconf (_SC_GETPW_R_SIZE_MAX);
+Line 676:   if (buf_size < 0)
+Line 677:     buf_size = 1024;
+Line 678: 
+Line 679:   buf = xmalloc (buf_size);
+Line 680:   for (;;)
+Line 681:     {
+Line 682:       int ret;
+Line 683:       struct passwd *ret_pw = NULL;
+Line 684: 
+Line 685:       ret = getpwuid_r (id, &pwd, buf, buf_size, &ret_pw);
+Line 686:       if (LIKELY (ret == 0))
+Line 687:         {
+Line 688:           if (ret_pw)
+Line 689:             {
+Line 690:               name = ret_pw->pw_name;
+Line 691:               break;
+Line 692:             }
+Line 693:           return -1;
+Line 694:         }
+Line 695: 
+Line 696:       if (ret < 0 && errno != ERANGE)
+Line 697:         return ret;
+Line 698: 
+Line 699:       buf_size *= 2;
+Line 700:       buf = xrealloc (buf, buf_size);
+Line 701:     }
+Line 702: 
+Line 703:   len_name = strlen (name);
+Line 704: 
+Line 705:   input = fopen (is_uid ? "/etc/subuid" : "/etc/subgid", "r");
+Line 706:   if (input == NULL)
+Line 707:     return -1;
+Line 708: 
+Line 709:   for (;;)
+Line 710:     {
+Line 711:       char *endptr;
+Line 712:       int read = getline (&lineptr, &lenlineptr, input);
+Line 713:       if (read < 0)
+Line 714:         return -1;
+Line 715: 
+Line 716:       if (read < len_name + 2)
+Line 717:         continue;
+Line 718: 
+Line 719:       if (memcmp (lineptr, name, len_name) || lineptr[len_name] != ':')
+Line 720:         continue;
+Line 721: 
+Line 722:       *from = strtoull (&lineptr[len_name + 1], &endptr, 10);
+Line 723: 
+Line 724:       if (endptr >= &lineptr[read])
+Line 725:         return -1;
+Line 726: 
+Line 727:       *len = strtoull (&endptr[1], &endptr, 10);
+Line 728: 
+Line 729:       return 0;
+Line 730:     }
+Line 731: }
+Line 732: 
+Line 733: #define MIN(x,y) ((x)<(y)?(x):(y))
+Line 734: 
+Line 735: size_t
+Line 736: format_default_id_mapping (char **ret, uid_t container_id, uid_t host_id, int is_uid)
+Line 737: {
+Line 738:   uint32_t from, available;
+Line 739:   cleanup_free char *buffer = NULL;
+Line 740:   size_t written = 0;
+Line 741: 
+Line 742:   *re
+
+Lines 1 to 260 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: /*
+Line 2:  * crun - OCI runtime written in C
+Line 3:  *
+Line 4:  * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+Line 5:  * crun is free software; you can redistribute it and/or modify
+Line 6:  * it under the terms of the GNU Lesser General Public License as published by
+Line 7:  * the Free Software Foundation; either version 3 of the License, or
+Line 8:  * (at your option) any later version.
+Line 9:  *
+Line 10:  * crun is distributed in the hope that it will be useful,
+Line 11:  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+Line 12:  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+Line 13:  * GNU Lesser General Public License for more details.
+Line 14:  *
+Line 15:  * You should have received a copy of the GNU Lesser General Public License
+Line 16:  * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+Line 17:  */
+Line 18: #define _GNU_SOURCE
+Line 19: 
+Line 20: #include <config.h>
+Line 21: #include <stdbool.h>
+Line 22: #include "container.h"
+Line 23: #include "utils.h"
+Line 24: #include "seccomp.h"
+Line 25: #include <stdbool.h>
+Line 26: #include <argp.h>
+Line 27: #include <unistd.h>
+Line 28: #include <sys/stat.h>
+Line 29: #include <sys/types.h>
+Line 30: #include <sched.h>
+Line 31: #include <sys/wait.h>
+Line 32: #include <string.h>
+Line 33: #include <fcntl.h>
+Line 34: #include "status.h"
+Line 35: #include "linux.h"
+Line 36: #include "terminal.h"
+Line 37: #include "cgroup.h"
+Line 38: #include <sys/prctl.h>
+Line 39: #include <sys/signalfd.h>
+Line 40: #include <sys/epoll.h>
+Line 41: #include <sys/socket.h>
+Line 42: #include <grp.h>
+Line 43: 
+Line 44: #ifdef HAVE_SYSTEMD
+Line 45: # include <systemd/sd-daemon.h>
+Line 46: #endif
+Line 47: 
+Line 48: #include <yajl/yajl_tree.h>
+Line 49: #include <yajl/yajl_gen.h>
+Line 50: 
+Line 51: #define YAJL_STR(x) ((const unsigned char *) (x))
+Line 52: 
+Line 53: enum
+Line 54:   {
+Line 55:     SYNC_SOCKET_SYNC_MESSAGE,
+Line 56:     SYNC_SOCKET_ERROR_MESSAGE,
+Line 57:     SYNC_SOCKET_WARNING_MESSAGE,
+Line 58:   };
+Line 59: 
+Line 60: struct container_entrypoint_s
+Line 61: {
+Line 62:   libcrun_container_t *container;
+Line 63:   libcrun_context_t *context;
+Line 64:   int has_terminal_socket_pair;
+Line 65:   int terminal_socketpair[2];
+Line 66:   int sync_socket;
+Line 67:   int seccomp_fd;
+Line 68:   int console_socket_fd;
+Line 69: };
+Line 70: 
+Line 71: struct sync_socket_message_s
+Line 72: {
+Line 73:   int type;
+Line 74:   int error_value;
+Line 75:   char message[512];
+Line 76: };
+Line 77: 
+Line 78: 
+Line 79: 
+Line 80: static char spec_file[] = "\
+Line 81:   {\n\
+Line 82: 	\"ociVersion\": \"1.0.0\",\n\
+Line 83: 	\"process\": {\n\
+Line 84: 		\"terminal\": true,\n\
+Line 85: 		\"user\": {\n\
+Line 86: 			\"uid\": 0,\n\
+Line 87: 			\"gid\": 0\n\
+Line 88: 		},\n\
+Line 89: 		\"args\": [\n\
+Line 90: 			\"sh\"\n\
+Line 91: 		],\n\
+Line 92: 		\"env\": [\n\
+Line 93: 			\"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n\
+Line 94: 			\"TERM=xterm\"\n\
+Line 95: 		],\n\
+Line 96: 		\"cwd\": \"/\",\n\
+Line 97: 		\"capabilities\": {\n\
+Line 98: 			\"bounding\": [\n\
+Line 99: 				\"CAP_AUDIT_WRITE\",\n\
+Line 100: 				\"CAP_KILL\",\n\
+Line 101: 				\"CAP_NET_BIND_SERVICE\"\n\
+Line 102: 			],\n\
+Line 103: 			\"effective\": [\n\
+Line 104: 				\"CAP_AUDIT_WRITE\",\n\
+Line 105: 				\"CAP_KILL\",\n\
+Line 106: 				\"CAP_NET_BIND_SERVICE\"\n\
+Line 107: 			],\n\
+Line 108: 			\"inheritable\": [\n\
+Line 109: 				\"CAP_AUDIT_WRITE\",\n\
+Line 110: 				\"CAP_KILL\",\n\
+Line 111: 				\"CAP_NET_BIND_SERVICE\"\n\
+Line 112: 			],\n\
+Line 113: 			\"permitted\": [\n\
+Line 114: 				\"CAP_AUDIT_WRITE\",\n\
+Line 115: 				\"CAP_KILL\",\n\
+Line 116: 				\"CAP_NET_BIND_SERVICE\"\n\
+Line 117: 			],\n\
+Line 118: 			\"ambient\": [\n\
+Line 119: 				\"CAP_AUDIT_WRITE\",\n\
+Line 120: 				\"CAP_KILL\",\n\
+Line 121: 				\"CAP_NET_BIND_SERVICE\"\n\
+Line 122: 			]\n\
+Line 123: 		},\n\
+Line 124: 		\"rlimits\": [\n\
+Line 125: 			{\n\
+Line 126: 				\"type\": \
+
+Lines 260 to 620 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 260: 
+Line 261: static int
+Line 262: sync_socket_write_msg (int fd, bool warning, int err_value, const char *log_msg)
+Line 263: {
+Line 264:   int ret;
+Line 265:   size_t err_len;
+Line 266:   struct sync_socket_message_s msg;
+Line 267:   msg.type = warning ? SYNC_SOCKET_WARNING_MESSAGE : SYNC_SOCKET_ERROR_MESSAGE;
+Line 268:   msg.error_value = err_value;
+Line 269: 
+Line 270:   if (fd < 0)
+Line 271:     return 0;
+Line 272: 
+Line 273:   err_len = strlen (log_msg);
+Line 274:   if (err_len >= sizeof (msg.message))
+Line 275:     err_len = sizeof (msg.message) - 1;
+Line 276: 
+Line 277:   memcpy (msg.message, log_msg, err_len);
+Line 278:   msg.message[err_len] = '\0';
+Line 279: 
+Line 280:   ret = TEMP_FAILURE_RETRY (write (fd, &msg, SYNC_SOCKET_MESSAGE_LEN (msg, err_len + 1)));
+Line 281:   if (UNLIKELY (ret < 0))
+Line 282:     return -1;
+Line 283: 
+Line 284:   return 0;
+Line 285: }
+Line 286: 
+Line 287: static int
+Line 288: sync_socket_write_error (int fd, libcrun_error_t *out_err)
+Line 289: {
+Line 290:   if (fd < 0)
+Line 291:     return 0;
+Line 292:   return sync_socket_write_msg (fd, false, (*out_err)->status, (*out_err)->msg);
+Line 293: }
+Line 294: 
+Line 295: static void
+Line 296: log_write_to_sync_socket (int errno_, const char *msg, bool warning, void *arg)
+Line 297: {
+Line 298:   struct container_entrypoint_s *entrypoint_args = arg;
+Line 299:   int fd = entrypoint_args->sync_socket;
+Line 300: 
+Line 301:   if (fd < 0)
+Line 302:     return;
+Line 303: 
+Line 304:   if (sync_socket_write_msg (fd, warning, errno_, msg) < 0)
+Line 305:     log_write_to_stderr (errno_, msg, warning, arg);
+Line 306: }
+Line 307: 
+Line 308: static int
+Line 309: sync_socket_wait_sync (libcrun_context_t *context, int fd, bool flush, libcrun_error_t *err)
+Line 310: {
+Line 311:   struct sync_socket_message_s msg;
+Line 312: 
+Line 313:   if (fd < 0)
+Line 314:     return 0;
+Line 315: 
+Line 316:   while (true)
+Line 317:     {
+Line 318:       int ret;
+Line 319: 
+Line 320:       ret = TEMP_FAILURE_RETRY (read (fd, &msg, sizeof (msg)));
+Line 321:       if (UNLIKELY (ret < 0))
+Line 322:         {
+Line 323:           if (flush)
+Line 324:             return 0;
+Line 325:           return crun_make_error (err, errno, "read from sync socket");
+Line 326:         }
+Line 327: 
+Line 328:       if (ret == 0)
+Line 329:         {
+Line 330:           if (flush)
+Line 331:             return 0;
+Line 332:           return crun_make_error (err, 0, "sync socket closed");
+Line 333:         }
+Line 334: 
+Line 335:       if (!flush && msg.type == SYNC_SOCKET_SYNC_MESSAGE)
+Line 336:         return 0;
+Line 337: 
+Line 338:       if (msg.type == SYNC_SOCKET_WARNING_MESSAGE)
+Line 339:         {
+Line 340:           if (context)
+Line 341:             context->output_handler (msg.error_value, msg.message, 1, context->output_handler_arg);
+Line 342:           continue;
+Line 343:         }
+Line 344:       if (msg.type == SYNC_SOCKET_ERROR_MESSAGE)
+Line 345:         return crun_make_error (err, msg.error_value, "%s", msg.message);
+Line 346:     }
+Line 347: }
+Line 348: 
+Line 349: static int
+Line 350: sync_socket_send_sync (int fd, bool flush_errors, libcrun_error_t *err)
+Line 351: {
+Line 352:   int ret;
+Line 353:   struct sync_socket_message_s msg = {0, };
+Line 354:   msg.type = SYNC_SOCKET_SYNC_MESSAGE;
+Line 355: 
+Line 356:   if (fd < 0)
+Line 357:     return 0;
+Line 358: 
+Line 359:   ret = TEMP_FAILURE_RETRY (write (fd, &msg, SYNC_SOCKET_MESSAGE_LEN (msg, 0)));
+Line 360:   if (UNLIKELY (ret < 0))
+Line 361:     {
+Line 362:       if (flush_errors)
+Line 363:         {
+Line 364:           ret = TEMP_FAILURE_RETRY (read (fd, &msg, sizeof (msg)));
+Line 365:           if (UNLIKELY (ret < 0))
+Line 366:             goto original_error;
+Line 367:           if (msg.type == SYNC_SOCKET_ERROR_MESSAGE)
+Line 368:             return crun_make_error (err, msg.error_value, "%s", msg.message);
+Line 369:         }
+Line 370:     original_error:
+Line 371:       return crun_make_error (err, errno, "write to sync socket")
+
+Lines 620 to 980 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 620: 
+Line 621:       FD_ZERO (&read_set);
+Line 622:       FD_SET (fd, &read_set);
+Line 623:       do
+Line 624:         {
+Line 625:           ret = select (fd + 1, &read_set, NULL, NULL, NULL);
+Line 626:           if (UNLIKELY (ret < 0))
+Line 627:             return crun_make_error (err, errno, "select");
+Line 628: 
+Line 629:           ret = TEMP_FAILURE_RETRY (read (fd, buffer, sizeof (buffer)));
+Line 630:           if (UNLIKELY (ret < 0))
+Line 631:             return crun_make_error (err, errno, "read from the exec fifo");
+Line 632:         }
+Line 633:       while (ret == 0);
+Line 634:     }
+Line 635: 
+Line 636:   crun_set_output_handler (log_write_to_stream, stderr);
+Line 637: 
+Line 638:   ret = close_fds_ge_than (entrypoint_args->context->preserve_fds + 3, err);
+Line 639:   if (UNLIKELY (ret < 0))
+Line 640:     crun_error_write_warning_and_release (entrypoint_args->context->output_handler_arg, &err);
+Line 641: 
+Line 642:   if (def->process && def->process->no_new_privileges)
+Line 643:     {
+Line 644:       ret = libcrun_generate_and_load_seccomp (entrypoint_args->container, entrypoint_args->seccomp_fd, err);
+Line 645:       if (UNLIKELY (ret < 0))
+Line 646:         return ret;
+Line 647:     }
+Line 648: 
+Line 649:   if (! def->process)
+Line 650:     return crun_make_error (err, errno, "block 'process' not found");
+Line 651: 
+Line 652:   execvp (def->process->args[0], def->process->args);
+Line 653:   if (errno == ENOENT)
+Line 654:     return crun_make_error (err, errno, "executable file not found in $PATH");
+Line 655: 
+Line 656:   return crun_make_error (err, errno, "exec the container process");
+Line 657: }
+Line 658: 
+Line 659: struct hook_s
+Line 660: {
+Line 661:     char *path;
+Line 662:     char **args;
+Line 663:     size_t args_len;
+Line 664: 
+Line 665:     int timeout;
+Line 666:     char **env;
+Line 667:     size_t env_len;
+Line 668: 
+Line 669: };
+Line 670: 
+Line 671: static int
+Line 672: do_hooks (oci_container *def, pid_t pid, const char *id, bool keep_going, const char *rootfs,
+Line 673:           const char *cwd, const char *status, struct hook_s **hooks, size_t hooks_len,
+Line 674:           libcrun_error_t *err)
+Line 675: {
+Line 676:   size_t i, stdin_len;
+Line 677:   int ret;
+Line 678:   cleanup_free char *stdin = NULL;
+Line 679:   const unsigned char *annotations = (const unsigned char *) "{}";
+Line 680:   cleanup_free char *cwd_allocated = NULL;
+Line 681:   yajl_gen gen = NULL;
+Line 682: 
+Line 683:   if (cwd == NULL)
+Line 684:     {
+Line 685:       cwd = cwd_allocated = get_current_dir_name ();
+Line 686:       if (cwd == NULL)
+Line 687:         OOM ();
+Line 688:     }
+Line 689: 
+Line 690:   if (def && def->annotations && def->annotations->len)
+Line 691:     {
+Line 692:       size_t len;
+Line 693: 
+Line 694:       gen = yajl_gen_alloc (NULL);
+Line 695:       if (gen == NULL)
+Line 696:         return crun_make_error (err, 0, "yajl_gen_alloc failed");
+Line 697: 
+Line 698:       yajl_gen_map_open (gen);
+Line 699:       for (i = 0; i < def->annotations->len; i++)
+Line 700:         {
+Line 701:           const char *key = def->annotations->keys[i];
+Line 702:           const char *val = def->annotations->values[i];
+Line 703: 
+Line 704:           yajl_gen_string (gen, YAJL_STR (key), strlen (key));
+Line 705:           yajl_gen_string (gen, YAJL_STR (val), strlen (val));
+Line 706:         }
+Line 707:       yajl_gen_map_close (gen);
+Line 708: 
+Line 709:       yajl_gen_get_buf (gen, &annotations, &len);
+Line 710:     }
+Line 711: 
+Line 712:   stdin_len = xasprintf (&stdin, "{\"ociVersion\":\"1.0\", \"id\":\"%s\", \"pid\":%i, \"root\":\"%s\", \"bundle\":\"%s\", \"status\":\"%s\", \"annotations\":%s}", id, pid, rootfs, cwd, status, annotations);
+Line 713: 
+Line 714:   for (i = 0; i < hooks_len; i++)
+Line 715:     {
+Line 716:       ret = run_process_with_stdin_timeout_envp (hooks[i]->path, hooks[i]->args, cwd, hooks[i]->timeout, hooks[i]->env, stdin, stdin_len, err);
+Line 717:       if (!keep_going && UNLIKELY (ret != 0))
+
+
+## Executed search queries within the code base:
+Searching keywords: execvpe, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: config.h:1: [e, e, c, e] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [e, e, c, e] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [e, e, c, v, p, e] /* Define to 1 if you have the `bpf' function. */
+config.h:5: [e, e, v, p, e] /* #undef HAVE_BPF */
+config.h:7: [e, e, c, v, p, e] /* Define if libcap is available */
+config.h:8: [e, e, c, v, p, e] #define HAVE_CAP 1
+config.h:10: [e, e, c, v, p, e] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:11: [e, e, c, v, p, e] #define HAVE_COPY_FILE_RANGE 1
+config.h:13: [e, e, c, v, e] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [e, e, c, v, e] #define HAVE_DLFCN_H 1
+config.h:16: [e, e, v, p, e] /* Define if eBPF is available */
+config.h:17: [e, e, v, p, e] #define HAVE_EBPF 1
+config.h:19: [e, e, v, e] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [e, e, v, e] #define HAVE_ERROR_H 1
+config.h:22: [e, e, v, p, e] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:23: [e, e, v, p, e] #define HAVE_INTTYPES_H 1
+config.h:25: [e, e, c, v, p, e] /* Define if seccomp is available */
+config.h:26: [e, e, c, v, p, e] #define HAVE_SECCOMP 1
+config.h:28: [e, x, e, v, e] /* Define if SELinux is available */
+config.h:29: [e, x, e, v, e] /* #undef HAVE_SELINUX */
+config.h:31: [e, e, v, e] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:32: [e, e, v, e] #define HAVE_STDINT_H 1
+config.h:34: [e, e, v, e] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:35: [e, e, v, e] #define HAVE_STDIO_H 1
+config.h:37: [e, e, v, e] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:38: [e, e, v, e] #define HAVE_STDLIB_H 1
+config.h:40: [e, e, v, e] /* Define to 1 if you have the <strings.h> header file. */
+config.h:41: [e, e, v, e] #define HAVE_STRINGS_H 1
+config.h:43: [e, e, v, e] /* Define to 1 if you have the <string.h> header file. */
+config.h:44: [e, e, v, e] #define HAVE_STRING_H 1
+config.h:46: [e, e, v, e] /* Define if libsystemd is available */
+config.h:47: [e, e, v, e] #define HAVE_SYSTEMD 1
+config.h:49: [e, e, c, v, p, e] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:50: [e, e, c, v, p, e] #define HAVE_SYS_CAPABILITY_H 1
+config.h:52: [e, e, v, e] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:53: [e, e, v, e] #define HAVE_SYS_STAT_H 1
+config.h:55: [e, e, v, p, e] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:56: [e, e, v, p, e] #define HAVE_SYS_TYPES_H 1
+config.h:58: [e, e, v, e] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:59: [e, e, v, e] #define HAVE_UNISTD_H 1
+config.h:61: [e, e, v, e] /* Define if libyajl is available */
+config.h:62: [e, e, v, e] #define HAVE_YAJL 1
+config.h:64: [e, e, c, e] /* Define to the sub-directory where libtool stores uninstalled libraries. */
+config.h:65: [e, e, e] #define LT_OBJDIR ".libs/"
+config.h:67: [e, e, c, p, e] /* Name of package */
+config.h:68: [e, e, c, p, e] #define PACKAGE "crun"
+config.h:70: [e, e, c, p, e] /* Define to the address where bug reports for this package should be sent. */
+config.h:71: [e, e, c, v, p, e] #define PACKAGE_BUGREPORT "giuseppe@scrivano.org"
+config.h:73: [e, e, c, p, e] /* Define to the full name of this package. */
+config.h:74: [e, e, c, p, e] #define PACKAGE_NAME "crun"
+config.h:76: [e, e, c, v, p, e] /* Define to the full name and version of this package. */
+config.h:77: [e, e, c, p, e] #define PACKAGE_STRING "crun 0.7"
+config.h:79: [e, e, c, p, e] /* Define to the one symbol short name of this package. */
+config.h:80: [e, e, c, p, e] #define PACKAGE_TARNAME "crun"
+config.h:82: [e, e, c, p, e] /* Define to the home page for this package. */
+config.h:83: [e, e, c, p, e] #define PACKAGE_URL ""
+config.h:85: [e, e, c, v, p, e] /* Define to the version of this package. */
+config.h:86: [e, e, c, v, p, e] #define PACKAGE_VERSION "0.7"
+config.h:88: [e, e, c, v, p
+
+Searching keywords: PATH=, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: config.h:1: [a, t, h] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [a, t, h] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [p, a, t, h] /* Define to 1 if you have the `bpf' function. */
+config.h:5: [p, a, h] /* #undef HAVE_BPF */
+config.h:7: [p, a] /* Define if libcap is available */
+config.h:8: [p, a, h] #define HAVE_CAP 1
+config.h:10: [p, a, t, h] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:11: [p, a, h] #define HAVE_COPY_FILE_RANGE 1
+config.h:13: [a, t, h] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [a, h] #define HAVE_DLFCN_H 1
+config.h:16: [p, a] /* Define if eBPF is available */
+config.h:17: [p, a, h] #define HAVE_EBPF 1
+config.h:19: [a, t, h] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [a, h] #define HAVE_ERROR_H 1
+config.h:22: [p, a, t, h] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:23: [p, a, t, h] #define HAVE_INTTYPES_H 1
+config.h:25: [p, a] /* Define if seccomp is available */
+config.h:26: [p, a, h] #define HAVE_SECCOMP 1
+config.h:28: [a] /* Define if SELinux is available */
+config.h:29: [a, h] /* #undef HAVE_SELINUX */
+config.h:31: [a, t, h] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:32: [a, t, h] #define HAVE_STDINT_H 1
+config.h:34: [a, t, h] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:35: [a, t, h] #define HAVE_STDIO_H 1
+config.h:37: [a, t, h] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:38: [a, t, h] #define HAVE_STDLIB_H 1
+config.h:40: [a, t, h] /* Define to 1 if you have the <strings.h> header file. */
+config.h:41: [a, t, h] #define HAVE_STRINGS_H 1
+config.h:43: [a, t, h] /* Define to 1 if you have the <string.h> header file. */
+config.h:44: [a, t, h] #define HAVE_STRING_H 1
+config.h:46: [a, t] /* Define if libsystemd is available */
+config.h:47: [a, t, h] #define HAVE_SYSTEMD 1
+config.h:49: [p, a, t, h] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:50: [p, a, t, h] #define HAVE_SYS_CAPABILITY_H 1
+config.h:52: [a, t, h] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:53: [a, t, h] #define HAVE_SYS_STAT_H 1
+config.h:55: [p, a, t, h] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:56: [p, a, t, h] #define HAVE_SYS_TYPES_H 1
+config.h:58: [a, t, h] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:59: [a, t, h] #define HAVE_UNISTD_H 1
+config.h:61: [a] /* Define if libyajl is available */
+config.h:62: [a, h] #define HAVE_YAJL 1
+config.h:64: [a, t, h] /* Define to the sub-directory where libtool stores uninstalled libraries. */
+config.h:65: [t] #define LT_OBJDIR ".libs/"
+config.h:67: [p, a] /* Name of package */
+config.h:68: [p, a] #define PACKAGE "crun"
+config.h:70: [p, a, t, h] /* Define to the address where bug reports for this package should be sent. */
+config.h:71: [p, a, t] #define PACKAGE_BUGREPORT "giuseppe@scrivano.org"
+config.h:73: [p, a, t, h] /* Define to the full name of this package. */
+config.h:74: [p, a] #define PACKAGE_NAME "crun"
+config.h:76: [p, a, t, h] /* Define to the full name and version of this package. */
+config.h:77: [p, a, t] #define PACKAGE_STRING "crun 0.7"
+config.h:79: [p, a, t, h] /* Define to the one symbol short name of this package. */
+config.h:80: [p, a, t] #define PACKAGE_TARNAME "crun"
+config.h:82: [p, a, t, h] /* Define to the home page for this package. */
+config.h:83: [p, a] #define PACKAGE_URL ""
+config.h:85: [p, a, t, h] /* Define to the version of this package. */
+config.h:86: [p, a] #define PACKAGE_VERSION "0.7"
+config.h:88: [p, a, h] /* Define if seccomp_arch_resolve_name is available */
+config.h:89: [p, a, h] #define SECCOMP_ARCH_RESOLVE_NAME 1
+config.h:91: [a, t, h] /* Define to 1 if all of the C90 standard headers exist (not just the ones
+config.h:92: [p, a, t, h] required in a freestanding environment). This macro is provided for
+config.h:93: [p, a, t] ba
+
+Searching keywords: environ, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: config.h:1: [e, n, i, r, o, n] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [e, n, i, r, o, n] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [e, n, v, i, o, n] /* Define to 1 if you have the `bpf' function. */
+config.h:5: [e, n, v, n] /* #undef HAVE_BPF */
+config.h:7: [e, n, v, i, n] /* Define if libcap is available */
+config.h:8: [e, n, v, i, n] #define HAVE_CAP 1
+config.h:10: [e, n, v, i, r, o, n] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:11: [e, n, v, i, r, o, n] #define HAVE_COPY_FILE_RANGE 1
+config.h:13: [e, n, v, i, r, o, n] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [e, n, v, i, n] #define HAVE_DLFCN_H 1
+config.h:16: [e, n, v, i, n] /* Define if eBPF is available */
+config.h:17: [e, n, v, i, n] #define HAVE_EBPF 1
+config.h:19: [e, n, v, i, r, o, n] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [e, n, v, i, r, o, n] #define HAVE_ERROR_H 1
+config.h:22: [e, n, v, i, r, o, n] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:23: [e, n, v, i, n] #define HAVE_INTTYPES_H 1
+config.h:25: [e, n, v, i, o, n] /* Define if seccomp is available */
+config.h:26: [e, n, v, i, o, n] #define HAVE_SECCOMP 1
+config.h:28: [e, n, v, i, n] /* Define if SELinux is available */
+config.h:29: [e, n, v, i, n] /* #undef HAVE_SELINUX */
+config.h:31: [e, n, v, i, r, o, n] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:32: [e, n, v, i, n] #define HAVE_STDINT_H 1
+config.h:34: [e, n, v, i, r, o, n] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:35: [e, n, v, i, o, n] #define HAVE_STDIO_H 1
+config.h:37: [e, n, v, i, r, o, n] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:38: [e, n, v, i, n] #define HAVE_STDLIB_H 1
+config.h:40: [e, n, v, i, r, o, n] /* Define to 1 if you have the <strings.h> header file. */
+config.h:41: [e, n, v, i, r, n] #define HAVE_STRINGS_H 1
+config.h:43: [e, n, v, i, r, o, n] /* Define to 1 if you have the <string.h> header file. */
+config.h:44: [e, n, v, i, r, n] #define HAVE_STRING_H 1
+config.h:46: [e, n, v, i, n] /* Define if libsystemd is available */
+config.h:47: [e, n, v, i, n] #define HAVE_SYSTEMD 1
+config.h:49: [e, n, v, i, r, o, n] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:50: [e, n, v, i, n] #define HAVE_SYS_CAPABILITY_H 1
+config.h:52: [e, n, v, i, r, o, n] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:53: [e, n, v, i, n] #define HAVE_SYS_STAT_H 1
+config.h:55: [e, n, v, i, r, o, n] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:56: [e, n, v, i, n] #define HAVE_SYS_TYPES_H 1
+config.h:58: [e, n, v, i, r, o, n] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:59: [e, n, v, i, n] #define HAVE_UNISTD_H 1
+config.h:61: [e, n, v, i, n] /* Define if libyajl is available */
+config.h:62: [e, n, v, i, n] #define HAVE_YAJL 1
+config.h:64: [e, n, i, r, o, n] /* Define to the sub-directory where libtool stores uninstalled libraries. */
+config.h:65: [e, n, i, r, o, n] #define LT_OBJDIR ".libs/"
+config.h:67: [e, n, o, n] /* Name of package */
+config.h:68: [e, n, i, r, n] #define PACKAGE "crun"
+config.h:70: [e, n, i, r, o, n] /* Define to the address where bug reports for this package should be sent. */
+config.h:71: [e, n, v, i, r, o, n] #define PACKAGE_BUGREPORT "giuseppe@scrivano.org"
+config.h:73: [e, n, i, o, n] /* Define to the full name of this package. */
+config.h:74: [e, n, i, r, n] #define PACKAGE_NAME "crun"
+config.h:76: [e, n, v, i, r, o, n] /* Define to the full name and version of this package. */
+config.h:77: [e, n, i, r, n] #define PACKAGE_STRING "crun 0.7"
+config.h:79: [e, n, i, r, o, n] /* Define to the one symbol short name of this package. */
+config.h:80: [e, n, i, r, n] #define PACKAGE_TARNAME "crun"
+config.h:82: [e, n, i, r, o, n] /* Define to the home page for this package. */
+config.h:83: [e, n, i, r, n] #define PACK
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case crun-13.
+
+Target runtime: crun
+Title: $PATH lookup before exec'ing the container process
+Upstream issue: https://github.com/containers/crun/issues/13
+Category: Process & Execution
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-13
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-13
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-13
+Upstream URL: https://github.com/containers/crun/issues/13
+Category: Process & Execution
+
+Payload under test:
+process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-13
+
+## Upstream Issue Summary
+- Title: $PATH lookup before exec'ing the container process
+- URL: https://github.com/containers/crun/issues/13
+- Category: Process & Execution
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Upstream git log matched the PATH lookup fix `620b91b5a076` (`utils: fix PATH lookup`); use its parent `cc27fd6c1b28` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-13`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original PATH lookup issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes successfully resolved `sh`, printed `process-path-13`, and reported `/bin/sh`. Reproducing the issue appears to require the affected pre-fix crun build that did not perform the same PATH lookup.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

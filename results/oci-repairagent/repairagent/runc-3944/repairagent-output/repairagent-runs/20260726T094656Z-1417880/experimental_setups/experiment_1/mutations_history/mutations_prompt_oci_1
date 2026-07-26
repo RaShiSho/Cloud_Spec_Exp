@@ -1,0 +1,2283 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-3944.
+
+Target runtime: runc
+Title: Consider throwing a warning on not absolute mounts destination paths
+Upstream issue: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-3944
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3944
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-3944
+Upstream URL: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-3944
+
+## Upstream Issue Summary
+- Title: Consider throwing a warning on not absolute mounts destination paths
+- URL: https://github.com/opencontainers/runc/issues/3944
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names commit `867ee905345bcf53cb9801903225a3431aa03f75` as the tested runc revision and says any runc version containing `881e92a3fd5eeef80bac57efbb1c822deed4f895` switches the warning to an error and should fail this compatibility case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-3944`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/fs-idmap/fs-idmap.go
+contrib/cmd/recvtty/recvtty.go
+contrib/cmd/sd-helper/helper.go
+contrib/cmd/seccompagent/seccompagent.go
+contrib/cmd/seccompagent/unsupported.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/devices/devicefilter.go
+libcontainer/cgroups/devices/devicefilter_test.go
+libcontainer/cgroups/devices/devices.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/devices/ebpf_linux.go
+libcontainer/cgroups/devices/systemd.go
+libcontainer/cgroups/devices/systemd_test.go
+libcontainer/cgroups/devices/v1.go
+libcontainer/cgroups/devices/v1_test.go
+libcontainer/cgroups/devices/v2.go
+libcontainer/cgroups/file.go
+libcontainer/cgroups/file_test.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/error.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/paths.go
+libcontainer/cgroups/fs/paths_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/rdma.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/io_test.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fs2/psi.go
+libcontainer/cgroups/fs2/psi_test.go
+libcontainer/cgroups/fscommon/rdma.go
+libcontainer/cgroups/fscommon/rdma_test.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/getallpids.go
+libcontainer/cgroups/getallpids_test.go
+libcontainer/cgroups/manager/manager_test.go
+libcontainer/cgroups/manager/new.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/devices.go
+libcontainer/cgroups/systemd/freeze_test.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/rdma.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/eaccess_go119.go
+libcontainer/eaccess_stub.go
+libcontainer/error.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+libcontainer/user/lookup_unix.go
+libcontainer/user/user.go
+... 31 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 260 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // Package specconv implements conversion of specifications to libcontainer
+Line 2: // configurations
+Line 3: package specconv
+Line 4: 
+Line 5: import (
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"os"
+Line 9: 	"path/filepath"
+Line 10: 	"sort"
+Line 11: 	"strings"
+Line 12: 	"sync"
+Line 13: 	"time"
+Line 14: 
+Line 15: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 16: 	dbus "github.com/godbus/dbus/v5"
+Line 17: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 18: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 19: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 20: 	"github.com/opencontainers/runc/libcontainer/seccomp"
+Line 21: 	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+Line 22: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 23: 	"github.com/sirupsen/logrus"
+Line 24: 
+Line 25: 	"golang.org/x/sys/unix"
+Line 26: )
+Line 27: 
+Line 28: var (
+Line 29: 	initMapsOnce            sync.Once
+Line 30: 	namespaceMapping        map[specs.LinuxNamespaceType]configs.NamespaceType
+Line 31: 	mountPropagationMapping map[string]int
+Line 32: 	recAttrFlags            map[string]struct {
+Line 33: 		clear bool
+Line 34: 		flag  uint64
+Line 35: 	}
+Line 36: 	mountFlags, extensionFlags map[string]struct {
+Line 37: 		clear bool
+Line 38: 		flag  int
+Line 39: 	}
+Line 40: )
+Line 41: 
+Line 42: func initMaps() {
+Line 43: 	initMapsOnce.Do(func() {
+Line 44: 		namespaceMapping = map[specs.LinuxNamespaceType]configs.NamespaceType{
+Line 45: 			specs.PIDNamespace:     configs.NEWPID,
+Line 46: 			specs.NetworkNamespace: configs.NEWNET,
+Line 47: 			specs.MountNamespace:   configs.NEWNS,
+Line 48: 			specs.UserNamespace:    configs.NEWUSER,
+Line 49: 			specs.IPCNamespace:     configs.NEWIPC,
+Line 50: 			specs.UTSNamespace:     configs.NEWUTS,
+Line 51: 			specs.CgroupNamespace:  configs.NEWCGROUP,
+Line 52: 		}
+Line 53: 
+Line 54: 		mountPropagationMapping = map[string]int{
+Line 55: 			"rprivate":    unix.MS_PRIVATE | unix.MS_REC,
+Line 56: 			"private":     unix.MS_PRIVATE,
+Line 57: 			"rslave":      unix.MS_SLAVE | unix.MS_REC,
+Line 58: 			"slave":       unix.MS_SLAVE,
+Line 59: 			"rshared":     unix.MS_SHARED | unix.MS_REC,
+Line 60: 			"shared":      unix.MS_SHARED,
+Line 61: 			"runbindable": unix.MS_UNBINDABLE | unix.MS_REC,
+Line 62: 			"unbindable":  unix.MS_UNBINDABLE,
+Line 63: 		}
+Line 64: 
+Line 65: 		mountFlags = map[string]struct {
+Line 66: 			clear bool
+Line 67: 			flag  int
+Line 68: 		}{
+Line 69: 			// "acl" cannot be mapped to MS_POSIXACL: https://github.com/opencontainers/runc/issues/3738
+Line 70: 			"async":         {true, unix.MS_SYNCHRONOUS},
+Line 71: 			"atime":         {true, unix.MS_NOATIME},
+Line 72: 			"bind":          {false, unix.MS_BIND},
+Line 73: 			"defaults":      {false, 0},
+Line 74: 			"dev":           {true, unix.MS_NODEV},
+Line 75: 			"diratime":      {true, unix.MS_NODIRATIME},
+Line 76: 			"dirsync":       {false, unix.MS_DIRSYNC},
+Line 77: 			"exec":          {true, unix.MS_NOEXEC},
+Line 78: 			"iversion":      {false, unix.MS_I_VERSION},
+Line 79: 			"lazytime":      {false, unix.MS_LAZYTIME},
+Line 80: 			"loud":          {true, unix.MS_SILENT},
+Line 81: 			"mand":          {false, unix.MS_MANDLOCK},
+Line 82: 			"noatime":       {false, unix.MS_NOATIME},
+Line 83: 			"nodev":         {false, unix.MS_NODEV},
+Line 84: 			"nodiratime":    {false, unix.MS_NODIRATIME},
+Line 85: 			"noexec":        {false, unix.MS_NOEXEC},
+Line 86: 			"noiversion":    {true, unix.MS_I_VERSION},
+Line 87: 			"nolazytime":    {true, unix.MS_LAZYTIME},
+Line 88: 			"nomand":        {true, unix.MS_MANDLOCK},
+Line 89: 			"norelatime":    {true, unix.MS_RELATIME},
+Line 90: 			"nostrictatime": {true, unix.MS_STRICTATIME},
+Line 91: 			"nosuid":        {false, unix.MS_NOSUID},
+Line 92: 			"nosymfollow":   {false, unix.MS_NOSYMFOLLOW}, // since kernel 5.10
+Line 93: 			"rbind":         {false, unix.MS_BIND | unix.MS_REC},
+Line 94: 			"relatime":      {false, unix.MS_RELATIME},
+Line 95: 			"remou
+
+Lines 520 to 760 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 520: 
+Line 521: 	mnt.Destination = m.Destination
+Line 522: 	mnt.Source = m.Source
+Line 523: 	mnt.Device = m.Type
+Line 524: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 525: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 526: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 527: 		// (incorrectly) relies on this for some checks.
+Line 528: 		mnt.Device = "bind"
+Line 529: 		if !filepath.IsAbs(mnt.Source) {
+Line 530: 			mnt.Source = filepath.Join(cwd, m.Source)
+Line 531: 		}
+Line 532: 	}
+Line 533: 
+Line 534: 	mnt.UIDMappings = toConfigIDMap(m.UIDMappings)
+Line 535: 	mnt.GIDMappings = toConfigIDMap(m.GIDMappings)
+Line 536: 
+Line 537: 	// None of the mount arguments can contain a null byte. Normally such
+Line 538: 	// strings would either cause some other failure or would just be truncated
+Line 539: 	// when we hit the null byte, but because we serialise these strings as
+Line 540: 	// netlink messages (which don't have special null-byte handling) we need
+Line 541: 	// to block this as early as possible.
+Line 542: 	if strings.IndexByte(mnt.Source, 0) >= 0 ||
+Line 543: 		strings.IndexByte(mnt.Destination, 0) >= 0 ||
+Line 544: 		strings.IndexByte(mnt.Device, 0) >= 0 {
+Line 545: 		return nil, errors.New("mount field contains null byte")
+Line 546: 	}
+Line 547: 
+Line 548: 	return mnt, nil
+Line 549: }
+Line 550: 
+Line 551: // checkPropertyName checks if systemd property name is valid. A valid name
+Line 552: // should consist of latin letters only, and have least 3 of them.
+Line 553: func checkPropertyName(s string) error {
+Line 554: 	if len(s) < 3 {
+Line 555: 		return errors.New("too short")
+Line 556: 	}
+Line 557: 	// Check ASCII characters rather than Unicode runes,
+Line 558: 	// so we have to use indexes rather than range.
+Line 559: 	for i := 0; i < len(s); i++ {
+Line 560: 		ch := s[i]
+Line 561: 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+Line 562: 			continue
+Line 563: 		}
+Line 564: 		return errors.New("contains non-alphabetic character")
+Line 565: 	}
+Line 566: 	return nil
+Line 567: }
+Line 568: 
+Line 569: // Some systemd properties are documented as having "Sec" suffix
+Line 570: // (e.g. TimeoutStopSec) but are expected to have "USec" suffix
+Line 571: // here, so let's provide conversion to improve compatibility.
+Line 572: func convertSecToUSec(value dbus.Variant) (dbus.Variant, error) {
+Line 573: 	var sec uint64
+Line 574: 	const M = 1000000
+Line 575: 	vi := value.Value()
+Line 576: 	switch value.Signature().String() {
+Line 577: 	case "y":
+Line 578: 		sec = uint64(vi.(byte)) * M
+Line 579: 	case "n":
+Line 580: 		sec = uint64(vi.(int16)) * M
+Line 581: 	case "q":
+Line 582: 		sec = uint64(vi.(uint16)) * M
+Line 583: 	case "i":
+Line 584: 		sec = uint64(vi.(int32)) * M
+Line 585: 	case "u":
+Line 586: 		sec = uint64(vi.(uint32)) * M
+Line 587: 	case "x":
+Line 588: 		sec = uint64(vi.(int64)) * M
+Line 589: 	case "t":
+Line 590: 		sec = vi.(uint64) * M
+Line 591: 	case "d":
+Line 592: 		sec = uint64(vi.(float64) * M)
+Line 593: 	default:
+Line 594: 		return value, errors.New("not a number")
+Line 595: 	}
+Line 596: 	return dbus.MakeVariant(sec), nil
+Line 597: }
+Line 598: 
+Line 599: func initSystemdProps(spec *specs.Spec) ([]systemdDbus.Property, error) {
+Line 600: 	const keyPrefix = "org.systemd.property."
+Line 601: 	var sp []systemdDbus.Property
+Line 602: 
+Line 603: 	for k, v := range spec.Annotations {
+Line 604: 		name := strings.TrimPrefix(k, keyPrefix)
+Line 605: 		if len(name) == len(k) { // prefix not there
+Line 606: 			continue
+Line 607: 		}
+Line 608: 		if err := checkPropertyName(name); err != nil {
+Line 609: 			return nil, fmt.Errorf("annotation %s name incorrect: %w", k, err)
+Line 610: 		}
+Line 611: 		value, err := dbus.ParseVariant(v, dbus.Signature{})
+Line 612: 		if err != nil {
+Line 613: 			return nil, fmt.Errorf("annotation %s=%s value parse error: %w", k, v, err)
+Line 614: 		}
+Line 615: 		// Check for Sec suffix.
+Line 616: 		if trimName := strings.TrimSuffix(name, "Sec"); len(trimN
+
+Lines 440 to 525 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned: Line 440: 	// config.HostRootUID() returns the correct result.
+Line 441: 	//
+Line 442: 	// Only set it if the container will have its own cgroup
+Line 443: 	// namespace and the cgroupfs will be mounted read/write.
+Line 444: 	//
+Line 445: 	hasCgroupNS := config.Namespaces.Contains(configs.NEWCGROUP) && config.Namespaces.PathOf(configs.NEWCGROUP) == ""
+Line 446: 	hasRwCgroupfs := false
+Line 447: 	if hasCgroupNS {
+Line 448: 		for _, m := range config.Mounts {
+Line 449: 			if m.Source == "cgroup" && filepath.Clean(m.Destination) == "/sys/fs/cgroup" && (m.Flags&unix.MS_RDONLY) == 0 {
+Line 450: 				hasRwCgroupfs = true
+Line 451: 				break
+Line 452: 			}
+Line 453: 		}
+Line 454: 	}
+Line 455: 	processUid := 0
+Line 456: 	if spec.Process != nil {
+Line 457: 		// Chown the cgroup to the UID running the process,
+Line 458: 		// which is not necessarily UID 0 in the container
+Line 459: 		// namespace (e.g., an unprivileged UID in the host
+Line 460: 		// user namespace).
+Line 461: 		processUid = int(spec.Process.User.UID)
+Line 462: 	}
+Line 463: 	if hasCgroupNS && hasRwCgroupfs {
+Line 464: 		ownerUid, err := config.HostUID(processUid)
+Line 465: 		// There are two error cases; we can ignore both.
+Line 466: 		//
+Line 467: 		// 1. uidMappings is unset.  Either there is no user
+Line 468: 		//    namespace (fine), or it is an error (which is
+Line 469: 		//    checked elsewhere).
+Line 470: 		//
+Line 471: 		// 2. The user is unmapped in the user namespace.  This is an
+Line 472: 		//    unusual configuration and might be an error.  But it too
+Line 473: 		//    will be checked elsewhere, so we can ignore it here.
+Line 474: 		//
+Line 475: 		if err == nil {
+Line 476: 			config.Cgroups.OwnerUID = &ownerUid
+Line 477: 		}
+Line 478: 	}
+Line 479: 
+Line 480: 	if spec.Process != nil {
+Line 481: 		config.OomScoreAdj = spec.Process.OOMScoreAdj
+Line 482: 		config.NoNewPrivileges = spec.Process.NoNewPrivileges
+Line 483: 		config.Umask = spec.Process.User.Umask
+Line 484: 		config.ProcessLabel = spec.Process.SelinuxLabel
+Line 485: 		if spec.Process.Capabilities != nil {
+Line 486: 			config.Capabilities = &configs.Capabilities{
+Line 487: 				Bounding:    spec.Process.Capabilities.Bounding,
+Line 488: 				Effective:   spec.Process.Capabilities.Effective,
+Line 489: 				Permitted:   spec.Process.Capabilities.Permitted,
+Line 490: 				Inheritable: spec.Process.Capabilities.Inheritable,
+Line 491: 				Ambient:     spec.Process.Capabilities.Ambient,
+Line 492: 			}
+Line 493: 		}
+Line 494: 	}
+Line 495: 	createHooks(spec, config)
+Line 496: 	config.Version = specs.Version
+Line 497: 	return config, nil
+Line 498: }
+Line 499: 
+Line 500: func toConfigIDMap(specMaps []specs.LinuxIDMapping) []configs.IDMap {
+Line 501: 	idmaps := make([]configs.IDMap, len(specMaps))
+Line 502: 	for i, id := range specMaps {
+Line 503: 		idmaps[i] = configs.IDMap{
+Line 504: 			ContainerID: int(id.ContainerID),
+Line 505: 			HostID:      int(id.HostID),
+Line 506: 			Size:        int(id.Size),
+Line 507: 		}
+Line 508: 	}
+Line 509: 	return idmaps
+Line 510: }
+Line 511: 
+Line 512: func createLibcontainerMount(cwd string, m specs.Mount) (*configs.Mount, error) {
+Line 513: 	if !filepath.IsAbs(m.Destination) {
+Line 514: 		// Relax validation for backward compatibility
+Line 515: 		// TODO (runc v1.x.x): change warning to an error
+Line 516: 		// return nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)
+Line 517: 		logrus.Warnf("mount destination %s is not absolute. Support for non-absolute mount destinations will be removed in a future release.", m.Destination)
+Line 518: 	}
+Line 519: 	mnt := parseMountOptions(m.Options)
+Line 520: 
+Line 521: 	mnt.Destination = m.Destination
+Line 522: 	mnt.Source = m.Source
+Line 523: 	mnt.Device = m.Type
+Line 524: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 525: 		// Any "type" the user specified is meaningless (and ignored) for
+
+
+## Executed search queries within the code base:
+Searching keywords: logrus, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [g] package main
+spec.go:3: [o, r] import (
+spec.go:4: [o, g, s] "encoding/json"
+spec.go:5: [o, r, s] "errors"
+spec.go:7: [o, s] "os"
+spec.go:9: [l, o, g, r, u, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [l, o, g, r, u, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [o, g, r, u, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [l, o, g, r, u] "github.com/urfave/cli"
+spec.go:15: [l, o, r, s] var specCommand = cli.Command{
+spec.go:16: [s] Name:      "spec",
+spec.go:17: [l, o, g, r, u, s] Usage:     "create a new specification file",
+spec.go:18: [g, r, u, s] ArgsUsage: "",
+spec.go:19: [l, o, g, r, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [l, u] the bundle.
+spec.go:22: [l, o, g, r, u, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [l, o, g, r, u, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [l, o, r, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [l, o, g, r, u, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [l, o, g, r, u, s] work for containers that do not include the "sh" program.
+spec.go:28: [l] EXAMPLE:
+spec.go:29: [l, o, g, r, u, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [l, o, g, r, u, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [l, o, g, r, u, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [l, o, g, r, u, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [l, o, r] command in a new hello-world container named container1:
+spec.go:35: [l, o, r] mkdir hello
+spec.go:36: [l, o] cd hello
+spec.go:37: [l, o, r, u] docker pull hello-world
+spec.go:38: [l, o, r] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [o, r, s] mkdir rootfs
+spec.go:40: [l, o, r, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [r, u, s] runc spec
+spec.go:42: [l, o, g, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [o, r, u] runc run container1
+spec.go:45: [o, r, u, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [o, g, r, u, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [o, r, u, s] must be unique on your host.
+spec.go:49: [l, o, g, r, u, s] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [l, o, g, r, u, s] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [l, o, g, r, u, s] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [o, g, r] to get more information.
+spec.go:54: [l, o, g, r, u, s] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [l, o, g, r, u, s] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [l, o, g, r, u, s] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [o, r, u, s] container on your host.
+spec.go:59: [l, o, r, u, s] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [l, o, g, r, u, s] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [l, o, g, r, u, s] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [l, o, g, r, s] generate a proper rootless spec file.
+spec.go:64: [l, o, r, u, s] Note that --rootless is not needed when you execute runc as the root in a user namespace
+spec.go:65: [l, g, r, u, s] created by an unprivileged user.
+spec.go:67: [l, g, s] Flags: []cli.Flag{
+spec.go:68: [l, g, r, s] cli.StringFlag{
+spec.
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-3944.
+
+Target runtime: runc
+Title: Consider throwing a warning on not absolute mounts destination paths
+Upstream issue: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-3944
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3944
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-3944
+Upstream URL: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-3944
+
+## Upstream Issue Summary
+- Title: Consider throwing a warning on not absolute mounts destination paths
+- URL: https://github.com/opencontainers/runc/issues/3944
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names commit `867ee905345bcf53cb9801903225a3431aa03f75` as the tested runc revision and says any runc version containing `881e92a3fd5eeef80bac57efbb1c822deed4f895` switches the warning to an error and should fail this compatibility case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-3944`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-3944.
+
+Target runtime: runc
+Title: Consider throwing a warning on not absolute mounts destination paths
+Upstream issue: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-3944
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3944
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-3944
+Upstream URL: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-3944
+
+## Upstream Issue Summary
+- Title: Consider throwing a warning on not absolute mounts destination paths
+- URL: https://github.com/opencontainers/runc/issues/3944
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names commit `867ee905345bcf53cb9801903225a3431aa03f75` as the tested runc revision and says any runc version containing `881e92a3fd5eeef80bac57efbb1c822deed4f895` switches the warning to an error and should fail this compatibility case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-3944`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/fs-idmap/fs-idmap.go
+contrib/cmd/recvtty/recvtty.go
+contrib/cmd/sd-helper/helper.go
+contrib/cmd/seccompagent/seccompagent.go
+contrib/cmd/seccompagent/unsupported.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/devices/devicefilter.go
+libcontainer/cgroups/devices/devicefilter_test.go
+libcontainer/cgroups/devices/devices.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/devices/ebpf_linux.go
+libcontainer/cgroups/devices/systemd.go
+libcontainer/cgroups/devices/systemd_test.go
+libcontainer/cgroups/devices/v1.go
+libcontainer/cgroups/devices/v1_test.go
+libcontainer/cgroups/devices/v2.go
+libcontainer/cgroups/file.go
+libcontainer/cgroups/file_test.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/error.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/paths.go
+libcontainer/cgroups/fs/paths_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/rdma.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/io_test.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fs2/psi.go
+libcontainer/cgroups/fs2/psi_test.go
+libcontainer/cgroups/fscommon/rdma.go
+libcontainer/cgroups/fscommon/rdma_test.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/getallpids.go
+libcontainer/cgroups/getallpids_test.go
+libcontainer/cgroups/manager/manager_test.go
+libcontainer/cgroups/manager/new.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/devices.go
+libcontainer/cgroups/systemd/freeze_test.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/rdma.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/eaccess_go119.go
+libcontainer/eaccess_stub.go
+libcontainer/error.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+libcontainer/user/lookup_unix.go
+libcontainer/user/user.go
+... 31 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 260 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // Package specconv implements conversion of specifications to libcontainer
+Line 2: // configurations
+Line 3: package specconv
+Line 4: 
+Line 5: import (
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"os"
+Line 9: 	"path/filepath"
+Line 10: 	"sort"
+Line 11: 	"strings"
+Line 12: 	"sync"
+Line 13: 	"time"
+Line 14: 
+Line 15: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 16: 	dbus "github.com/godbus/dbus/v5"
+Line 17: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 18: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 19: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 20: 	"github.com/opencontainers/runc/libcontainer/seccomp"
+Line 21: 	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+Line 22: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 23: 	"github.com/sirupsen/logrus"
+Line 24: 
+Line 25: 	"golang.org/x/sys/unix"
+Line 26: )
+Line 27: 
+Line 28: var (
+Line 29: 	initMapsOnce            sync.Once
+Line 30: 	namespaceMapping        map[specs.LinuxNamespaceType]configs.NamespaceType
+Line 31: 	mountPropagationMapping map[string]int
+Line 32: 	recAttrFlags            map[string]struct {
+Line 33: 		clear bool
+Line 34: 		flag  uint64
+Line 35: 	}
+Line 36: 	mountFlags, extensionFlags map[string]struct {
+Line 37: 		clear bool
+Line 38: 		flag  int
+Line 39: 	}
+Line 40: )
+Line 41: 
+Line 42: func initMaps() {
+Line 43: 	initMapsOnce.Do(func() {
+Line 44: 		namespaceMapping = map[specs.LinuxNamespaceType]configs.NamespaceType{
+Line 45: 			specs.PIDNamespace:     configs.NEWPID,
+Line 46: 			specs.NetworkNamespace: configs.NEWNET,
+Line 47: 			specs.MountNamespace:   configs.NEWNS,
+Line 48: 			specs.UserNamespace:    configs.NEWUSER,
+Line 49: 			specs.IPCNamespace:     configs.NEWIPC,
+Line 50: 			specs.UTSNamespace:     configs.NEWUTS,
+Line 51: 			specs.CgroupNamespace:  configs.NEWCGROUP,
+Line 52: 		}
+Line 53: 
+Line 54: 		mountPropagationMapping = map[string]int{
+Line 55: 			"rprivate":    unix.MS_PRIVATE | unix.MS_REC,
+Line 56: 			"private":     unix.MS_PRIVATE,
+Line 57: 			"rslave":      unix.MS_SLAVE | unix.MS_REC,
+Line 58: 			"slave":       unix.MS_SLAVE,
+Line 59: 			"rshared":     unix.MS_SHARED | unix.MS_REC,
+Line 60: 			"shared":      unix.MS_SHARED,
+Line 61: 			"runbindable": unix.MS_UNBINDABLE | unix.MS_REC,
+Line 62: 			"unbindable":  unix.MS_UNBINDABLE,
+Line 63: 		}
+Line 64: 
+Line 65: 		mountFlags = map[string]struct {
+Line 66: 			clear bool
+Line 67: 			flag  int
+Line 68: 		}{
+Line 69: 			// "acl" cannot be mapped to MS_POSIXACL: https://github.com/opencontainers/runc/issues/3738
+Line 70: 			"async":         {true, unix.MS_SYNCHRONOUS},
+Line 71: 			"atime":         {true, unix.MS_NOATIME},
+Line 72: 			"bind":          {false, unix.MS_BIND},
+Line 73: 			"defaults":      {false, 0},
+Line 74: 			"dev":           {true, unix.MS_NODEV},
+Line 75: 			"diratime":      {true, unix.MS_NODIRATIME},
+Line 76: 			"dirsync":       {false, unix.MS_DIRSYNC},
+Line 77: 			"exec":          {true, unix.MS_NOEXEC},
+Line 78: 			"iversion":      {false, unix.MS_I_VERSION},
+Line 79: 			"lazytime":      {false, unix.MS_LAZYTIME},
+Line 80: 			"loud":          {true, unix.MS_SILENT},
+Line 81: 			"mand":          {false, unix.MS_MANDLOCK},
+Line 82: 			"noatime":       {false, unix.MS_NOATIME},
+Line 83: 			"nodev":         {false, unix.MS_NODEV},
+Line 84: 			"nodiratime":    {false, unix.MS_NODIRATIME},
+Line 85: 			"noexec":        {false, unix.MS_NOEXEC},
+Line 86: 			"noiversion":    {true, unix.MS_I_VERSION},
+Line 87: 			"nolazytime":    {true, unix.MS_LAZYTIME},
+Line 88: 			"nomand":        {true, unix.MS_MANDLOCK},
+Line 89: 			"norelatime":    {true, unix.MS_RELATIME},
+Line 90: 			"nostrictatime": {true, unix.MS_STRICTATIME},
+Line 91: 			"nosuid":        {false, unix.MS_NOSUID},
+Line 92: 			"nosymfollow":   {false, unix.MS_NOSYMFOLLOW}, // since kernel 5.10
+Line 93: 			"rbind":         {false, unix.MS_BIND | unix.MS_REC},
+Line 94: 			"relatime":      {false, unix.MS_RELATIME},
+Line 95: 			"remou
+
+Lines 520 to 760 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 520: 
+Line 521: 	mnt.Destination = m.Destination
+Line 522: 	mnt.Source = m.Source
+Line 523: 	mnt.Device = m.Type
+Line 524: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 525: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 526: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 527: 		// (incorrectly) relies on this for some checks.
+Line 528: 		mnt.Device = "bind"
+Line 529: 		if !filepath.IsAbs(mnt.Source) {
+Line 530: 			mnt.Source = filepath.Join(cwd, m.Source)
+Line 531: 		}
+Line 532: 	}
+Line 533: 
+Line 534: 	mnt.UIDMappings = toConfigIDMap(m.UIDMappings)
+Line 535: 	mnt.GIDMappings = toConfigIDMap(m.GIDMappings)
+Line 536: 
+Line 537: 	// None of the mount arguments can contain a null byte. Normally such
+Line 538: 	// strings would either cause some other failure or would just be truncated
+Line 539: 	// when we hit the null byte, but because we serialise these strings as
+Line 540: 	// netlink messages (which don't have special null-byte handling) we need
+Line 541: 	// to block this as early as possible.
+Line 542: 	if strings.IndexByte(mnt.Source, 0) >= 0 ||
+Line 543: 		strings.IndexByte(mnt.Destination, 0) >= 0 ||
+Line 544: 		strings.IndexByte(mnt.Device, 0) >= 0 {
+Line 545: 		return nil, errors.New("mount field contains null byte")
+Line 546: 	}
+Line 547: 
+Line 548: 	return mnt, nil
+Line 549: }
+Line 550: 
+Line 551: // checkPropertyName checks if systemd property name is valid. A valid name
+Line 552: // should consist of latin letters only, and have least 3 of them.
+Line 553: func checkPropertyName(s string) error {
+Line 554: 	if len(s) < 3 {
+Line 555: 		return errors.New("too short")
+Line 556: 	}
+Line 557: 	// Check ASCII characters rather than Unicode runes,
+Line 558: 	// so we have to use indexes rather than range.
+Line 559: 	for i := 0; i < len(s); i++ {
+Line 560: 		ch := s[i]
+Line 561: 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+Line 562: 			continue
+Line 563: 		}
+Line 564: 		return errors.New("contains non-alphabetic character")
+Line 565: 	}
+Line 566: 	return nil
+Line 567: }
+Line 568: 
+Line 569: // Some systemd properties are documented as having "Sec" suffix
+Line 570: // (e.g. TimeoutStopSec) but are expected to have "USec" suffix
+Line 571: // here, so let's provide conversion to improve compatibility.
+Line 572: func convertSecToUSec(value dbus.Variant) (dbus.Variant, error) {
+Line 573: 	var sec uint64
+Line 574: 	const M = 1000000
+Line 575: 	vi := value.Value()
+Line 576: 	switch value.Signature().String() {
+Line 577: 	case "y":
+Line 578: 		sec = uint64(vi.(byte)) * M
+Line 579: 	case "n":
+Line 580: 		sec = uint64(vi.(int16)) * M
+Line 581: 	case "q":
+Line 582: 		sec = uint64(vi.(uint16)) * M
+Line 583: 	case "i":
+Line 584: 		sec = uint64(vi.(int32)) * M
+Line 585: 	case "u":
+Line 586: 		sec = uint64(vi.(uint32)) * M
+Line 587: 	case "x":
+Line 588: 		sec = uint64(vi.(int64)) * M
+Line 589: 	case "t":
+Line 590: 		sec = vi.(uint64) * M
+Line 591: 	case "d":
+Line 592: 		sec = uint64(vi.(float64) * M)
+Line 593: 	default:
+Line 594: 		return value, errors.New("not a number")
+Line 595: 	}
+Line 596: 	return dbus.MakeVariant(sec), nil
+Line 597: }
+Line 598: 
+Line 599: func initSystemdProps(spec *specs.Spec) ([]systemdDbus.Property, error) {
+Line 600: 	const keyPrefix = "org.systemd.property."
+Line 601: 	var sp []systemdDbus.Property
+Line 602: 
+Line 603: 	for k, v := range spec.Annotations {
+Line 604: 		name := strings.TrimPrefix(k, keyPrefix)
+Line 605: 		if len(name) == len(k) { // prefix not there
+Line 606: 			continue
+Line 607: 		}
+Line 608: 		if err := checkPropertyName(name); err != nil {
+Line 609: 			return nil, fmt.Errorf("annotation %s name incorrect: %w", k, err)
+Line 610: 		}
+Line 611: 		value, err := dbus.ParseVariant(v, dbus.Signature{})
+Line 612: 		if err != nil {
+Line 613: 			return nil, fmt.Errorf("annotation %s=%s value parse error: %w", k, v, err)
+Line 614: 		}
+Line 615: 		// Check for Sec suffix.
+Line 616: 		if trimName := strings.TrimSuffix(name, "Sec"); len(trimN
+
+Lines 440 to 525 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned: Line 440: 	// config.HostRootUID() returns the correct result.
+Line 441: 	//
+Line 442: 	// Only set it if the container will have its own cgroup
+Line 443: 	// namespace and the cgroupfs will be mounted read/write.
+Line 444: 	//
+Line 445: 	hasCgroupNS := config.Namespaces.Contains(configs.NEWCGROUP) && config.Namespaces.PathOf(configs.NEWCGROUP) == ""
+Line 446: 	hasRwCgroupfs := false
+Line 447: 	if hasCgroupNS {
+Line 448: 		for _, m := range config.Mounts {
+Line 449: 			if m.Source == "cgroup" && filepath.Clean(m.Destination) == "/sys/fs/cgroup" && (m.Flags&unix.MS_RDONLY) == 0 {
+Line 450: 				hasRwCgroupfs = true
+Line 451: 				break
+Line 452: 			}
+Line 453: 		}
+Line 454: 	}
+Line 455: 	processUid := 0
+Line 456: 	if spec.Process != nil {
+Line 457: 		// Chown the cgroup to the UID running the process,
+Line 458: 		// which is not necessarily UID 0 in the container
+Line 459: 		// namespace (e.g., an unprivileged UID in the host
+Line 460: 		// user namespace).
+Line 461: 		processUid = int(spec.Process.User.UID)
+Line 462: 	}
+Line 463: 	if hasCgroupNS && hasRwCgroupfs {
+Line 464: 		ownerUid, err := config.HostUID(processUid)
+Line 465: 		// There are two error cases; we can ignore both.
+Line 466: 		//
+Line 467: 		// 1. uidMappings is unset.  Either there is no user
+Line 468: 		//    namespace (fine), or it is an error (which is
+Line 469: 		//    checked elsewhere).
+Line 470: 		//
+Line 471: 		// 2. The user is unmapped in the user namespace.  This is an
+Line 472: 		//    unusual configuration and might be an error.  But it too
+Line 473: 		//    will be checked elsewhere, so we can ignore it here.
+Line 474: 		//
+Line 475: 		if err == nil {
+Line 476: 			config.Cgroups.OwnerUID = &ownerUid
+Line 477: 		}
+Line 478: 	}
+Line 479: 
+Line 480: 	if spec.Process != nil {
+Line 481: 		config.OomScoreAdj = spec.Process.OOMScoreAdj
+Line 482: 		config.NoNewPrivileges = spec.Process.NoNewPrivileges
+Line 483: 		config.Umask = spec.Process.User.Umask
+Line 484: 		config.ProcessLabel = spec.Process.SelinuxLabel
+Line 485: 		if spec.Process.Capabilities != nil {
+Line 486: 			config.Capabilities = &configs.Capabilities{
+Line 487: 				Bounding:    spec.Process.Capabilities.Bounding,
+Line 488: 				Effective:   spec.Process.Capabilities.Effective,
+Line 489: 				Permitted:   spec.Process.Capabilities.Permitted,
+Line 490: 				Inheritable: spec.Process.Capabilities.Inheritable,
+Line 491: 				Ambient:     spec.Process.Capabilities.Ambient,
+Line 492: 			}
+Line 493: 		}
+Line 494: 	}
+Line 495: 	createHooks(spec, config)
+Line 496: 	config.Version = specs.Version
+Line 497: 	return config, nil
+Line 498: }
+Line 499: 
+Line 500: func toConfigIDMap(specMaps []specs.LinuxIDMapping) []configs.IDMap {
+Line 501: 	idmaps := make([]configs.IDMap, len(specMaps))
+Line 502: 	for i, id := range specMaps {
+Line 503: 		idmaps[i] = configs.IDMap{
+Line 504: 			ContainerID: int(id.ContainerID),
+Line 505: 			HostID:      int(id.HostID),
+Line 506: 			Size:        int(id.Size),
+Line 507: 		}
+Line 508: 	}
+Line 509: 	return idmaps
+Line 510: }
+Line 511: 
+Line 512: func createLibcontainerMount(cwd string, m specs.Mount) (*configs.Mount, error) {
+Line 513: 	if !filepath.IsAbs(m.Destination) {
+Line 514: 		// Relax validation for backward compatibility
+Line 515: 		// TODO (runc v1.x.x): change warning to an error
+Line 516: 		// return nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)
+Line 517: 		logrus.Warnf("mount destination %s is not absolute. Support for non-absolute mount destinations will be removed in a future release.", m.Destination)
+Line 518: 	}
+Line 519: 	mnt := parseMountOptions(m.Options)
+Line 520: 
+Line 521: 	mnt.Destination = m.Destination
+Line 522: 	mnt.Source = m.Source
+Line 523: 	mnt.Device = m.Type
+Line 524: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 525: 		// Any "type" the user specified is meaningless (and ignored) for
+
+
+## Suggested fixes:
+This is the list of suggested fixes so far but none of them worked:
+###Fix:
+[{'file_name': 'libcontainer/specconv/spec_linux.go', 'insertions': [], 'deletions': [23, 516, 517, 518], 'modifications': [{'line_number': 514, 'modified_line': '\t\t// Reject relative mount destinations during spec conversion so invalid OCI'}, {'line_number': 515, 'modified_line': '\t\t// configs cannot create ambiguous or unintended mount points.'}]}, {'file_name': 'libcontainer/specconv/spec_linux.go', 'insertions': [{'line_number': 515, 'new_lines': ['\t\treturn nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)']}], 'deletions': [], 'modifications': []}]
+
+
+## Executed search queries within the code base:
+Searching keywords: logrus, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [g] package main
+spec.go:3: [o, r] import (
+spec.go:4: [o, g, s] "encoding/json"
+spec.go:5: [o, r, s] "errors"
+spec.go:7: [o, s] "os"
+spec.go:9: [l, o, g, r, u, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [l, o, g, r, u, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [o, g, r, u, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [l, o, g, r, u] "github.com/urfave/cli"
+spec.go:15: [l, o, r, s] var specCommand = cli.Command{
+spec.go:16: [s] Name:      "spec",
+spec.go:17: [l, o, g, r, u, s] Usage:     "create a new specification file",
+spec.go:18: [g, r, u, s] ArgsUsage: "",
+spec.go:19: [l, o, g, r, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [l, u] the bundle.
+spec.go:22: [l, o, g, r, u, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [l, o, g, r, u, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [l, o, r, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [l, o, g, r, u, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [l, o, g, r, u, s] work for containers that do not include the "sh" program.
+spec.go:28: [l] EXAMPLE:
+spec.go:29: [l, o, g, r, u, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [l, o, g, r, u, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [l, o, g, r, u, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [l, o, g, r, u, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [l, o, r] command in a new hello-world container named container1:
+spec.go:35: [l, o, r] mkdir hello
+spec.go:36: [l, o] cd hello
+spec.go:37: [l, o, r, u] docker pull hello-world
+spec.go:38: [l, o, r] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [o, r, s] mkdir rootfs
+spec.go:40: [l, o, r, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [r, u, s] runc spec
+spec.go:42: [l, o, g, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [o, r, u] runc run container1
+spec.go:45: [o, r, u, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [o, g, r, u, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [o, r, u, s] must be unique on your host.
+spec.go:49: [l, o, g, r, u, s] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [l, o, g, r, u, s] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [l, o, g, r, u, s] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [o, g, r] to get more information.
+spec.go:54: [l, o, g, r, u, s] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [l, o, g, r, u, s] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [l, o, g, r, u, s] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [o, r, u, s] container on your host.
+spec.go:59: [l, o, r, u, s] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [l, o, g, r, u, s] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [l, o, g, r, u, s] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [l, o, g, r, s] generate a proper rootless spec file.
+spec.go:64: [l, o, r, u, s] Note that --rootless is not needed when you execute runc as the root in a user namespace
+spec.go:65: [l, g, r, u, s] created by an unprivileged user.
+spec.go:67: [l, g, s] Flags: []cli.Flag{
+spec.go:68: [l, g, r, s] cli.StringFlag{
+spec.
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-3944.
+
+Target runtime: runc
+Title: Consider throwing a warning on not absolute mounts destination paths
+Upstream issue: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-3944
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3944
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-3944
+Upstream URL: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-3944
+
+## Upstream Issue Summary
+- Title: Consider throwing a warning on not absolute mounts destination paths
+- URL: https://github.com/opencontainers/runc/issues/3944
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names commit `867ee905345bcf53cb9801903225a3431aa03f75` as the tested runc revision and says any runc version containing `881e92a3fd5eeef80bac57efbb1c822deed4f895` switches the warning to an error and should fail this compatibility case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-3944`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-3944.
+
+Target runtime: runc
+Title: Consider throwing a warning on not absolute mounts destination paths
+Upstream issue: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-3944
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3944
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-3944
+Upstream URL: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-3944
+
+## Upstream Issue Summary
+- Title: Consider throwing a warning on not absolute mounts destination paths
+- URL: https://github.com/opencontainers/runc/issues/3944
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names commit `867ee905345bcf53cb9801903225a3431aa03f75` as the tested runc revision and says any runc version containing `881e92a3fd5eeef80bac57efbb1c822deed4f895` switches the warning to an error and should fail this compatibility case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-3944`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/fs-idmap/fs-idmap.go
+contrib/cmd/recvtty/recvtty.go
+contrib/cmd/sd-helper/helper.go
+contrib/cmd/seccompagent/seccompagent.go
+contrib/cmd/seccompagent/unsupported.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/devices/devicefilter.go
+libcontainer/cgroups/devices/devicefilter_test.go
+libcontainer/cgroups/devices/devices.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/devices/ebpf_linux.go
+libcontainer/cgroups/devices/systemd.go
+libcontainer/cgroups/devices/systemd_test.go
+libcontainer/cgroups/devices/v1.go
+libcontainer/cgroups/devices/v1_test.go
+libcontainer/cgroups/devices/v2.go
+libcontainer/cgroups/file.go
+libcontainer/cgroups/file_test.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/error.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/paths.go
+libcontainer/cgroups/fs/paths_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/rdma.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/io_test.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fs2/psi.go
+libcontainer/cgroups/fs2/psi_test.go
+libcontainer/cgroups/fscommon/rdma.go
+libcontainer/cgroups/fscommon/rdma_test.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/getallpids.go
+libcontainer/cgroups/getallpids_test.go
+libcontainer/cgroups/manager/manager_test.go
+libcontainer/cgroups/manager/new.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/devices.go
+libcontainer/cgroups/systemd/freeze_test.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/rdma.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/eaccess_go119.go
+libcontainer/eaccess_stub.go
+libcontainer/error.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+libcontainer/user/lookup_unix.go
+libcontainer/user/user.go
+... 31 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 260 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // Package specconv implements conversion of specifications to libcontainer
+Line 2: // configurations
+Line 3: package specconv
+Line 4: 
+Line 5: import (
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"os"
+Line 9: 	"path/filepath"
+Line 10: 	"sort"
+Line 11: 	"strings"
+Line 12: 	"sync"
+Line 13: 	"time"
+Line 14: 
+Line 15: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 16: 	dbus "github.com/godbus/dbus/v5"
+Line 17: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 18: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 19: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 20: 	"github.com/opencontainers/runc/libcontainer/seccomp"
+Line 21: 	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+Line 22: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 23: 	"github.com/sirupsen/logrus"
+Line 24: 
+Line 25: 	"golang.org/x/sys/unix"
+Line 26: )
+Line 27: 
+Line 28: var (
+Line 29: 	initMapsOnce            sync.Once
+Line 30: 	namespaceMapping        map[specs.LinuxNamespaceType]configs.NamespaceType
+Line 31: 	mountPropagationMapping map[string]int
+Line 32: 	recAttrFlags            map[string]struct {
+Line 33: 		clear bool
+Line 34: 		flag  uint64
+Line 35: 	}
+Line 36: 	mountFlags, extensionFlags map[string]struct {
+Line 37: 		clear bool
+Line 38: 		flag  int
+Line 39: 	}
+Line 40: )
+Line 41: 
+Line 42: func initMaps() {
+Line 43: 	initMapsOnce.Do(func() {
+Line 44: 		namespaceMapping = map[specs.LinuxNamespaceType]configs.NamespaceType{
+Line 45: 			specs.PIDNamespace:     configs.NEWPID,
+Line 46: 			specs.NetworkNamespace: configs.NEWNET,
+Line 47: 			specs.MountNamespace:   configs.NEWNS,
+Line 48: 			specs.UserNamespace:    configs.NEWUSER,
+Line 49: 			specs.IPCNamespace:     configs.NEWIPC,
+Line 50: 			specs.UTSNamespace:     configs.NEWUTS,
+Line 51: 			specs.CgroupNamespace:  configs.NEWCGROUP,
+Line 52: 		}
+Line 53: 
+Line 54: 		mountPropagationMapping = map[string]int{
+Line 55: 			"rprivate":    unix.MS_PRIVATE | unix.MS_REC,
+Line 56: 			"private":     unix.MS_PRIVATE,
+Line 57: 			"rslave":      unix.MS_SLAVE | unix.MS_REC,
+Line 58: 			"slave":       unix.MS_SLAVE,
+Line 59: 			"rshared":     unix.MS_SHARED | unix.MS_REC,
+Line 60: 			"shared":      unix.MS_SHARED,
+Line 61: 			"runbindable": unix.MS_UNBINDABLE | unix.MS_REC,
+Line 62: 			"unbindable":  unix.MS_UNBINDABLE,
+Line 63: 		}
+Line 64: 
+Line 65: 		mountFlags = map[string]struct {
+Line 66: 			clear bool
+Line 67: 			flag  int
+Line 68: 		}{
+Line 69: 			// "acl" cannot be mapped to MS_POSIXACL: https://github.com/opencontainers/runc/issues/3738
+Line 70: 			"async":         {true, unix.MS_SYNCHRONOUS},
+Line 71: 			"atime":         {true, unix.MS_NOATIME},
+Line 72: 			"bind":          {false, unix.MS_BIND},
+Line 73: 			"defaults":      {false, 0},
+Line 74: 			"dev":           {true, unix.MS_NODEV},
+Line 75: 			"diratime":      {true, unix.MS_NODIRATIME},
+Line 76: 			"dirsync":       {false, unix.MS_DIRSYNC},
+Line 77: 			"exec":          {true, unix.MS_NOEXEC},
+Line 78: 			"iversion":      {false, unix.MS_I_VERSION},
+Line 79: 			"lazytime":      {false, unix.MS_LAZYTIME},
+Line 80: 			"loud":          {true, unix.MS_SILENT},
+Line 81: 			"mand":          {false, unix.MS_MANDLOCK},
+Line 82: 			"noatime":       {false, unix.MS_NOATIME},
+Line 83: 			"nodev":         {false, unix.MS_NODEV},
+Line 84: 			"nodiratime":    {false, unix.MS_NODIRATIME},
+Line 85: 			"noexec":        {false, unix.MS_NOEXEC},
+Line 86: 			"noiversion":    {true, unix.MS_I_VERSION},
+Line 87: 			"nolazytime":    {true, unix.MS_LAZYTIME},
+Line 88: 			"nomand":        {true, unix.MS_MANDLOCK},
+Line 89: 			"norelatime":    {true, unix.MS_RELATIME},
+Line 90: 			"nostrictatime": {true, unix.MS_STRICTATIME},
+Line 91: 			"nosuid":        {false, unix.MS_NOSUID},
+Line 92: 			"nosymfollow":   {false, unix.MS_NOSYMFOLLOW}, // since kernel 5.10
+Line 93: 			"rbind":         {false, unix.MS_BIND | unix.MS_REC},
+Line 94: 			"relatime":      {false, unix.MS_RELATIME},
+Line 95: 			"remou
+
+Lines 520 to 760 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 520: 
+Line 521: 	mnt.Destination = m.Destination
+Line 522: 	mnt.Source = m.Source
+Line 523: 	mnt.Device = m.Type
+Line 524: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 525: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 526: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 527: 		// (incorrectly) relies on this for some checks.
+Line 528: 		mnt.Device = "bind"
+Line 529: 		if !filepath.IsAbs(mnt.Source) {
+Line 530: 			mnt.Source = filepath.Join(cwd, m.Source)
+Line 531: 		}
+Line 532: 	}
+Line 533: 
+Line 534: 	mnt.UIDMappings = toConfigIDMap(m.UIDMappings)
+Line 535: 	mnt.GIDMappings = toConfigIDMap(m.GIDMappings)
+Line 536: 
+Line 537: 	// None of the mount arguments can contain a null byte. Normally such
+Line 538: 	// strings would either cause some other failure or would just be truncated
+Line 539: 	// when we hit the null byte, but because we serialise these strings as
+Line 540: 	// netlink messages (which don't have special null-byte handling) we need
+Line 541: 	// to block this as early as possible.
+Line 542: 	if strings.IndexByte(mnt.Source, 0) >= 0 ||
+Line 543: 		strings.IndexByte(mnt.Destination, 0) >= 0 ||
+Line 544: 		strings.IndexByte(mnt.Device, 0) >= 0 {
+Line 545: 		return nil, errors.New("mount field contains null byte")
+Line 546: 	}
+Line 547: 
+Line 548: 	return mnt, nil
+Line 549: }
+Line 550: 
+Line 551: // checkPropertyName checks if systemd property name is valid. A valid name
+Line 552: // should consist of latin letters only, and have least 3 of them.
+Line 553: func checkPropertyName(s string) error {
+Line 554: 	if len(s) < 3 {
+Line 555: 		return errors.New("too short")
+Line 556: 	}
+Line 557: 	// Check ASCII characters rather than Unicode runes,
+Line 558: 	// so we have to use indexes rather than range.
+Line 559: 	for i := 0; i < len(s); i++ {
+Line 560: 		ch := s[i]
+Line 561: 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+Line 562: 			continue
+Line 563: 		}
+Line 564: 		return errors.New("contains non-alphabetic character")
+Line 565: 	}
+Line 566: 	return nil
+Line 567: }
+Line 568: 
+Line 569: // Some systemd properties are documented as having "Sec" suffix
+Line 570: // (e.g. TimeoutStopSec) but are expected to have "USec" suffix
+Line 571: // here, so let's provide conversion to improve compatibility.
+Line 572: func convertSecToUSec(value dbus.Variant) (dbus.Variant, error) {
+Line 573: 	var sec uint64
+Line 574: 	const M = 1000000
+Line 575: 	vi := value.Value()
+Line 576: 	switch value.Signature().String() {
+Line 577: 	case "y":
+Line 578: 		sec = uint64(vi.(byte)) * M
+Line 579: 	case "n":
+Line 580: 		sec = uint64(vi.(int16)) * M
+Line 581: 	case "q":
+Line 582: 		sec = uint64(vi.(uint16)) * M
+Line 583: 	case "i":
+Line 584: 		sec = uint64(vi.(int32)) * M
+Line 585: 	case "u":
+Line 586: 		sec = uint64(vi.(uint32)) * M
+Line 587: 	case "x":
+Line 588: 		sec = uint64(vi.(int64)) * M
+Line 589: 	case "t":
+Line 590: 		sec = vi.(uint64) * M
+Line 591: 	case "d":
+Line 592: 		sec = uint64(vi.(float64) * M)
+Line 593: 	default:
+Line 594: 		return value, errors.New("not a number")
+Line 595: 	}
+Line 596: 	return dbus.MakeVariant(sec), nil
+Line 597: }
+Line 598: 
+Line 599: func initSystemdProps(spec *specs.Spec) ([]systemdDbus.Property, error) {
+Line 600: 	const keyPrefix = "org.systemd.property."
+Line 601: 	var sp []systemdDbus.Property
+Line 602: 
+Line 603: 	for k, v := range spec.Annotations {
+Line 604: 		name := strings.TrimPrefix(k, keyPrefix)
+Line 605: 		if len(name) == len(k) { // prefix not there
+Line 606: 			continue
+Line 607: 		}
+Line 608: 		if err := checkPropertyName(name); err != nil {
+Line 609: 			return nil, fmt.Errorf("annotation %s name incorrect: %w", k, err)
+Line 610: 		}
+Line 611: 		value, err := dbus.ParseVariant(v, dbus.Signature{})
+Line 612: 		if err != nil {
+Line 613: 			return nil, fmt.Errorf("annotation %s=%s value parse error: %w", k, v, err)
+Line 614: 		}
+Line 615: 		// Check for Sec suffix.
+Line 616: 		if trimName := strings.TrimSuffix(name, "Sec"); len(trimN
+
+Lines 440 to 525 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned: Line 440: 	// config.HostRootUID() returns the correct result.
+Line 441: 	//
+Line 442: 	// Only set it if the container will have its own cgroup
+Line 443: 	// namespace and the cgroupfs will be mounted read/write.
+Line 444: 	//
+Line 445: 	hasCgroupNS := config.Namespaces.Contains(configs.NEWCGROUP) && config.Namespaces.PathOf(configs.NEWCGROUP) == ""
+Line 446: 	hasRwCgroupfs := false
+Line 447: 	if hasCgroupNS {
+Line 448: 		for _, m := range config.Mounts {
+Line 449: 			if m.Source == "cgroup" && filepath.Clean(m.Destination) == "/sys/fs/cgroup" && (m.Flags&unix.MS_RDONLY) == 0 {
+Line 450: 				hasRwCgroupfs = true
+Line 451: 				break
+Line 452: 			}
+Line 453: 		}
+Line 454: 	}
+Line 455: 	processUid := 0
+Line 456: 	if spec.Process != nil {
+Line 457: 		// Chown the cgroup to the UID running the process,
+Line 458: 		// which is not necessarily UID 0 in the container
+Line 459: 		// namespace (e.g., an unprivileged UID in the host
+Line 460: 		// user namespace).
+Line 461: 		processUid = int(spec.Process.User.UID)
+Line 462: 	}
+Line 463: 	if hasCgroupNS && hasRwCgroupfs {
+Line 464: 		ownerUid, err := config.HostUID(processUid)
+Line 465: 		// There are two error cases; we can ignore both.
+Line 466: 		//
+Line 467: 		// 1. uidMappings is unset.  Either there is no user
+Line 468: 		//    namespace (fine), or it is an error (which is
+Line 469: 		//    checked elsewhere).
+Line 470: 		//
+Line 471: 		// 2. The user is unmapped in the user namespace.  This is an
+Line 472: 		//    unusual configuration and might be an error.  But it too
+Line 473: 		//    will be checked elsewhere, so we can ignore it here.
+Line 474: 		//
+Line 475: 		if err == nil {
+Line 476: 			config.Cgroups.OwnerUID = &ownerUid
+Line 477: 		}
+Line 478: 	}
+Line 479: 
+Line 480: 	if spec.Process != nil {
+Line 481: 		config.OomScoreAdj = spec.Process.OOMScoreAdj
+Line 482: 		config.NoNewPrivileges = spec.Process.NoNewPrivileges
+Line 483: 		config.Umask = spec.Process.User.Umask
+Line 484: 		config.ProcessLabel = spec.Process.SelinuxLabel
+Line 485: 		if spec.Process.Capabilities != nil {
+Line 486: 			config.Capabilities = &configs.Capabilities{
+Line 487: 				Bounding:    spec.Process.Capabilities.Bounding,
+Line 488: 				Effective:   spec.Process.Capabilities.Effective,
+Line 489: 				Permitted:   spec.Process.Capabilities.Permitted,
+Line 490: 				Inheritable: spec.Process.Capabilities.Inheritable,
+Line 491: 				Ambient:     spec.Process.Capabilities.Ambient,
+Line 492: 			}
+Line 493: 		}
+Line 494: 	}
+Line 495: 	createHooks(spec, config)
+Line 496: 	config.Version = specs.Version
+Line 497: 	return config, nil
+Line 498: }
+Line 499: 
+Line 500: func toConfigIDMap(specMaps []specs.LinuxIDMapping) []configs.IDMap {
+Line 501: 	idmaps := make([]configs.IDMap, len(specMaps))
+Line 502: 	for i, id := range specMaps {
+Line 503: 		idmaps[i] = configs.IDMap{
+Line 504: 			ContainerID: int(id.ContainerID),
+Line 505: 			HostID:      int(id.HostID),
+Line 506: 			Size:        int(id.Size),
+Line 507: 		}
+Line 508: 	}
+Line 509: 	return idmaps
+Line 510: }
+Line 511: 
+Line 512: func createLibcontainerMount(cwd string, m specs.Mount) (*configs.Mount, error) {
+Line 513: 	if !filepath.IsAbs(m.Destination) {
+Line 514: 		// Relax validation for backward compatibility
+Line 515: 		// TODO (runc v1.x.x): change warning to an error
+Line 516: 		// return nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)
+Line 517: 		logrus.Warnf("mount destination %s is not absolute. Support for non-absolute mount destinations will be removed in a future release.", m.Destination)
+Line 518: 	}
+Line 519: 	mnt := parseMountOptions(m.Options)
+Line 520: 
+Line 521: 	mnt.Destination = m.Destination
+Line 522: 	mnt.Source = m.Source
+Line 523: 	mnt.Device = m.Type
+Line 524: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 525: 		// Any "type" the user specified is meaningless (and ignored) for
+
+
+## Suggested fixes:
+This is the list of suggested fixes so far but none of them worked:
+###Fix:
+[{'file_name': 'libcontainer/specconv/spec_linux.go', 'insertions': [], 'deletions': [23, 516, 517, 518], 'modifications': [{'line_number': 514, 'modified_line': '\t\t// Reject relative mount destinations during spec conversion so invalid OCI'}, {'line_number': 515, 'modified_line': '\t\t// configs cannot create ambiguous or unintended mount points.'}]}, {'file_name': 'libcontainer/specconv/spec_linux.go', 'insertions': [{'line_number': 515, 'new_lines': ['\t\treturn nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)']}], 'deletions': [], 'modifications': []}]
+
+###Fix:
+[{'file_name': 'libcontainer/specconv/spec_linux.go', 'insertions': [{'line_number': 515, 'new_lines': ['\t\treturn nil, fmt.Errorf("mount destination %s is not absolute", m.Destination)']}], 'deletions': [23, 516, 517], 'modifications': [{'line_number': 514, 'modified_line': '\t\t// Reject relative mount destinations during spec conversion so invalid OCI'}, {'line_number': 515, 'modified_line': '\t\t// configs cannot create ambiguous or unintended mount points.'}]}]
+
+
+## Executed search queries within the code base:
+Searching keywords: logrus, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [g] package main
+spec.go:3: [o, r] import (
+spec.go:4: [o, g, s] "encoding/json"
+spec.go:5: [o, r, s] "errors"
+spec.go:7: [o, s] "os"
+spec.go:9: [l, o, g, r, u, s] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [l, o, g, r, u, s] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [o, g, r, u, s] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [l, o, g, r, u] "github.com/urfave/cli"
+spec.go:15: [l, o, r, s] var specCommand = cli.Command{
+spec.go:16: [s] Name:      "spec",
+spec.go:17: [l, o, g, r, u, s] Usage:     "create a new specification file",
+spec.go:18: [g, r, u, s] ArgsUsage: "",
+spec.go:19: [l, o, g, r, s] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [l, u] the bundle.
+spec.go:22: [l, o, g, r, u, s] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [l, o, g, r, u, s] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [l, o, r, s] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [l, o, g, r, u, s] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [l, o, g, r, u, s] work for containers that do not include the "sh" program.
+spec.go:28: [l] EXAMPLE:
+spec.go:29: [l, o, g, r, u, s] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [l, o, g, r, u, s] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [l, o, g, r, u, s] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [l, o, g, r, u, s] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [l, o, r] command in a new hello-world container named container1:
+spec.go:35: [l, o, r] mkdir hello
+spec.go:36: [l, o] cd hello
+spec.go:37: [l, o, r, u] docker pull hello-world
+spec.go:38: [l, o, r] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [o, r, s] mkdir rootfs
+spec.go:40: [l, o, r, s] tar -C rootfs -xf hello-world.tar
+spec.go:41: [r, u, s] runc spec
+spec.go:42: [l, o, g, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [o, r, u] runc run container1
+spec.go:45: [o, r, u, s] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [o, g, r, u, s] container that you are starting. The name you provide for the container instance
+spec.go:47: [o, r, u, s] must be unique on your host.
+spec.go:49: [l, o, g, r, u, s] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [l, o, g, r, u, s] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [l, o, g, r, u, s] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [o, g, r] to get more information.
+spec.go:54: [l, o, g, r, u, s] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [l, o, g, r, u, s] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [l, o, g, r, u, s] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [o, r, u, s] container on your host.
+spec.go:59: [l, o, r, u, s] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [l, o, g, r, u, s] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [l, o, g, r, u, s] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [l, o, g, r, s] generate a proper rootless spec file.
+spec.go:64: [l, o, r, u, s] Note that --rootless is not needed when you execute runc as the root in a user namespace
+spec.go:65: [l, g, r, u, s] created by an unprivileged user.
+spec.go:67: [l, g, s] Flags: []cli.Flag{
+spec.go:68: [l, g, r, s] cli.StringFlag{
+spec.
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-3944.
+
+Target runtime: runc
+Title: Consider throwing a warning on not absolute mounts destination paths
+Upstream issue: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-3944
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3944
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-3944
+Upstream URL: https://github.com/opencontainers/runc/issues/3944
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-3944
+
+## Upstream Issue Summary
+- Title: Consider throwing a warning on not absolute mounts destination paths
+- URL: https://github.com/opencontainers/runc/issues/3944
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names commit `867ee905345bcf53cb9801903225a3431aa03f75` as the tested runc revision and says any runc version containing `881e92a3fd5eeef80bac57efbb1c822deed4f895` switches the warning to an error and should fail this compatibility case.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-3944`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /relative-warning-target/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "relative-warning-target", "type": "bind", "source": "/tmp/runc-3944-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Error-mode builds reject the relative destination. Warning-mode builds continue or emit only a warning.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

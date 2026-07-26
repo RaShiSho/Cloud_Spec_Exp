@@ -1,0 +1,723 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-5073.
+
+Target runtime: runc
+Title: mknod permission always granted on block and char devs no matter what the allow string is in specs
+Upstream issue: https://github.com/opencontainers/runc/issues/5073
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-5073
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-5073
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-5073
+Upstream URL: https://github.com/opencontainers/runc/issues/5073
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "mknod /dev/mytest2 c 42 42 && echo 'unauthorized-mknod-created' || echo 'mknod-blocked'"]; linux.resources.devices: [{"allow": true, "type": "c", "major": 12, "minor": 42, "access": "r"}]
+
+Expected differential behavior:
+Correct device filtering blocks mknod and prints mknod-blocked. Affected runc behavior allows creating the unauthorized device node and prints unauthorized-mknod-created.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-5073
+
+## Upstream Issue Summary
+- Title: mknod permission always granted on block and char devs no matter what the allow string is in specs
+- URL: https://github.com/opencontainers/runc/issues/5073
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Original case notes identify `runc v1.3.3 and earlier` as affected. Git log searches for the issue number and mknod wording produced only unrelated device/rootfs commits, so no reliable fixing parent commit is recorded here.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-5073`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "mknod /dev/mytest2 c 42 42 && echo 'unauthorized-mknod-created' || echo 'mknod-blocked'"]; linux.resources.devices: [{"allow": true, "type": "c", "major": 12, "minor": 42, "access": "r"}]
+
+Oracle: Correct device filtering blocks mknod and prints mknod-blocked. Affected runc behavior allows creating the unauthorized device node and prints unauthorized-mknod-created.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original differential device-filtering issue was not reproduced in the Docker Desktop/WSL2 validation environment. runc 1.1.14, youki 0.6.0, and crun 1.17 all printed `unauthorized-mknod-created`, so no reference runtime blocked the unauthorized device node. This likely requires a host/runtime setup with effective cgroup device filtering; the privileged nested test environment did not provide a useful blocking reference.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/memfd-bind/memfd-bind.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+internal/linux/doc.go
+internal/linux/eintr.go
+internal/linux/linux.go
+internal/pathrs/doc.go
+internal/pathrs/mkdirall.go
+internal/pathrs/mkdirall_pathrslite.go
+internal/pathrs/path.go
+internal/pathrs/path_test.go
+internal/pathrs/procfs_pathrslite.go
+internal/pathrs/retry.go
+internal/pathrs/root_pathrslite.go
+internal/sys/doc.go
+internal/sys/opath_linux.go
+internal/sys/sysctl_linux.go
+internal/sys/verify_inode_unix.go
+internal/third_party/systemd/activation/files_unix.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/configs/cgroup_deprecated.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/doc.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/memorypolicy.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/netdevices.go
+libcontainer/configs/network.go
+libcontainer/configs/tocpuset_test.go
+libcontainer/configs/validate/doc.go
+libcontainer/configs/validate/intelrdt.go
+libcontainer/configs/validate/intelrdt_test.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_disabled_linux.go
+libcontainer/criu_linux.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device_deprecated.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/devices/doc.go
+libcontainer/env.go
+libcontainer/env_test.go
+libcontainer/error.go
+libcontainer/exeseal/cloned_binary_linux.go
+libcontainer/exeseal/doc.go
+libcontainer/exeseal/overlayfs_linux.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/bench_test.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/internal/userns/doc.go
+libcontainer/internal/userns/userns_maps_linux.go
+libcontainer/internal/userns/usernsfd_linux.go
+libcontainer/internal/userns/usernsfd_linux_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/mount_linux_test.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/doc.go
+libcontainer/seccomp/patchbpf/doc.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/sync_unix.go
+libcontainer/system/doc.go
+libcontainer/system/kernelversion/kernel_linux.go
+libcontainer/system/kernelversion/kernel_linux_test.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/rlimit_linux.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+notify_socket_test.go
+pause.go
+ps.go
+restore.go
+rlimit_linux.go
+rootless_linux.go
+run.go
+signals.go
+spec.go
+start.go
+state.go
+tests/cmd/fs-idmap/fs-idmap.go
+tests/cmd/key_label/key_label.go
+tests/cmd/pidfd-kill/pidfd-kill.go
+tests/cmd/recvtty/recvtty.go
+tests/cmd/remap-rootfs/remap-rootfs.go
+tests/cmd/sd-helper/helper.go
+tests/cmd/seccompagent/seccompagent.go
+tests/cmd/seccompagent/unsupported.go
+tty.go
+types/events.go
+types/features/features.go
+update.go
+utils.go
+utils_linux.go
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 650 to 850 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 650: 	mnt.Destination = m.Destination
+Line 651: 	mnt.Source = m.Source
+Line 652: 	mnt.Device = m.Type
+Line 653: 	if mnt.Flags&unix.MS_BIND != 0 {
+Line 654: 		// Any "type" the user specified is meaningless (and ignored) for
+Line 655: 		// bind-mounts -- so we set it to "bind" because rootfs_linux.go
+Line 656: 		// (incorrectly) relies on this for some checks.
+Line 657: 		mnt.Device = "bind"
+Line 658: 		if !filepath.IsAbs(mnt.Source) {
+Line 659: 			mnt.Source = filepath.Join(cwd, m.Source)
+Line 660: 		}
+Line 661: 	}
+Line 662: 
+Line 663: 	if m.UIDMappings != nil || m.GIDMappings != nil {
+Line 664: 		if mnt.IDMapping == nil {
+Line 665: 			// Neither "idmap" nor "ridmap" were specified.
+Line 666: 			mnt.IDMapping = new(configs.MountIDMapping)
+Line 667: 		}
+Line 668: 		mnt.IDMapping.UIDMappings = toConfigIDMap(m.UIDMappings)
+Line 669: 		mnt.IDMapping.GIDMappings = toConfigIDMap(m.GIDMappings)
+Line 670: 	}
+Line 671: 
+Line 672: 	// None of the mount arguments can contain a null byte. Normally such
+Line 673: 	// strings would either cause some other failure or would just be truncated
+Line 674: 	// when we hit the null byte, but because we serialise these strings as
+Line 675: 	// netlink messages (which don't have special null-byte handling) we need
+Line 676: 	// to block this as early as possible.
+Line 677: 	if strings.IndexByte(mnt.Source, 0) >= 0 ||
+Line 678: 		strings.IndexByte(mnt.Destination, 0) >= 0 ||
+Line 679: 		strings.IndexByte(mnt.Device, 0) >= 0 {
+Line 680: 		return nil, errors.New("mount field contains null byte")
+Line 681: 	}
+Line 682: 
+Line 683: 	return mnt, nil
+Line 684: }
+Line 685: 
+Line 686: // checkPropertyName checks if systemd property name is valid. A valid name
+Line 687: // should consist of latin letters only, and have least 3 of them.
+Line 688: func checkPropertyName(s string) error {
+Line 689: 	if len(s) < 3 {
+Line 690: 		return errors.New("too short")
+Line 691: 	}
+Line 692: 	// Check ASCII characters rather than Unicode runes,
+Line 693: 	// so we have to use indexes rather than range.
+Line 694: 	for i := range len(s) {
+Line 695: 		ch := s[i]
+Line 696: 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+Line 697: 			continue
+Line 698: 		}
+Line 699: 		return errors.New("contains non-alphabetic character")
+Line 700: 	}
+Line 701: 	return nil
+Line 702: }
+Line 703: 
+Line 704: // getLinuxPersonalityFromStr converts the string domain received from spec to equivalent integer.
+Line 705: func getLinuxPersonalityFromStr(domain string) (int, error) {
+Line 706: 	if domain == string(specs.PerLinux32) {
+Line 707: 		return configs.PerLinux32, nil
+Line 708: 	} else if domain == string(specs.PerLinux) {
+Line 709: 		return configs.PerLinux, nil
+Line 710: 	}
+Line 711: 	return -1, fmt.Errorf("invalid personality domain %s", domain)
+Line 712: }
+Line 713: 
+Line 714: // Some systemd properties are documented as having "Sec" suffix
+Line 715: // (e.g. TimeoutStopSec) but are expected to have "USec" suffix
+Line 716: // here, so let's provide conversion to improve compatibility.
+Line 717: func convertSecToUSec(value dbus.Variant) (dbus.Variant, error) {
+Line 718: 	var sec uint64
+Line 719: 	const M = 1000000
+Line 720: 	vi := value.Value()
+Line 721: 	switch value.Signature().String() {
+Line 722: 	case "y":
+Line 723: 		sec = uint64(vi.(byte)) * M
+Line 724: 	case "n":
+Line 725: 		sec = uint64(vi.(int16)) * M
+Line 726: 	case "q":
+Line 727: 		sec = uint64(vi.(uint16)) * M
+Line 728: 	case "i":
+Line 729: 		sec = uint64(vi.(int32)) * M
+Line 730: 	case "u":
+Line 731: 		sec = uint64(vi.(uint32)) * M
+Line 732: 	case "x":
+Line 733: 		sec = uint64(vi.(int64)) * M
+Line 734: 	case "t":
+Line 735: 		sec = vi.(uint64) * M
+Line 736: 	case "d":
+Line 737: 		sec = uint64(vi.(float64) * M)
+Line 738: 	default:
+Line 739: 		return value, errors.New("not a number")
+Line 740: 	}
+Line 741: 	return dbus.MakeVariant(sec), nil
+Line 742: }
+Line 743: 
+Line 744: func initSystemdProps(spec *specs.Spec) ([]systemdDbus.Property, error) {
+Line 745: 	const keyPref
+
+Lines 1 to 220 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // Package specconv implements conversion of specifications to libcontainer
+Line 2: // configurations
+Line 3: package specconv
+Line 4: 
+Line 5: import (
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"maps"
+Line 9: 	"os"
+Line 10: 	"path/filepath"
+Line 11: 	"slices"
+Line 12: 	"sort"
+Line 13: 	"strings"
+Line 14: 	"sync"
+Line 15: 	"time"
+Line 16: 
+Line 17: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 18: 	dbus "github.com/godbus/dbus/v5"
+Line 19: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 20: 	"github.com/sirupsen/logrus"
+Line 21: 	"golang.org/x/sys/unix"
+Line 22: 
+Line 23: 	"github.com/opencontainers/cgroups"
+Line 24: 	devices "github.com/opencontainers/cgroups/devices/config"
+Line 25: 	"github.com/opencontainers/runc/internal/linux"
+Line 26: 	"github.com/opencontainers/runc/internal/pathrs"
+Line 27: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 28: 	"github.com/opencontainers/runc/libcontainer/internal/userns"
+Line 29: 	"github.com/opencontainers/runc/libcontainer/seccomp"
+Line 30: )
+Line 31: 
+Line 32: var (
+Line 33: 	initMapsOnce            sync.Once
+Line 34: 	namespaceMapping        map[specs.LinuxNamespaceType]configs.NamespaceType
+Line 35: 	mountPropagationMapping map[string]int
+Line 36: 	recAttrFlags            map[string]struct {
+Line 37: 		clear bool
+Line 38: 		flag  uint64
+Line 39: 	}
+Line 40: 	mountFlags, extensionFlags map[string]struct {
+Line 41: 		clear bool
+Line 42: 		flag  int
+Line 43: 	}
+Line 44: 	complexFlags map[string]func(*configs.Mount)
+Line 45: 	mpolModeMap  map[string]int
+Line 46: 	mpolModeFMap map[string]int
+Line 47: )
+Line 48: 
+Line 49: func initMaps() {
+Line 50: 	initMapsOnce.Do(func() {
+Line 51: 		namespaceMapping = map[specs.LinuxNamespaceType]configs.NamespaceType{
+Line 52: 			specs.PIDNamespace:     configs.NEWPID,
+Line 53: 			specs.NetworkNamespace: configs.NEWNET,
+Line 54: 			specs.MountNamespace:   configs.NEWNS,
+Line 55: 			specs.UserNamespace:    configs.NEWUSER,
+Line 56: 			specs.IPCNamespace:     configs.NEWIPC,
+Line 57: 			specs.UTSNamespace:     configs.NEWUTS,
+Line 58: 			specs.CgroupNamespace:  configs.NEWCGROUP,
+Line 59: 			specs.TimeNamespace:    configs.NEWTIME,
+Line 60: 		}
+Line 61: 
+Line 62: 		mountPropagationMapping = map[string]int{
+Line 63: 			"rprivate":    unix.MS_PRIVATE | unix.MS_REC,
+Line 64: 			"private":     unix.MS_PRIVATE,
+Line 65: 			"rslave":      unix.MS_SLAVE | unix.MS_REC,
+Line 66: 			"slave":       unix.MS_SLAVE,
+Line 67: 			"rshared":     unix.MS_SHARED | unix.MS_REC,
+Line 68: 			"shared":      unix.MS_SHARED,
+Line 69: 			"runbindable": unix.MS_UNBINDABLE | unix.MS_REC,
+Line 70: 			"unbindable":  unix.MS_UNBINDABLE,
+Line 71: 		}
+Line 72: 
+Line 73: 		mountFlags = map[string]struct {
+Line 74: 			clear bool
+Line 75: 			flag  int
+Line 76: 		}{
+Line 77: 			// "acl" cannot be mapped to MS_POSIXACL: https://github.com/opencontainers/runc/issues/3738
+Line 78: 			"async":         {true, unix.MS_SYNCHRONOUS},
+Line 79: 			"atime":         {true, unix.MS_NOATIME},
+Line 80: 			"bind":          {false, unix.MS_BIND},
+Line 81: 			"defaults":      {false, 0},
+Line 82: 			"dev":           {true, unix.MS_NODEV},
+Line 83: 			"diratime":      {true, unix.MS_NODIRATIME},
+Line 84: 			"dirsync":       {false, unix.MS_DIRSYNC},
+Line 85: 			"exec":          {true, unix.MS_NOEXEC},
+Line 86: 			"iversion":      {false, unix.MS_I_VERSION},
+Line 87: 			"lazytime":      {false, unix.MS_LAZYTIME},
+Line 88: 			"loud":          {true, unix.MS_SILENT},
+Line 89: 			"mand":          {false, unix.MS_MANDLOCK},
+Line 90: 			"noatime":       {false, unix.MS_NOATIME},
+Line 91: 			"nodev":         {false, unix.MS_NODEV},
+Line 92: 			"nodiratime":    {false, unix.MS_NODIRATIME},
+Line 93: 			"noexec":        {false, unix.MS_NOEXEC},
+Line 94: 			"noiversion":    {true, unix.MS_I_VERSION},
+Line 95: 			"nolazytime":    {true, unix.MS_LAZYTIME},
+Line 96: 			"nomand":        {true, unix.MS_MANDLOCK},
+Line 97: 			"norelatime":    {true, unix.MS_RELATIME},
+Line 98: 			"nos
+
+Lines 220 to 520 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 220: // AllowedDevices is the set of devices which are automatically included for
+Line 221: // all containers.
+Line 222: //
+Line 223: // # XXX (cyphar)
+Line 224: //
+Line 225: // This behaviour is at the very least "questionable" (if not outright
+Line 226: // wrong) according to the runtime-spec.
+Line 227: //
+Line 228: // Yes, we have to include certain devices other than the ones the user
+Line 229: // specifies, but several devices listed here are not part of the spec
+Line 230: // (including "mknod for any device"?!). In addition, these rules are
+Line 231: // appended to the user-provided set which means that users *cannot disable
+Line 232: // this behaviour*.
+Line 233: //
+Line 234: // ... unfortunately I'm too scared to change this now because who knows how
+Line 235: // many people depend on this (incorrect and arguably insecure) behaviour.
+Line 236: var AllowedDevices = []*devices.Device{
+Line 237: 	// allow mknod for any device
+Line 238: 	{
+Line 239: 		Rule: devices.Rule{
+Line 240: 			Type:        devices.CharDevice,
+Line 241: 			Major:       devices.Wildcard,
+Line 242: 			Minor:       devices.Wildcard,
+Line 243: 			Permissions: "m",
+Line 244: 			Allow:       true,
+Line 245: 		},
+Line 246: 	},
+Line 247: 	{
+Line 248: 		Rule: devices.Rule{
+Line 249: 			Type:        devices.BlockDevice,
+Line 250: 			Major:       devices.Wildcard,
+Line 251: 			Minor:       devices.Wildcard,
+Line 252: 			Permissions: "m",
+Line 253: 			Allow:       true,
+Line 254: 		},
+Line 255: 	},
+Line 256: 	{
+Line 257: 		Path:     "/dev/null",
+Line 258: 		FileMode: 0o666,
+Line 259: 		Uid:      0,
+Line 260: 		Gid:      0,
+Line 261: 		Rule: devices.Rule{
+Line 262: 			Type:        devices.CharDevice,
+Line 263: 			Major:       1,
+Line 264: 			Minor:       3,
+Line 265: 			Permissions: "rwm",
+Line 266: 			Allow:       true,
+Line 267: 		},
+Line 268: 	},
+Line 269: 	{
+Line 270: 		Path:     "/dev/random",
+Line 271: 		FileMode: 0o666,
+Line 272: 		Uid:      0,
+Line 273: 		Gid:      0,
+Line 274: 		Rule: devices.Rule{
+Line 275: 			Type:        devices.CharDevice,
+Line 276: 			Major:       1,
+Line 277: 			Minor:       8,
+Line 278: 			Permissions: "rwm",
+Line 279: 			Allow:       true,
+Line 280: 		},
+Line 281: 	},
+Line 282: 	{
+Line 283: 		Path:     "/dev/full",
+Line 284: 		FileMode: 0o666,
+Line 285: 		Uid:      0,
+Line 286: 		Gid:      0,
+Line 287: 		Rule: devices.Rule{
+Line 288: 			Type:        devices.CharDevice,
+Line 289: 			Major:       1,
+Line 290: 			Minor:       7,
+Line 291: 			Permissions: "rwm",
+Line 292: 			Allow:       true,
+Line 293: 		},
+Line 294: 	},
+Line 295: 	{
+Line 296: 		Path:     "/dev/tty",
+Line 297: 		FileMode: 0o666,
+Line 298: 		Uid:      0,
+Line 299: 		Gid:      0,
+Line 300: 		Rule: devices.Rule{
+Line 301: 			Type:        devices.CharDevice,
+Line 302: 			Major:       5,
+Line 303: 			Minor:       0,
+Line 304: 			Permissions: "rwm",
+Line 305: 			Allow:       true,
+Line 306: 		},
+Line 307: 	},
+Line 308: 	{
+Line 309: 		Path:     "/dev/zero",
+Line 310: 		FileMode: 0o666,
+Line 311: 		Uid:      0,
+Line 312: 		Gid:      0,
+Line 313: 		Rule: devices.Rule{
+Line 314: 			Type:        devices.CharDevice,
+Line 315: 			Major:       1,
+Line 316: 			Minor:       5,
+Line 317: 			Permissions: "rwm",
+Line 318: 			Allow:       true,
+Line 319: 		},
+Line 320: 	},
+Line 321: 	{
+Line 322: 		Path:     "/dev/urandom",
+Line 323: 		FileMode: 0o666,
+Line 324: 		Uid:      0,
+Line 325: 		Gid:      0,
+Line 326: 		Rule: devices.Rule{
+Line 327: 			Type:        devices.CharDevice,
+Line 328: 			Major:       1,
+Line 329: 			Minor:       9,
+Line 330: 			Permissions: "rwm",
+Line 331: 			Allow:       true,
+Line 332: 		},
+Line 333: 	},
+Line 334: 	// /dev/pts/ - pts namespaces are "coming soon"
+Line 335: 	{
+Line 336: 		Rule: devices.Rule{
+Line 337: 			Type:        devices.CharDevice,
+Line 338: 			Major:       136,
+Line 339: 			Minor:       devices.Wildcard,
+Line 340: 			Permissions: "rwm",
+Line 341: 			Allow:       true,
+Line 342: 		},
+Line 343: 	},
+Line 344: 	{
+Line 345: 		Rule: devices.Rul
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-5073.
+
+Target runtime: runc
+Title: mknod permission always granted on block and char devs no matter what the allow string is in specs
+Upstream issue: https://github.com/opencontainers/runc/issues/5073
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-5073
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-5073
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-5073
+Upstream URL: https://github.com/opencontainers/runc/issues/5073
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "mknod /dev/mytest2 c 42 42 && echo 'unauthorized-mknod-created' || echo 'mknod-blocked'"]; linux.resources.devices: [{"allow": true, "type": "c", "major": 12, "minor": 42, "access": "r"}]
+
+Expected differential behavior:
+Correct device filtering blocks mknod and prints mknod-blocked. Affected runc behavior allows creating the unauthorized device node and prints unauthorized-mknod-created.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-5073
+
+## Upstream Issue Summary
+- Title: mknod permission always granted on block and char devs no matter what the allow string is in specs
+- URL: https://github.com/opencontainers/runc/issues/5073
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Original case notes identify `runc v1.3.3 and earlier` as affected. Git log searches for the issue number and mknod wording produced only unrelated device/rootfs commits, so no reliable fixing parent commit is recorded here.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-5073`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "mknod /dev/mytest2 c 42 42 && echo 'unauthorized-mknod-created' || echo 'mknod-blocked'"]; linux.resources.devices: [{"allow": true, "type": "c", "major": 12, "minor": 42, "access": "r"}]
+
+Oracle: Correct device filtering blocks mknod and prints mknod-blocked. Affected runc behavior allows creating the unauthorized device node and prints unauthorized-mknod-created.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original differential device-filtering issue was not reproduced in the Docker Desktop/WSL2 validation environment. runc 1.1.14, youki 0.6.0, and crun 1.17 all printed `unauthorized-mknod-created`, so no reference runtime blocked the unauthorized device node. This likely requires a host/runtime setup with effective cgroup device filtering; the privileged nested test environment did not provide a useful blocking reference.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

@@ -1,0 +1,692 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case youki-3320.
+
+Target runtime: youki
+Title: rbind,ro mount is read-only but not recursively
+Upstream issue: https://github.com/youki-dev/youki/issues/3320
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-3320
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-3320
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-3320
+Upstream URL: https://github.com/youki-dev/youki/issues/3320
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["sh", "-c", "echo -n 'Top(/mnt/foo): '; touch /mnt/foo 2>/dev/null && echo RW || echo RO; echo -n 'Sub(/mnt/subvol/bar): '; touch /mnt/subvol/bar 2>/dev/null && echo RW || echo RO"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; additional mounts: [{"destination": "/mnt", "type": "bind", "source": "/tmp/mounts_recursive", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Both the top-level bind mount and recursive submount should be read-only. A buggy runtime allows writes through a recursive submount.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-3320
+
+## Upstream Issue Summary
+- Title: rbind,ro mount is read-only but not recursively
+- URL: https://github.com/youki-dev/youki/issues/3320
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Git log matched `123b51a4ee05` (`rbind,ro mount is read-only but not recursively (#3345)`); use parent `98f42b58a658` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-3320`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["sh", "-c", "echo -n 'Top(/mnt/foo): '; touch /mnt/foo 2>/dev/null && echo RW || echo RO; echo -n 'Sub(/mnt/subvol/bar): '; touch /mnt/subvol/bar 2>/dev/null && echo RW || echo RO"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; additional mounts: [{"destination": "/mnt", "type": "bind", "source": "/tmp/mounts_recursive", "options": ["rbind", "ro"]}]
+
+Oracle: Both the top-level bind mount and recursive submount should be read-only. A buggy runtime allows writes through a recursive submount.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the case did not run to the original oracle because the configured bind source `/tmp/mounts_recursive` is not provided by the case. After creating that source and a submount in the temporary validation environment, runc 1.1.14, youki 0.6.0, and crun 1.17 all reported the top-level mount as read-only and the recursive submount as writable. This did not provide a reference runtime showing recursive read-only behavior, so reproducing the original differential issue appears to require additional host mount setup and a runtime/kernel combination that supports or enforces recursive read-only bind mounts.
+
+
+Source files:
+crates/libcgroups/examples/bpf.rs
+crates/libcgroups/examples/systemd_io.rs
+crates/libcgroups/src/common.rs
+crates/libcgroups/src/lib.rs
+crates/libcgroups/src/stats.rs
+crates/libcgroups/src/stub/systemd/manager.rs
+crates/libcgroups/src/stub/systemd/mod.rs
+crates/libcgroups/src/stub/v1/manager.rs
+crates/libcgroups/src/stub/v1/mod.rs
+crates/libcgroups/src/stub/v2/manager.rs
+crates/libcgroups/src/stub/v2/mod.rs
+crates/libcgroups/src/systemd/controller.rs
+crates/libcgroups/src/systemd/controller_type.rs
+crates/libcgroups/src/systemd/cpu.rs
+crates/libcgroups/src/systemd/cpuset.rs
+crates/libcgroups/src/systemd/dbus_native/client.rs
+crates/libcgroups/src/systemd/dbus_native/dbus.rs
+crates/libcgroups/src/systemd/dbus_native/message.rs
+crates/libcgroups/src/systemd/dbus_native/mod.rs
+crates/libcgroups/src/systemd/dbus_native/proxy.rs
+crates/libcgroups/src/systemd/dbus_native/serialize.rs
+crates/libcgroups/src/systemd/dbus_native/utils.rs
+crates/libcgroups/src/systemd/io.rs
+crates/libcgroups/src/systemd/manager.rs
+crates/libcgroups/src/systemd/memory.rs
+crates/libcgroups/src/systemd/mod.rs
+crates/libcgroups/src/systemd/pids.rs
+crates/libcgroups/src/systemd/unified.rs
+crates/libcgroups/src/test.rs
+crates/libcgroups/src/test_manager.rs
+crates/libcgroups/src/v1/blkio.rs
+crates/libcgroups/src/v1/controller.rs
+crates/libcgroups/src/v1/controller_type.rs
+crates/libcgroups/src/v1/cpu.rs
+crates/libcgroups/src/v1/cpuacct.rs
+crates/libcgroups/src/v1/cpuset.rs
+crates/libcgroups/src/v1/devices.rs
+crates/libcgroups/src/v1/freezer.rs
+crates/libcgroups/src/v1/hugetlb.rs
+crates/libcgroups/src/v1/manager.rs
+crates/libcgroups/src/v1/memory.rs
+crates/libcgroups/src/v1/mod.rs
+crates/libcgroups/src/v1/network_classifier.rs
+crates/libcgroups/src/v1/network_priority.rs
+crates/libcgroups/src/v1/perf_event.rs
+crates/libcgroups/src/v1/pids.rs
+crates/libcgroups/src/v1/util.rs
+crates/libcgroups/src/v2/controller.rs
+crates/libcgroups/src/v2/controller_type.rs
+crates/libcgroups/src/v2/cpu.rs
+crates/libcgroups/src/v2/cpuset.rs
+crates/libcgroups/src/v2/devices/bpf.rs
+crates/libcgroups/src/v2/devices/controller.rs
+crates/libcgroups/src/v2/devices/emulator.rs
+crates/libcgroups/src/v2/devices/mocks.rs
+crates/libcgroups/src/v2/devices/mod.rs
+crates/libcgroups/src/v2/devices/program.rs
+crates/libcgroups/src/v2/freezer.rs
+crates/libcgroups/src/v2/hugetlb.rs
+crates/libcgroups/src/v2/io.rs
+crates/libcgroups/src/v2/manager.rs
+crates/libcgroups/src/v2/memory.rs
+crates/libcgroups/src/v2/mod.rs
+crates/libcgroups/src/v2/pids.rs
+crates/libcgroups/src/v2/unified.rs
+crates/libcgroups/src/v2/util.rs
+crates/libcontainer/src/apparmor.rs
+crates/libcontainer/src/capabilities.rs
+crates/libcontainer/src/channel.rs
+crates/libcontainer/src/config.rs
+crates/libcontainer/src/container/builder.rs
+crates/libcontainer/src/container/builder_impl.rs
+crates/libcontainer/src/container/container.rs
+crates/libcontainer/src/container/container_checkpoint.rs
+crates/libcontainer/src/container/container_delete.rs
+crates/libcontainer/src/container/container_events.rs
+crates/libcontainer/src/container/container_kill.rs
+crates/libcontainer/src/container/container_pause.rs
+crates/libcontainer/src/container/container_resume.rs
+crates/libcontainer/src/container/container_start.rs
+crates/libcontainer/src/container/init_builder.rs
+crates/libcontainer/src/container/mod.rs
+crates/libcontainer/src/container/state.rs
+crates/libcontainer/src/container/tenant_builder.rs
+crates/libcontainer/src/error.rs
+crates/libcontainer/src/hooks.rs
+crates/libcontainer/src/lib.rs
+crates/libcontainer/src/namespaces.rs
+crates/libcontainer/src/network/address.rs
+crates/libcontainer/src/network/cidr.rs
+crates/libcontainer/src/network/client.rs
+crates/libcontainer/src/network/fake.rs
+crates/libcontainer/src/network/link.rs
+crates/libcontainer/src/network/mod.rs
+crates/libcontainer/src/network/network_device.rs
+crates/libcontainer/src/network/traits.rs
+crates/libcontainer/src/network/wrapper.rs
+crates/libcontainer/src/notify_socket.rs
+crates/libcontainer/src/process/args.rs
+crates/libcontainer/src/process/channel.rs
+crates/libcontainer/src/process/container_intermediate_process.rs
+crates/libcontainer/src/process/container_main_process.rs
+crates/libcontainer/src/process/cpu_affinity.rs
+crates/libcontainer/src/process/fork.rs
+crates/libcontainer/src/process/init/context.rs
+crates/libcontainer/src/process/init/error.rs
+crates/libcontainer/src/process/init/mod.rs
+crates/libcontainer/src/process/init/process.rs
+crates/libcontainer/src/process/intel_rdt.rs
+crates/libcontainer/src/process/memory_policy.rs
+crates/libcontainer/src/process/message.rs
+crates/libcontainer/src/process/mod.rs
+crates/libcontainer/src/process/seccomp_listener.rs
+crates/libcontainer/src/rootfs/device.rs
+crates/libcontainer/src/rootfs/mod.rs
+crates/libcontainer/src/rootfs/mount.rs
+crates/libcontainer/src/rootfs/rootfs.rs
+crates/libcontainer/src/rootfs/symlink.rs
+crates/libcontainer/src/rootfs/utils.rs
+crates/libcontainer/src/seccomp/mod.rs
+crates/libcontainer/src/signal.rs
+crates/libcontainer/src/syscall/linux.rs
+crates/libcontainer/src/syscall/mod.rs
+crates/libcontainer/src/syscall/syscall.rs
+crates/libcontainer/src/syscall/test.rs
+crates/libcontainer/src/test_utils.rs
+crates/libcontainer/src/tty.rs
+crates/libcontainer/src/user_ns.rs
+crates/libcontainer/src/utils.rs
+crates/libcontainer/src/workload/default.rs
+crates/libcontainer/src/workload/mod.rs
+crates/libcontainer/tests/as_sibling.rs
+crates/liboci-cli/src/checkpoint.rs
+crates/liboci-cli/src/create.rs
+crates/liboci-cli/src/delete.rs
+crates/liboci-cli/src/events.rs
+crates/liboci-cli/src/exec.rs
+crates/liboci-cli/src/features.rs
+crates/liboci-cli/src/info.rs
+crates/liboci-cli/src/kill.rs
+crates/liboci-cli/src/lib.rs
+crates/liboci-cli/src/list.rs
+crates/liboci-cli/src/pause.rs
+crates/liboci-cli/src/ps.rs
+crates/liboci-cli/src/resume.rs
+crates/liboci-cli/src/run.rs
+crates/liboci-cli/src/spec.rs
+crates/liboci-cli/src/start.rs
+crates/liboci-cli/src/state.rs
+crates/liboci-cli/src/update.rs
+crates/youki/build.rs
+crates/youki/src/commands/checkpoint.rs
+crates/youki/src/commands/completion.rs
+crates/youki/src/commands/create.rs
+crates/youki/src/commands/delete.rs
+crates/youki/src/commands/events.rs
+crates/youki/src/commands/exec.rs
+crates/youki/src/commands/features.rs
+crates/youki/src/commands/info.rs
+crates/youki/src/commands/kill.rs
+crates/youki/src/commands/list.rs
+crates/youki/src/commands/mod.rs
+crates/youki/src/commands/pause.rs
+crates/youki/src/commands/ps.rs
+crates/youki/src/commands/resume.rs
+crates/youki/src/commands/run.rs
+crates/youki/src/commands/spec_json.rs
+crates/youki/src/commands/start.rs
+crates/youki/src/commands/state.rs
+crates/youki/src/commands/update.rs
+crates/youki/src/main.rs
+crates/youki/src/observability.rs
+crates/youki/src/rootpath.rs
+crates/youki/src/workload/executor.rs
+crates/youki/src/workload/mod.rs
+crates/youki/src/workload/wasmedge.rs
+crates/youki/src/workload/wasmer.rs
+crates/youki/src/workload/wasmtime.rs
+experiment/seccomp/src/instruction/arch.rs
+experiment/seccomp/src/instruction/consts.rs
+experiment/seccomp/src/instruction/inst.rs
+experiment/seccomp/src/instruction/mod.rs
+experiment/seccomp/src/lib.rs
+experiment/seccomp/src/main.rs
+experiment/seccomp/src/seccomp.rs
+experiment/selinux/src/lib.rs
+experiment/selinux/src/main.rs
+experiment/selinux/src/selinux.rs
+experiment/selinux/src/selinux_label.rs
+experiment/selinux/src/tools/mod.rs
+experiment/selinux/src/tools/sockopt.rs
+experiment/selinux/src/tools/xattr.rs
+tests/contest/contest/src/lib.rs
+tests/contest/contest/src/logger.rs
+tests/contest/contest/src/main.rs
+tests/contest/contest/src/tests/cgroups/blkio.rs
+tests/contest/contest/src/tests/cgroups/cpu/mod.rs
+tests/contest/contest/src/tests/cgroups/cpu/v1.rs
+tests/contest/contest/src/tests/cgroups/cpu/v2.rs
+tests/contest/contest/src/tests/cgroups/memory.rs
+... 95 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 260 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: use std::fs::{Permissions, canonicalize};
+Line 2: use std::io::{BufRead, BufReader, ErrorKind};
+Line 3: use std::os::fd::{AsFd, OwnedFd};
+Line 4: use std::os::unix::fs::{MetadataExt, PermissionsExt};
+Line 5: use std::path::{Path, PathBuf};
+Line 6: use std::time::Duration;
+Line 7: #[cfg(feature = "v1")]
+Line 8: use std::{borrow::Cow, collections::HashMap};
+Line 9: use std::{fs, mem};
+Line 10: 
+Line 11: use libcgroups::common::CgroupSetup::{Hybrid, Legacy, Unified};
+Line 12: #[cfg(feature = "v1")]
+Line 13: use libcgroups::common::DEFAULT_CGROUP_ROOT;
+Line 14: use nix::NixPath;
+Line 15: use nix::errno::Errno;
+Line 16: use nix::mount::MsFlags;
+Line 17: use nix::sys::statfs::{PROC_SUPER_MAGIC, statfs};
+Line 18: use oci_spec::runtime::{Mount as SpecMount, MountBuilder as SpecMountBuilder};
+Line 19: use pathrs::Root;
+Line 20: use pathrs::flags::OpenFlags;
+Line 21: use pathrs::procfs::{ProcfsBase, ProcfsHandle};
+Line 22: #[cfg(feature = "v1")]
+Line 23: use procfs::process::Process;
+Line 24: use procfs::process::{MountInfo, MountOptFields};
+Line 25: use procfs::{FromRead, ProcessCGroups};
+Line 26: 
+Line 27: #[cfg(feature = "v1")]
+Line 28: use super::symlink::Symlink;
+Line 29: use super::symlink::SymlinkError;
+Line 30: use super::utils::{MountOptionConfig, parse_mount};
+Line 31: use crate::syscall::syscall::create_syscall;
+Line 32: use crate::syscall::{Syscall, SyscallError, linux};
+Line 33: use crate::utils::{PathBufExt, retry};
+Line 34: 
+Line 35: const MAX_EBUSY_MOUNT_ATTEMPTS: u32 = 3;
+Line 36: // runc has a retry interval of 100ms. We are following this.
+Line 37: // https://github.com/opencontainers/runc/blob/v1.3.0/libcontainer/rootfs_linux.go#L1235
+Line 38: #[cfg(not(test))]
+Line 39: const MOUNT_RETRY_DELAY_MS: u64 = 100;
+Line 40: // In tests, there is no need to delay, so set it to 0ms.
+Line 41: #[cfg(test)]
+Line 42: const MOUNT_RETRY_DELAY_MS: u64 = 0;
+Line 43: 
+Line 44: #[derive(Debug, thiserror::Error)]
+Line 45: pub enum MountError {
+Line 46:     #[error("no source in mount spec")]
+Line 47:     NoSource,
+Line 48:     #[error("io error")]
+Line 49:     Io(#[from] std::io::Error),
+Line 50:     #[error("syscall")]
+Line 51:     Syscall(#[from] crate::syscall::SyscallError),
+Line 52:     #[error("nix error")]
+Line 53:     Nix(#[from] nix::Error),
+Line 54:     #[error("failed to build oci spec")]
+Line 55:     SpecBuild(#[from] oci_spec::OciSpecError),
+Line 56:     #[error(transparent)]
+Line 57:     Other(Box<dyn std::error::Error + Send + Sync>),
+Line 58:     #[error("{0}")]
+Line 59:     Custom(String),
+Line 60:     #[error("symlink")]
+Line 61:     Symlink(#[from] SymlinkError),
+Line 62:     #[error("procfs failed")]
+Line 63:     Procfs(#[from] procfs::ProcError),
+Line 64:     #[error("unknown mount option: {0}")]
+Line 65:     UnsupportedMountOption(String),
+Line 66:     #[error(transparent)]
+Line 67:     Pathrs(#[from] pathrs::error::Error),
+Line 68: }
+Line 69: 
+Line 70: type Result<T> = std::result::Result<T, MountError>;
+Line 71: 
+Line 72: pub trait MountInfoProvider {
+Line 73:     fn mountinfo(&self) -> Result<Vec<MountInfo>>;
+Line 74: }
+Line 75: 
+Line 76: /// Default provider that reads mountinfo from /proc via procfs.
+Line 77: pub struct ProcMountInfoProvider;
+Line 78: 
+Line 79: impl ProcMountInfoProvider {
+Line 80:     pub fn new() -> Self {
+Line 81:         ProcMountInfoProvider
+Line 82:     }
+Line 83: }
+Line 84: 
+Line 85: impl MountInfoProvider for ProcMountInfoProvider {
+Line 86:     fn mountinfo(&self) -> Result<Vec<MountInfo>> {
+Line 87:         let reader = BufReader::new(ProcfsHandle::new()?.open(
+Line 88:             ProcfsBase::ProcSelf,
+Line 89:             "mountinfo",
+Line 90:             OpenFlags::O_RDONLY | OpenFlags::O_CLOEXEC,
+Line 91:         )?);
+Line 92: 
+Line 93:         let mount_infos: Vec<MountInfo> = reader
+Line 94:             .lines()
+Line 95:             .map(|lr| {
+Line 96:                 lr.map_err(MountError::from)
+Line 97:                     .and_then(|s| MountInfo::from_line(&s).map_e
+
+Lines 260 to 620 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 260:                 err
+Line 261:             })?;
+Line 262: 
+Line 263:         self.setup_mount(&tmpfs, options).map_err(|err| {
+Line 264:             tracing::error!("failed to mount tmpfs for cgroup: {}", err);
+Line 265:             err
+Line 266:         })?;
+Line 267: 
+Line 268:         // get all cgroup mounts on the host system
+Line 269:         let host_mounts: Vec<PathBuf> = libcgroups::v1::util::list_subsystem_mount_points()
+Line 270:             .map_err(|err| {
+Line 271:                 tracing::error!("failed to get subsystem mount points: {}", err);
+Line 272:                 MountError::Other(err.into())
+Line 273:             })?
+Line 274:             .into_iter()
+Line 275:             .filter(|p| p.as_path().starts_with(DEFAULT_CGROUP_ROOT))
+Line 276:             .collect();
+Line 277:         tracing::debug!("cgroup mounts: {:?}", host_mounts);
+Line 278: 
+Line 279:         // get process cgroups
+Line 280:         let ppid = std::os::unix::process::parent_id();
+Line 281:         // The non-zero ppid means that the PID Namespace is not separated.
+Line 282:         let ppid = if ppid == 0 { std::process::id() } else { ppid };
+Line 283:         let root_cgroups = Process::new(ppid as i32)?.cgroups()?.0;
+Line 284:         let process_cgroups: HashMap<String, String> =
+Line 285:             ProcessCGroups::from_read(ProcfsHandle::new()?.open(
+Line 286:                 ProcfsBase::ProcSelf,
+Line 287:                 "cgroup",
+Line 288:                 OpenFlags::O_RDONLY | OpenFlags::O_CLOEXEC,
+Line 289:             )?)?
+Line 290:             .into_iter()
+Line 291:             .map(|c| {
+Line 292:                 let hierarchy = c.hierarchy;
+Line 293:                 // When youki itself is running inside a container, the cgroup path
+Line 294:                 // will include the path of pid-1, which needs to be stripped before
+Line 295:                 // mounting.
+Line 296:                 let root_pathname = root_cgroups
+Line 297:                     .iter()
+Line 298:                     .find(|c| c.hierarchy == hierarchy)
+Line 299:                     .map(|c| c.pathname.as_ref())
+Line 300:                     .unwrap_or("");
+Line 301:                 let path = c
+Line 302:                     .pathname
+Line 303:                     .strip_prefix(root_pathname)
+Line 304:                     .unwrap_or(&c.pathname);
+Line 305:                 (c.controllers.join(","), path.to_owned())
+Line 306:             })
+Line 307:             .collect();
+Line 308:         tracing::debug!("Process cgroups: {:?}", process_cgroups);
+Line 309: 
+Line 310:         let cgroup_root = options
+Line 311:             .root
+Line 312:             .join_safely(cgroup_mount.destination())
+Line 313:             .map_err(|err| {
+Line 314:                 tracing::error!(
+Line 315:                     "could not join rootfs path with cgroup mount destination: {}",
+Line 316:                     err
+Line 317:                 );
+Line 318:                 MountError::Other(err.into())
+Line 319:             })?;
+Line 320:         tracing::debug!("cgroup root: {:?}", cgroup_root);
+Line 321: 
+Line 322:         let symlink = Symlink::new();
+Line 323: 
+Line 324:         // setup cgroup mounts for container
+Line 325:         for host_mount in &host_mounts {
+Line 326:             if let Some(subsystem_name) = host_mount.file_name().and_then(|n| n.to_str()) {
+Line 327:                 if options.cgroup_ns {
+Line 328:                     self.setup_namespaced_subsystem(
+Line 329:                         cgroup_mount,
+Line 330:                         options,
+Line 331:                         subsystem_name,
+Line 332:                         subsystem_name == "systemd",
+Line 333:                     )?;
+Line 334:                 } else {
+Line 335:                     self.setup_emulated_subsystem(
+Line 336:                         cgroup_mount,
+Line 337:                         options,
+Line 338:                         subsystem_name,
+Line 339:           
+
+Lines 620 to 980 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 620:                 root.mkdir_all(container_dest, &dir_perm)?;
+Line 621:             };
+Line 622: 
+Line 623:             src
+Line 624:         } else {
+Line 625:             root.mkdir_all(container_dest, &dir_perm)?;
+Line 626:             PathBuf::from(source)
+Line 627:         };
+Line 628: 
+Line 629:         let dest: OwnedFd = root.resolve(container_dest)?.into();
+Line 630:         let dest_fd = dest.as_fd();
+Line 631: 
+Line 632:         let is_bind = typ == Some("bind")
+Line 633:             || m.options()
+Line 634:                 .as_deref()
+Line 635:                 .is_some_and(|ops| ops.iter().any(|o| o == "bind" || o == "rbind"));
+Line 636: 
+Line 637:         // fd-based mount flow:
+Line 638:         // - bind: open_tree -> mount_setattr -> move_mount
+Line 639:         // - nonbind: fsopen -> fsconfig -> fsmount -> mount_setattr -> move_mount
+Line 640:         if is_bind {
+Line 641:             let recursive = m
+Line 642:                 .options()
+Line 643:                 .as_ref()
+Line 644:                 .map(|v| v.iter().any(|o| o == "rbind"))
+Line 645:                 .unwrap_or(false);
+Line 646:             let mut open_tree_flags: libc::c_uint = (libc::OPEN_TREE_CLOEXEC as libc::c_uint)
+Line 647:                 | (libc::OPEN_TREE_CLONE as libc::c_uint)
+Line 648:                 | (libc::AT_EMPTY_PATH as libc::c_uint);
+Line 649:             if recursive {
+Line 650:                 open_tree_flags |= libc::AT_RECURSIVE as libc::c_uint;
+Line 651:             };
+Line 652: 
+Line 653:             let src_str = src.to_str().ok_or(SyscallError::Nix(Errno::EINVAL))?;
+Line 654:             let mount_fd_owned =
+Line 655:                 self.syscall
+Line 656:                     .open_tree(libc::AT_FDCWD, Some(src_str), open_tree_flags)?;
+Line 657:             let mount_fd = mount_fd_owned.as_fd();
+Line 658: 
+Line 659:             // mount_setattr
+Line 660:             let attr_set_from_flags = self.mount_flag_to_attr(&mount_option_config.flags);
+Line 661:             let mut mount_attr = mount_option_config
+Line 662:                 .rec_attr
+Line 663:                 .clone()
+Line 664:                 .unwrap_or(linux::MountAttr {
+Line 665:                     attr_set: 0,
+Line 666:                     attr_clr: 0,
+Line 667:                     propagation: 0,
+Line 668:                     userns_fd: 0,
+Line 669:                 });
+Line 670:             mount_attr.attr_set |= attr_set_from_flags;
+Line 671: 
+Line 672:             let mut at_flags = linux::AT_EMPTY_PATH;
+Line 673:             if recursive {
+Line 674:                 at_flags |= linux::AT_RECURSIVE;
+Line 675:             }
+Line 676: 
+Line 677:             self.apply_atime_from_msflags(
+Line 678:                 &mut mount_attr,
+Line 679:                 attr_set_from_flags,
+Line 680:                 mount_option_config.flags,
+Line 681:             );
+Line 682: 
+Line 683:             self.syscall.mount_setattr(
+Line 684:                 mount_fd,
+Line 685:                 Path::new(""),
+Line 686:                 at_flags,
+Line 687:                 &mount_attr,
+Line 688:                 mem::size_of::<linux::MountAttr>(),
+Line 689:             )?;
+Line 690: 
+Line 691:             // move_mount
+Line 692:             self.syscall.move_mount(
+Line 693:                 mount_fd,
+Line 694:                 None,
+Line 695:                 dest_fd,
+Line 696:                 None,
+Line 697:                 linux::MOVE_MOUNT_T_EMPTY_PATH | linux::MOVE_MOUNT_F_EMPTY_PATH,
+Line 698:             )?;
+Line 699:         } else {
+Line 700:             let mount_fn = || -> std::result::Result<(), SyscallError> {
+Line 701:                 // fsopen
+Line 702:                 let fsfd_owned = self.syscall.fsopen(typ, 0)?;
+Line 703:                 let fsfd = fsfd_owned.as_fd();
+Line 704: 
+Line 705:                 // fsconfig
+Line 706:                 let src_str = src
+Line 707:                     .as_os_str()
+Line 708:                     .to_str()
+Line 709:       
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case youki-3320.
+
+Target runtime: youki
+Title: rbind,ro mount is read-only but not recursively
+Upstream issue: https://github.com/youki-dev/youki/issues/3320
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-3320
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-3320
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-3320
+Upstream URL: https://github.com/youki-dev/youki/issues/3320
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["sh", "-c", "echo -n 'Top(/mnt/foo): '; touch /mnt/foo 2>/dev/null && echo RW || echo RO; echo -n 'Sub(/mnt/subvol/bar): '; touch /mnt/subvol/bar 2>/dev/null && echo RW || echo RO"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; additional mounts: [{"destination": "/mnt", "type": "bind", "source": "/tmp/mounts_recursive", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Both the top-level bind mount and recursive submount should be read-only. A buggy runtime allows writes through a recursive submount.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-3320
+
+## Upstream Issue Summary
+- Title: rbind,ro mount is read-only but not recursively
+- URL: https://github.com/youki-dev/youki/issues/3320
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Git log matched `123b51a4ee05` (`rbind,ro mount is read-only but not recursively (#3345)`); use parent `98f42b58a658` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-3320`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["sh", "-c", "echo -n 'Top(/mnt/foo): '; touch /mnt/foo 2>/dev/null && echo RW || echo RO; echo -n 'Sub(/mnt/subvol/bar): '; touch /mnt/subvol/bar 2>/dev/null && echo RW || echo RO"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; additional mounts: [{"destination": "/mnt", "type": "bind", "source": "/tmp/mounts_recursive", "options": ["rbind", "ro"]}]
+
+Oracle: Both the top-level bind mount and recursive submount should be read-only. A buggy runtime allows writes through a recursive submount.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the case did not run to the original oracle because the configured bind source `/tmp/mounts_recursive` is not provided by the case. After creating that source and a submount in the temporary validation environment, runc 1.1.14, youki 0.6.0, and crun 1.17 all reported the top-level mount as read-only and the recursive submount as writable. This did not provide a reference runtime showing recursive read-only behavior, so reproducing the original differential issue appears to require additional host mount setup and a runtime/kernel combination that supports or enforces recursive read-only bind mounts.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

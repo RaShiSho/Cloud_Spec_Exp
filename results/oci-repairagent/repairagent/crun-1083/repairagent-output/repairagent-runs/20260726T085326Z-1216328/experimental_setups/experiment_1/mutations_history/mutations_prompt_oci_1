@@ -1,0 +1,919 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case crun-1083.
+
+Target runtime: crun
+Title: runc incompatibility wrt. cgroup memory limits
+Upstream issue: https://github.com/containers/crun/issues/1083
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-1083
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-1083
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-1083
+Upstream URL: https://github.com/containers/crun/issues/1083
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo memory-limit-1083; cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || cat /sys/fs/cgroup/memory.max 2>/dev/null || true"]; linux.resources.memory: {"limit": 67108864, "swap": 134217728}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+The buggy crun build prints max for the memory limit, while runc and fixed crun print 67108864 for the configured 64 MiB limit.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-1083
+
+## Upstream Issue Summary
+- Title: runc incompatibility wrt. cgroup memory limits
+- URL: https://github.com/containers/crun/issues/1083
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Local dataset notes identify `crun version 1.7.1.0.0.0.6-258c` as the buggy build and `crun version 1.27.1.0.0.0.29-856f4` as fixed. Git log also matched `3880f04675f5` (`cgroup: always enable controller`); parent `258c237f5947` is the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-1083`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo memory-limit-1083; cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || cat /sys/fs/cgroup/memory.max 2>/dev/null || true"]; linux.resources.memory: {"limit": 67108864, "swap": 134217728}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: The buggy crun build prints max for the memory limit, while runc and fixed crun print 67108864 for the configured 64 MiB limit.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17 in the Docker Desktop/WSL2 validation environment. All three runtimes printed `67108864` for the configured memory limit. Reproducing the historical failure appears to require the affected pre-fix crun build or a host cgroup setup that exposes the old `max` behavior.
+
+
+Source files:
+contrib/notify-socket-server/notify-socket-server.c
+contrib/seccomp-notify-plugin-example/full.c
+contrib/seccomp-receiver/seccomp-receiver.c
+contrib/terminal-receiver/terminal-receiver.c
+python/crun_python.c
+src/checkpoint.c
+src/checkpoint.h
+src/create.c
+src/create.h
+src/crun.c
+src/crun.h
+src/delete.c
+src/delete.h
+src/exec.c
+src/exec.h
+src/kill.c
+src/kill.h
+src/libcrun/cgroup-cgroupfs.c
+src/libcrun/cgroup-cgroupfs.h
+src/libcrun/cgroup-internal.h
+src/libcrun/cgroup-resources.c
+src/libcrun/cgroup-resources.h
+src/libcrun/cgroup-setup.c
+src/libcrun/cgroup-setup.h
+src/libcrun/cgroup-systemd.c
+src/libcrun/cgroup-systemd.h
+src/libcrun/cgroup-utils.c
+src/libcrun/cgroup-utils.h
+src/libcrun/cgroup.c
+src/libcrun/cgroup.h
+src/libcrun/chroot_realpath.c
+src/libcrun/cloned_binary.c
+src/libcrun/container.c
+src/libcrun/container.h
+src/libcrun/criu.c
+src/libcrun/criu.h
+src/libcrun/custom-handler.c
+src/libcrun/custom-handler.h
+src/libcrun/ebpf.c
+src/libcrun/ebpf.h
+src/libcrun/error.c
+src/libcrun/error.h
+src/libcrun/handlers/handler-utils.c
+src/libcrun/handlers/handler-utils.h
+src/libcrun/handlers/krun.c
+src/libcrun/handlers/mono.c
+src/libcrun/handlers/wasmedge.c
+src/libcrun/handlers/wasmer.c
+src/libcrun/handlers/wasmtime.c
+src/libcrun/intprops.h
+src/libcrun/linux.c
+src/libcrun/linux.h
+src/libcrun/mount_flags.c
+src/libcrun/mount_flags.h
+src/libcrun/seccomp.c
+src/libcrun/seccomp.h
+src/libcrun/seccomp_notify.c
+src/libcrun/seccomp_notify.h
+src/libcrun/seccomp_notify_plugin.h
+src/libcrun/signals.c
+src/libcrun/status.c
+src/libcrun/status.h
+src/libcrun/terminal.c
+src/libcrun/terminal.h
+src/libcrun/utils.c
+src/libcrun/utils.h
+src/list.c
+src/list.h
+src/pause.c
+src/pause.h
+src/ps.c
+src/ps.h
+src/restore.c
+src/restore.h
+src/run.c
+src/run.h
+src/spec.c
+src/spec.h
+src/start.c
+src/start.h
+src/state.c
+src/state.h
+src/unpause.c
+src/unpause.h
+src/update.c
+src/update.h
+tests/init.c
+tests/tests_libcrun_errors.c
+tests/tests_libcrun_fuzzer.c
+tests/tests_libcrun_utils.c
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+7 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 260 to 620 from file: src/libcrun/cgroup-resources.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 260:           if (UNLIKELY (wfd < 0))
+Line 261:             return crun_make_error (err, errno, "open io.weight");
+Line 262:           for (i = 0; i < blkio->weight_device_len; i++)
+Line 263:             {
+Line 264:               uint32_t w = blkio->weight_device[i]->weight;
+Line 265: 
+Line 266:               len = sprintf (fmt_buf, "%" PRIu64 ":%" PRIu64 " %i\n", blkio->weight_device[i]->major,
+Line 267:                              blkio->weight_device[i]->minor, w);
+Line 268:               ret = TEMP_FAILURE_RETRY (write (wfd, fmt_buf, len));
+Line 269:               if (UNLIKELY (ret < 0))
+Line 270:                 return crun_make_error (err, errno, "write io.weight");
+Line 271: 
+Line 272:               /* Ignore blkio->weight_device[i]->leaf_weight.  */
+Line 273:             }
+Line 274:         }
+Line 275:       else
+Line 276:         {
+Line 277:           cleanup_close int w_device_fd = -1;
+Line 278:           cleanup_close int w_leafdevice_fd = -1;
+Line 279:           size_t i;
+Line 280: 
+Line 281:           w_device_fd = openat (dirfd, "blkio.weight_device", O_WRONLY);
+Line 282:           if (UNLIKELY (w_device_fd < 0))
+Line 283:             return crun_make_error (err, errno, "open blkio.weight_device");
+Line 284: 
+Line 285:           w_leafdevice_fd = openat (dirfd, "blkio.leaf_weight_device", O_WRONLY);
+Line 286:           if (UNLIKELY (w_leafdevice_fd < 0))
+Line 287:             return crun_make_error (err, errno, "open blkio.leaf_weight_device");
+Line 288: 
+Line 289:           for (i = 0; i < blkio->weight_device_len; i++)
+Line 290:             {
+Line 291:               len = sprintf (fmt_buf, "%" PRIu64 ":%" PRIu64 " %" PRIu16 "\n", blkio->weight_device[i]->major,
+Line 292:                              blkio->weight_device[i]->minor, blkio->weight_device[i]->weight);
+Line 293:               ret = TEMP_FAILURE_RETRY (write (w_device_fd, fmt_buf, len));
+Line 294:               if (UNLIKELY (ret < 0))
+Line 295:                 return crun_make_error (err, errno, "write blkio.weight_device");
+Line 296: 
+Line 297:               len = sprintf (fmt_buf, "%" PRIu64 ":%" PRIu64 " %" PRIu16 "\n", blkio->weight_device[i]->major,
+Line 298:                              blkio->weight_device[i]->minor, blkio->weight_device[i]->leaf_weight);
+Line 299:               ret = TEMP_FAILURE_RETRY (write (w_leafdevice_fd, fmt_buf, len));
+Line 300:               if (UNLIKELY (ret < 0))
+Line 301:                 return crun_make_error (err, errno, "write blkio.leaf_weight_device");
+Line 302:             }
+Line 303:         }
+Line 304:     }
+Line 305:   if (cgroup2)
+Line 306:     {
+Line 307:       cleanup_close int wfd = -1;
+Line 308:       const char *name = "io.max";
+Line 309: 
+Line 310:       wfd = openat (dirfd, name, O_WRONLY);
+Line 311:       if (UNLIKELY (wfd < 0))
+Line 312:         {
+Line 313:           ret = crun_make_error (err, errno, "open `%s`", name);
+Line 314:           return check_cgroup_v2_controller_available_wrapper (ret, dirfd, name, err);
+Line 315:         }
+Line 316: 
+Line 317:       ret = write_blkio_v2_resources_throttling (wfd, "rbps", (throttling_s **) blkio->throttle_read_bps_device,
+Line 318:                                                  blkio->throttle_read_bps_device_len, err);
+Line 319:       if (UNLIKELY (ret < 0))
+Line 320:         return ret;
+Line 321: 
+Line 322:       ret = write_blkio_v2_resources_throttling (wfd, "wbps", (throttling_s **) blkio->throt
+[older content truncated]
+
+Lines 1 to 260 from file: src/libcrun/cgroup-cgroupfs.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: /*
+Line 2:  * crun - OCI runtime written in C
+Line 3:  *
+Line 4:  * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+Line 5:  * crun is free software; you can redistribute it and/or modify
+Line 6:  * it under the terms of the GNU Lesser General Public License as published by
+Line 7:  * the Free Software Foundation; either version 2.1 of the License, or
+Line 8:  * (at your option) any later version.
+Line 9:  *
+Line 10:  * crun is distributed in the hope that it will be useful,
+Line 11:  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+Line 12:  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+Line 13:  * GNU Lesser General Public License for more details.
+Line 14:  *
+Line 15:  * You should have received a copy of the GNU Lesser General Public License
+Line 16:  * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+Line 17:  */
+Line 18: 
+Line 19: #define _GNU_SOURCE
+Line 20: 
+Line 21: #include <config.h>
+Line 22: #include "cgroup.h"
+Line 23: #include "cgroup-internal.h"
+Line 24: #include "cgroup-systemd.h"
+Line 25: #include "cgroup-setup.h"
+Line 26: #include "cgroup-utils.h"
+Line 27: #include "cgroup-cgroupfs.h"
+Line 28: #include <string.h>
+Line 29: #include <sys/types.h>
+Line 30: #include <signal.h>
+Line 31: #include <sys/vfs.h>
+Line 32: #include <inttypes.h>
+Line 33: #include <time.h>
+Line 34: 
+Line 35: #include <sys/stat.h>
+Line 36: #include <sys/types.h>
+Line 37: #include <fcntl.h>
+Line 38: #include <libgen.h>
+Line 39: 
+Line 40: static char *
+Line 41: make_cgroup_path (const char *path, const char *id)
+Line 42: {
+Line 43:   const char *cgroup_path = path;
+Line 44:   char *ret;
+Line 45: 
+Line 46:   if (cgroup_path == NULL)
+Line 47:     xasprintf (&ret, "/%s", id);
+Line 48:   else if (cgroup_path[0] == '/')
+Line 49:     ret = xstrdup (cgroup_path);
+Line 50:   else
+Line 51:     xasprintf (&ret, "/%s", cgroup_path);
+Line 52: 
+Line 53:   return ret;
+Line 54: }
+Line 55: 
+Line 56: static int
+Line 57: libcrun_precreate_cgroup_cgroupfs (struct libcrun_cgroup_args *args, int *dirfd, libcrun_error_t *err)
+Line 58: {
+Line 59:   cleanup_free char *sub_path = make_cgroup_path (args->cgroup_path, args->id);
+Line 60:   cleanup_free char *cgroup_path = NULL;
+Line 61:   int ret;
+Line 62: 
+Line 63:   /* No need to check the mode since this feature is supported only on cgroup v2, and
+Line 64:      libcrun_cgroup_preenter already performs this check.  */
+Line 65: 
+Line 66:   *dirfd = -1;
+Line 67: 
+Line 68:   ret = append_paths (&cgroup_path, err, CGROUP_ROOT, sub_path, NULL);
+Line 69:   if (UNLIKELY (ret < 0))
+Line 70:     return ret;
+Line 71: 
+Line 72:   ret = crun_ensure_directory (cgroup_path, 0755, true, err);
+Line 73:   if (UNLIKELY (ret < 0))
+Line 74:     {
+Line 75:       libcrun_error_release (err);
+Line 76:       return 0;
+Line 77:     }
+Line 78: 
+Line 79:   ret = enable_controllers (sub_path, err);
+Line 80:   if (UNLIKELY (ret < 0))
+Line 81:     return ret;
+Line 82: 
+Line 83:   *dirfd = open (cgroup_path, O_CLOEXEC | O_NOFOLLOW | O_DIRECTORY | O_RDONLY);
+Line 84:   if (UNLIKELY (*dirfd < 0))
+Line 85:     return crun_make_error (err, errno, "open `%s`", cgroup_path);
+Line 86: 
+Line 87:   return 0;
+Line 88: }
+Line 89: 
+Line 90: static int
+Line 91: libcrun_cgroup_enter_cgroupfs (struct libcrun_cgroup_args *args, struct libcrun_cgroup_status *out, libcrun_error_t *err)
+Line 92: {
+Line 93:   pid_t pid = args->pid;
+Line 94:   int cgroup_mode;
+Line 95: 
+Line 96:   /* The cgroup was already joined, nothing more left to do.  */
+Line 97:   if (args->joined)
+Line 98:     return 0;
+Line 99: 
+Line 100:   cgroup_mode = libcrun_get_cgroup_mode (err);
+Line 101:   if (UNLIKELY (cgroup_mode < 0))
+Line 102:     return cgroup_mode;
+Line 103: 
+Line 104:   out->path = make_cgroup_path (args->cgroup_path, args->id);
+Line 105: 
+Line 106:   if (cgroup_mode == CGROUP_MODE_UNIFIED)
+Line 107:     {
+Line 108:       int ret;
+Line 109: 
+Line 110:       ret = enable_controllers (out->path, err);
+L
+
+Lines 90 to 180 from file: src/libcrun/cgroup-cgroupfs.c
+Command read_range returned: Line 90: static int
+Line 91: libcrun_cgroup_enter_cgroupfs (struct libcrun_cgroup_args *args, struct libcrun_cgroup_status *out, libcrun_error_t *err)
+Line 92: {
+Line 93:   pid_t pid = args->pid;
+Line 94:   int cgroup_mode;
+Line 95: 
+Line 96:   /* The cgroup was already joined, nothing more left to do.  */
+Line 97:   if (args->joined)
+Line 98:     return 0;
+Line 99: 
+Line 100:   cgroup_mode = libcrun_get_cgroup_mode (err);
+Line 101:   if (UNLIKELY (cgroup_mode < 0))
+Line 102:     return cgroup_mode;
+Line 103: 
+Line 104:   out->path = make_cgroup_path (args->cgroup_path, args->id);
+Line 105: 
+Line 106:   if (cgroup_mode == CGROUP_MODE_UNIFIED)
+Line 107:     {
+Line 108:       int ret;
+Line 109: 
+Line 110:       ret = enable_controllers (out->path, err);
+Line 111:       if (UNLIKELY (ret < 0))
+Line 112:         return ret;
+Line 113:     }
+Line 114: 
+Line 115:   return enter_cgroup (cgroup_mode, pid, 0, out->path, true, err);
+Line 116: }
+Line 117: 
+Line 118: static int
+Line 119: libcrun_destroy_cgroup_cgroupfs (struct libcrun_cgroup_status *cgroup_status,
+Line 120:                                  libcrun_error_t *err)
+Line 121: {
+Line 122:   int mode;
+Line 123:   int ret;
+Line 124: 
+Line 125:   mode = libcrun_get_cgroup_mode (err);
+Line 126:   if (UNLIKELY (mode < 0))
+Line 127:     return mode;
+Line 128: 
+Line 129:   ret = cgroup_killall_path (cgroup_status->path, SIGKILL, err);
+Line 130:   if (UNLIKELY (ret < 0))
+Line 131:     crun_error_release (err);
+Line 132: 
+Line 133:   return destroy_cgroup_path (cgroup_status->path, mode, err);
+Line 134: }
+Line 135: 
+Line 136: struct libcrun_cgroup_manager cgroup_manager_cgroupfs = {
+Line 137:   .precreate_cgroup = libcrun_precreate_cgroup_cgroupfs,
+Line 138:   .create_cgroup = libcrun_cgroup_enter_cgroupfs,
+Line 139:   .destroy_cgroup = libcrun_destroy_cgroup_cgroupfs,
+Line 140: };
+EOF
+
+Lines 650 to 850 from file: src/libcrun/cgroup-utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 650: {
+Line 651:   int ret;
+Line 652:   size_t i;
+Line 653:   cleanup_free pid_t *pids = NULL;
+Line 654: 
+Line 655:   if (path == NULL || *path == '\0')
+Line 656:     return 0;
+Line 657: 
+Line 658:   /* If the signal is SIGKILL, try to kill each process using the `cgroup.kill` file.  */
+Line 659:   if (signal == SIGKILL)
+Line 660:     {
+Line 661:       cleanup_free char *kill_file = NULL;
+Line 662: 
+Line 663:       ret = append_paths (&kill_file, err, CGROUP_ROOT, path, "cgroup.kill", NULL);
+Line 664:       if (UNLIKELY (ret < 0))
+Line 665:         return ret;
+Line 666: 
+Line 667:       ret = write_file_with_flags (kill_file, 0, "1", 1, err);
+Line 668:       if (ret >= 0)
+Line 669:         return 0;
+Line 670: 
+Line 671:       crun_error_release (err);
+Line 672:     }
+Line 673: 
+Line 674:   ret = libcrun_cgroup_pause_unpause_path (path, true, err);
+Line 675:   if (UNLIKELY (ret < 0))
+Line 676:     crun_error_release (err);
+Line 677: 
+Line 678:   ret = libcrun_cgroup_read_pids_from_path (path, true, &pids, err);
+Line 679:   if (UNLIKELY (ret < 0))
+Line 680:     {
+Line 681:       if (crun_error_get_errno (err) != ENOENT)
+Line 682:         return ret;
+Line 683: 
+Line 684:       /* If the file doesn't exist then the container was already killed.  */
+Line 685:       crun_error_release (err);
+Line 686:     }
+Line 687: 
+Line 688:   for (i = 0; pids && pids[i]; i++)
+Line 689:     {
+Line 690:       ret = kill (pids[i], signal);
+Line 691:       if (UNLIKELY (ret < 0 && errno != ESRCH))
+Line 692:         return crun_make_error (err, errno, "kill process %d", pids[i]);
+Line 693:     }
+Line 694: 
+Line 695:   ret = libcrun_cgroup_pause_unpause_path (path, false, err);
+Line 696:   if (UNLIKELY (ret < 0))
+Line 697:     crun_error_release (err);
+Line 698: 
+Line 699:   return 0;
+Line 700: }
+Line 701: 
+Line 702: static int
+Line 703: read_available_controllers (const char *path, libcrun_error_t *err)
+Line 704: {
+Line 705:   cleanup_free char *controllers = NULL;
+Line 706:   cleanup_free char *buf = NULL;
+Line 707:   char *saveptr = NULL;
+Line 708:   const char *token;
+Line 709:   int available = 0;
+Line 710:   ssize_t ret;
+Line 711: 
+Line 712:   ret = append_paths (&controllers, err, CGROUP_ROOT, path, "cgroup.controllers", NULL);
+Line 713:   if (UNLIKELY (ret < 0))
+Line 714:     return ret;
+Line 715: 
+Line 716:   ret = read_all_file (controllers, &buf, NULL, err);
+Line 717:   if (UNLIKELY (ret < 0))
+Line 718:     return crun_make_error (err, errno, "error reading from file `%s`", controllers);
+Line 719: 
+Line 720:   for (token = strtok_r (buf, " \n", &saveptr); token; token = strtok_r (NULL, " \n", &saveptr))
+Line 721:     {
+Line 722:       if (strcmp (token, "memory") == 0)
+Line 723:         available |= CGROUP_MEMORY;
+Line 724:       else if (strcmp (token, "cpu") == 0)
+Line 725:         available |= CGROUP_CPU;
+Line 726:       else if (strcmp (token, "cpuset") == 0)
+Line 727:         available |= CGROUP_CPUSET;
+Line 728:       else if (strcmp (token, "hugetlb") == 0)
+Line 729:         available |= CGROUP_HUGETLB;
+Line 730:       else if (strcmp (token, "pids") == 0)
+Line 731:         available |= CGROUP_PIDS;
+Line 732:       else if (strcmp (token, "io") == 0)
+Line 733:         available |= CGROUP_IO;
+Line 734:     }
+Line 735:   return available;
+Line 736: }
+Line 737: 
+Line 738: static int
+Line 739: write_controller_file (const char *path, int controllers_to_enable, libcrun_error_t *err)
+Line 740: {
+Line 741:   cleanup_free char *subtree_control = NULL;
+Line 742:   cleanup_free char *controllers = NULL;
+Line 743:   size_t controllers_len = 0;
+Line 744:   int ret;
+Line 745: 
+Line 746:   controllers_len = xasprintf (
+Line 747:       &controllers, "%s %s %s %s %s %s", (controllers_to_enable & CGROUP_CPU) ? "+cpu" : "",
+Line 748:       (controllers_to_enable & CGROUP_IO) ? "+io" : "", (controllers_to_enable & CGROUP_MEMORY) ? "+memory" : "",
+Line 749:       (controllers_to_enable & CGROUP_PIDS) ? "+pids" : "", (controllers_to_enable & CGROUP_
+
+Lines 738 to 840 from file: src/libcrun/cgroup-utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 738: static int
+Line 739: write_controller_file (const char *path, int controllers_to_enable, libcrun_error_t *err)
+Line 740: {
+Line 741:   cleanup_free char *subtree_control = NULL;
+Line 742:   cleanup_free char *controllers = NULL;
+Line 743:   size_t controllers_len = 0;
+Line 744:   int ret;
+Line 745: 
+Line 746:   controllers_len = xasprintf (
+Line 747:       &controllers, "%s %s %s %s %s %s", (controllers_to_enable & CGROUP_CPU) ? "+cpu" : "",
+Line 748:       (controllers_to_enable & CGROUP_IO) ? "+io" : "", (controllers_to_enable & CGROUP_MEMORY) ? "+memory" : "",
+Line 749:       (controllers_to_enable & CGROUP_PIDS) ? "+pids" : "", (controllers_to_enable & CGROUP_CPUSET) ? "+cpuset" : "",
+Line 750:       (controllers_to_enable & CGROUP_HUGETLB) ? "+hugetlb" : "");
+Line 751: 
+Line 752:   ret = append_paths (&subtree_control, err, CGROUP_ROOT, path, "cgroup.subtree_control", NULL);
+Line 753:   if (UNLIKELY (ret < 0))
+Line 754:     return ret;
+Line 755:   ret = write_file (subtree_control, controllers, controllers_len, err);
+Line 756:   if (UNLIKELY (ret < 0))
+Line 757:     {
+Line 758:       cleanup_free char *controllers_copy = xmalloc (controllers_len + 1);
+Line 759:       int attempts_left;
+Line 760:       char *saveptr = NULL;
+Line 761:       const char *token;
+Line 762:       int e;
+Line 763: 
+Line 764:       e = crun_error_get_errno (err);
+Line 765:       if (e != EPERM && e != EACCES && e != EBUSY && e != ENOENT && e != EOPNOTSUPP)
+Line 766:         return ret;
+Line 767: 
+Line 768:       /* ENOENT can mean both that the file doesn't exist or the controller is not present.  */
+Line 769:       if (e == ENOENT)
+Line 770:         {
+Line 771:           libcrun_error_t tmp_err = NULL;
+Line 772:           int exists;
+Line 773: 
+Line 774:           exists = crun_path_exists (subtree_control, &tmp_err);
+Line 775:           if (UNLIKELY (exists < 0))
+Line 776:             {
+Line 777:               crun_error_release (&tmp_err);
+Line 778:               return ret;
+Line 779:             }
+Line 780:           /* If the file doesn't exist, then return the original ENOENT.  */
+Line 781:           if (exists == 0)
+Line 782:             return ret;
+Line 783:         }
+Line 784: 
+Line 785:       crun_error_release (err);
+Line 786: 
+Line 787:       /* It seems the kernel can return EBUSY when a process was moved to a sub-cgroup
+Line 788:          and the controllers are enabled in its parent cgroup.  Retry a few times when
+Line 789:          it happens.  */
+Line 790:       for (attempts_left = 1000; attempts_left >= 0; attempts_left--)
+Line 791:         {
+Line 792:           int controllers_written;
+Line 793:           bool repeat = false;
+Line 794: 
+Line 795:           memcpy (controllers_copy, controllers, controllers_len);
+Line 796:           controllers_copy[controllers_len] = '\0';
+Line 797:           controllers_written = 0;
+Line 798: 
+Line 799:           /* Fallback to write each one individually.  */
+Line 800:           for (token = strtok_r (controllers_copy, " ", &saveptr); token; token = strtok_r (NULL, " ", &saveptr))
+Line 801:             {
+Line 802:               ret = write_file (subtree_control, token, strlen (token), err);
+Line 803:               if (ret < 0)
+Line 804:                 {
+Line 805:                   e = crun_error_get_errno (err);
+Line 806:                   crun_error_release (err);
+Line 807: 
+Line 808:                   if (e == EBUSY)
+Line 809:                     repeat = true;
+Line 810:                   else if (e == EOPNOTSUPP)
+Line 811:                     {
+Line 812:                       ret = make_cgroup_threaded (path, err);
+Line 813:                       if (UNLIKELY (ret < 0))
+Line 814:                         return ret;
+Line 815: 
+Line 816:                       repeat = true;
+Line 817:                     }
+Line 818: 
+Line 819:                   continue;
+Line 820:                 }
+Line 821: 
+Line 822:               controllers_written++;
+Line 823:             }
+Line 824: 
+Line 825
+
+
+## The list of implementations of some methods in the code base:
+Command extract_method_code returned: Symbol not found in src/libcrun/cgroup-setup.c: enable_controllers
+
+## Executed search queries within the code base:
+Searching keywords: enable_controllers, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [e, n, a, e, o, n, t, r, o, e, r] /* autogenerated.  */
+git-version.h:2: [e, n, e, _, o, n, t, r, o, e, r, s] #ifndef GIT_VERSION
+git-version.h:3: [e, n, a, b, e, _, c, o, n, t, r, o, e, r, s] # define GIT_VERSION "258c237f59473e17130295a7c05f679fc93b0aa9"
+git-version.h:4: [e, n, e, n, e] #endif
+config.h:1: [e, n, a, b, e, c, o, n, t, r, o, e, r] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [e, n, a, b, e, c, o, n, t, r, o, e, r] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [e, n, a, b, l, e, c, o, n, t, r, o, l, l, e, r, s] /* Define if CRIU join NS support is available */
+config.h:5: [e, n, e, _, c, o, n, t, r, o, e, r, s] /* #undef CRIU_JOIN_NS_SUPPORT */
+config.h:7: [e, n, a, b, l, e, c, o, n, t, r, o, l, l, e, r, s] /* Define if CRIU pre-dump support is available */
+config.h:8: [e, n, e, _, c, o, n, t, r, o, e, r, s] /* #undef CRIU_PRE_DUMP_SUPPORT */
+config.h:10: [e, n, a, b, l, e, n, r, l, l, e, r, s] /* Define if shared libraries are enabled */
+config.h:11: [e, n, a, b, l, e, _, c, o, n, r, o, l, l, e, r] /* #undef DYNLOAD_LIBCRUN */
+config.h:13: [e, n, a, b, l, e, c, n, l, l, e, s] /* Define if libcap is available */
+config.h:14: [e, n, a, e, _, c, n, e] #define HAVE_CAP 1
+config.h:16: [e, n, a, l, e, _, c, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:17: [e, n, a, l, e, _, c, o, n, r, o, l, l, e, r] #define HAVE_COPY_FILE_RANGE 1
+config.h:19: [e, n, a, b, l, e, c, n, r, l, l, e, r, s] /* Define if CRIU is available */
+config.h:20: [e, n, a, e, _, c, n, r, e, r] /* #undef HAVE_CRIU */
+config.h:22: [e, n, a, l, e, c, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:23: [e, n, a, l, e, _, c, n, l, l, e] #define HAVE_DLFCN_H 1
+config.h:25: [e, n, a, b, l, e, o, n, o, l, l, e, s] /* Define if DLOPEN is available */
+config.h:26: [e, n, a, l, e, _, o, n, o, l, l, e] #define HAVE_DLOPEN 1
+config.h:28: [e, n, a, b, l, e, n, l, l, e, s] /* Define if eBPF is available */
+config.h:29: [e, n, a, b, e, _, n, e] #define HAVE_EBPF 1
+config.h:31: [e, n, a, l, e, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <error.h> header file. */
+config.h:32: [e, n, a, e, _, o, n, r, o, e, r] #define HAVE_ERROR_H 1
+config.h:34: [e, n, a, e, _, c, o, n, t, r, o, e, r] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:35: [e, n, a, e, _, n, t, r, e, r] #define HAVE_FGETPWENT_R 1
+config.h:37: [e, n, a, e, c, o, n, t, r, o, e, r] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:38: [e, n, a, e, _, n, t, r, e, r] #define HAVE_FGETXATTR 1
+config.h:40: [e, n, a, b, l, e, _, c, o, n, t, r, o, l, l, e, r, s] /* Define if FSCONFIG_CMD_CREATE is available in linux/mount.h */
+config.h:41: [e, n, a, l, e, _, c, o, n, t, r, o, l, l, e, r, s] #define HAVE_FSCONFIG_CMD_CREATE_LINUX_MOUNT_H 1
+config.h:43: [e, n, a, b, l, e, _, c, o, n, t, r, o, l, l, e, r, s] /* Define if FSCONFIG_CMD_CREATE is available in sys/mount.h */
+config.h:44: [e, n, a, e, _, c, o, n, t, r, o, e, r, s] #define HAVE_FSCONFIG_CMD_CREATE_SYS_MOUNT_H 1
+config.h:46: [e, n, a, b, l, e, c, n, t, r, l, l, e, r, s] /* Define if gcrypt is available */
+config.h:47: [e, n, a, e, _, c, n, t, r, e, r] /* #undef HAVE_GCRYPT */
+config.h:49: [e, n, a, l, e, o, n, t, r, o, l, l, e, r, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:50: [e, n, a, e, _, n, t, e, s] #define HAVE_INTTYPES_H 1
+config.h:52: [e, n, a, e, c, o, n, t, o, e, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:53: [e, n, a, e, _, n, t, e, s] /* #undef HAVE_ISSETUGID */
+config.h:55: [e, n, a, b, l, e, n, r, l, l, e, r, s] /* Define if libkrun is available */
+config.h:56: [e, n, a, b, l, e, _, n, r, l, l, e, r] /* #undef HAVE_LIBKRUN */
+config.h:58: [e, n, a, b, l, e, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <libkrun.h> header file. */
+config.h:59: [e, n, a, b, l, e, _
+
+Searching keywords: enable_controllers (, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [e, n, a, e, o, n, t, r, o, e, r] /* autogenerated.  */
+git-version.h:2: [e, n, e, _, o, n, t, r, o, e, r, s] #ifndef GIT_VERSION
+git-version.h:3: [e, n, a, b, e, _, c, o, n, t, r, o, e, r, s] # define GIT_VERSION "258c237f59473e17130295a7c05f679fc93b0aa9"
+git-version.h:4: [e, n, e, n, e] #endif
+config.h:1: [e, n, a, b, e, c, o, n, t, r, o, e, r] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [e, n, a, b, e, c, o, n, t, r, o, e, r] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [e, n, a, b, l, e, c, o, n, t, r, o, l, l, e, r, s] /* Define if CRIU join NS support is available */
+config.h:5: [e, n, e, _, c, o, n, t, r, o, e, r, s] /* #undef CRIU_JOIN_NS_SUPPORT */
+config.h:7: [e, n, a, b, l, e, c, o, n, t, r, o, l, l, e, r, s] /* Define if CRIU pre-dump support is available */
+config.h:8: [e, n, e, _, c, o, n, t, r, o, e, r, s] /* #undef CRIU_PRE_DUMP_SUPPORT */
+config.h:10: [e, n, a, b, l, e, n, r, l, l, e, r, s] /* Define if shared libraries are enabled */
+config.h:11: [e, n, a, b, l, e, _, c, o, n, r, o, l, l, e, r] /* #undef DYNLOAD_LIBCRUN */
+config.h:13: [e, n, a, b, l, e, c, n, l, l, e, s] /* Define if libcap is available */
+config.h:14: [e, n, a, e, _, c, n, e] #define HAVE_CAP 1
+config.h:16: [e, n, a, l, e, _, c, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:17: [e, n, a, l, e, _, c, o, n, r, o, l, l, e, r] #define HAVE_COPY_FILE_RANGE 1
+config.h:19: [e, n, a, b, l, e, c, n, r, l, l, e, r, s] /* Define if CRIU is available */
+config.h:20: [e, n, a, e, _, c, n, r, e, r] /* #undef HAVE_CRIU */
+config.h:22: [e, n, a, l, e, c, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:23: [e, n, a, l, e, _, c, n, l, l, e] #define HAVE_DLFCN_H 1
+config.h:25: [e, n, a, b, l, e, o, n, o, l, l, e, s] /* Define if DLOPEN is available */
+config.h:26: [e, n, a, l, e, _, o, n, o, l, l, e] #define HAVE_DLOPEN 1
+config.h:28: [e, n, a, b, l, e, n, l, l, e, s] /* Define if eBPF is available */
+config.h:29: [e, n, a, b, e, _, n, e] #define HAVE_EBPF 1
+config.h:31: [e, n, a, l, e, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <error.h> header file. */
+config.h:32: [e, n, a, e, _, o, n, r, o, e, r] #define HAVE_ERROR_H 1
+config.h:34: [e, n, a, e, _, c, o, n, t, r, o, e, r] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:35: [e, n, a, e, _, n, t, r, e, r] #define HAVE_FGETPWENT_R 1
+config.h:37: [e, n, a, e, c, o, n, t, r, o, e, r] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:38: [e, n, a, e, _, n, t, r, e, r] #define HAVE_FGETXATTR 1
+config.h:40: [e, n, a, b, l, e, _, c, o, n, t, r, o, l, l, e, r, s] /* Define if FSCONFIG_CMD_CREATE is available in linux/mount.h */
+config.h:41: [e, n, a, l, e, _, c, o, n, t, r, o, l, l, e, r, s] #define HAVE_FSCONFIG_CMD_CREATE_LINUX_MOUNT_H 1
+config.h:43: [e, n, a, b, l, e, _, c, o, n, t, r, o, l, l, e, r, s] /* Define if FSCONFIG_CMD_CREATE is available in sys/mount.h */
+config.h:44: [e, n, a, e, _, c, o, n, t, r, o, e, r, s] #define HAVE_FSCONFIG_CMD_CREATE_SYS_MOUNT_H 1
+config.h:46: [e, n, a, b, l, e, c, n, t, r, l, l, e, r, s] /* Define if gcrypt is available */
+config.h:47: [e, n, a, e, _, c, n, t, r, e, r] /* #undef HAVE_GCRYPT */
+config.h:49: [e, n, a, l, e, o, n, t, r, o, l, l, e, r, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:50: [e, n, a, e, _, n, t, e, s] #define HAVE_INTTYPES_H 1
+config.h:52: [e, n, a, e, c, o, n, t, o, e, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:53: [e, n, a, e, _, n, t, e, s] /* #undef HAVE_ISSETUGID */
+config.h:55: [e, n, a, b, l, e, n, r, l, l, e, r, s] /* Define if libkrun is available */
+config.h:56: [e, n, a, b, l, e, _, n, r, l, l, e, r] /* #undef HAVE_LIBKRUN */
+config.h:58: [e, n, a, b, l, e, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <libkrun.h> header file. */
+config.h:59: [e, n, a, b, l, e, _
+
+Searching keywords: cgroup.subtree_control, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [g, r, o, u, ., u, t, r, e, e, o, n, t, r, o] /* autogenerated.  */
+git-version.h:2: [g, r, o, s, t, r, e, e, _, o, n, t, r, o] #ifndef GIT_VERSION
+git-version.h:3: [c, g, r, o, s, b, t, r, e, e, _, c, o, n, t, r, o] # define GIT_VERSION "258c237f59473e17130295a7c05f679fc93b0aa9"
+git-version.h:4: [e, e, n] #endif
+config.h:1: [c, g, r, o, u, ., u, b, t, r, e, e, c, o, n, t, r, o] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [c, g, r, o, u, ., u, b, t, r, e, e, c, o, n, t, r, o] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [c, r, o, u, p, s, u, b, t, r, e, e, c, o, n, t, r, o, l] /* Define if CRIU join NS support is available */
+config.h:5: [c, r, o, u, p, s, u, t, r, e, e, _, c, o, n, t, r, o] /* #undef CRIU_JOIN_NS_SUPPORT */
+config.h:7: [c, r, o, u, p, s, u, b, t, r, e, e, c, o, n, t, r, o, l] /* Define if CRIU pre-dump support is available */
+config.h:8: [c, r, o, u, p, s, u, t, r, e, e, _, c, o, n, t, r, o] /* #undef CRIU_PRE_DUMP_SUPPORT */
+config.h:10: [r, s, b, r, e, e, n, r, l] /* Define if shared libraries are enabled */
+config.h:11: [c, r, o, u, u, b, r, e, e, _, c, o, n, r, o, l] /* #undef DYNLOAD_LIBCRUN */
+config.h:13: [c, p, s, b, e, e, c, n, l] /* Define if libcap is available */
+config.h:14: [c, p, e, e, _, c, n] #define HAVE_CAP 1
+config.h:16: [c, g, r, o, u, p, ., u, t, r, e, e, _, c, o, n, t, r, o, l] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:17: [c, g, r, o, p, r, e, e, _, c, o, n, r, o, l] #define HAVE_COPY_FILE_RANGE 1
+config.h:19: [c, r, u, s, u, b, r, e, e, c, n, r, l] /* Define if CRIU is available */
+config.h:20: [c, r, u, u, r, e, e, _, c, n, r] /* #undef HAVE_CRIU */
+config.h:22: [c, r, o, u, ., u, t, r, e, e, c, o, n, t, r, o, l] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:23: [c, e, e, _, c, n, l] #define HAVE_DLFCN_H 1
+config.h:25: [o, p, s, b, e, e, o, n, o, l] /* Define if DLOPEN is available */
+config.h:26: [o, p, e, e, _, o, n, o, l] #define HAVE_DLOPEN 1
+config.h:28: [p, s, b, e, e, n, l] /* Define if eBPF is available */
+config.h:29: [p, b, e, e, _, n] #define HAVE_EBPF 1
+config.h:31: [r, o, u, ., u, t, r, e, e, o, n, t, r, o, l] /* Define to 1 if you have the <error.h> header file. */
+config.h:32: [r, o, r, e, e, _, o, n, r, o] #define HAVE_ERROR_H 1
+config.h:34: [c, g, r, o, u, p, ., u, t, r, e, e, _, c, o, n, t, r, o] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:35: [g, r, p, t, r, e, e, _, n, t, r] #define HAVE_FGETPWENT_R 1
+config.h:37: [c, g, r, o, u, ., u, t, r, e, e, c, o, n, t, r, o] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:38: [g, r, t, r, e, e, _, n, t, r] #define HAVE_FGETXATTR 1
+config.h:40: [c, g, r, o, u, ., s, u, b, t, r, e, e, _, c, o, n, t, r, o, l] /* Define if FSCONFIG_CMD_CREATE is available in linux/mount.h */
+config.h:41: [c, g, r, o, u, s, u, t, r, e, e, _, c, o, n, t, r, o, l] #define HAVE_FSCONFIG_CMD_CREATE_LINUX_MOUNT_H 1
+config.h:43: [c, g, r, o, u, ., s, u, b, t, r, e, e, _, c, o, n, t, r, o, l] /* Define if FSCONFIG_CMD_CREATE is available in sys/mount.h */
+config.h:44: [c, g, r, o, u, s, u, t, r, e, e, _, c, o, n, t, r, o] #define HAVE_FSCONFIG_CMD_CREATE_SYS_MOUNT_H 1
+config.h:46: [c, g, r, p, s, b, t, r, e, e, c, n, t, r, l] /* Define if gcrypt is available */
+config.h:47: [c, g, r, u, p, u, t, r, e, e, _, c, n, t, r] /* #undef HAVE_GCRYPT */
+config.h:49: [r, o, u, p, ., s, u, t, r, e, e, o, n, t, r, o, l] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:50: [p, s, t, e, e, _, n, t] #define HAVE_INTTYPES_H 1
+config.h:52: [c, g, o, u, ., s, u, t, e, e, c, o, n, t, o] /* Define to 1 if you have the `issetugid' function. */
+config.h:53: [g, u, s, u, t, e, e, _, n, t] /* #undef HAVE_ISSETUGID */
+config.h:55: [r, u, s, u, b, r, e, e, n, r, l] /* Define if libkrun is available */
+config.h:56: [r, u, u, b, r, e, e, _, n, r, l] /* #undef HAVE_LIBKRUN */
+config.h:58: [r, o, u, .,
+
+Searching keywords: int enable_controllers, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [n, t, e, n, a, e, o, n, t, r, o, e, r] /* autogenerated.  */
+git-version.h:2: [i, n, t, e, n, e, _, o, n, t, r, o, e, r, s] #ifndef GIT_VERSION
+git-version.h:3: [i, n, t, e, n, a, b, e, _, c, o, n, t, r, o, e, r, s] # define GIT_VERSION "258c237f59473e17130295a7c05f679fc93b0aa9"
+git-version.h:4: [i, n, e, n, e, n, e] #endif
+config.h:1: [i, n, t, e, n, a, b, e, c, o, n, t, r, o, e, r] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [i, n, t, e, n, a, b, e, c, o, n, t, r, o, e, r] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [i, n, t, e, n, a, b, l, e, c, o, n, t, r, o, l, l, e, r, s] /* Define if CRIU join NS support is available */
+config.h:5: [i, n, t, e, n, e, _, c, o, n, t, r, o, e, r, s] /* #undef CRIU_JOIN_NS_SUPPORT */
+config.h:7: [i, n, t, e, n, a, b, l, e, c, o, n, t, r, o, l, l, e, r, s] /* Define if CRIU pre-dump support is available */
+config.h:8: [i, n, t, e, n, e, _, c, o, n, t, r, o, e, r, s] /* #undef CRIU_PRE_DUMP_SUPPORT */
+config.h:10: [i, n, e, n, a, b, l, e, n, r, l, l, e, r, s] /* Define if shared libraries are enabled */
+config.h:11: [i, n, e, n, a, b, l, e, _, c, o, n, r, o, l, l, e, r] /* #undef DYNLOAD_LIBCRUN */
+config.h:13: [i, n, e, n, a, b, l, e, c, n, l, l, e, s] /* Define if libcap is available */
+config.h:14: [i, n, e, n, a, e, _, c, n, e] #define HAVE_CAP 1
+config.h:16: [i, n, t, e, n, a, l, e, _, c, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:17: [i, n, e, n, a, l, e, _, c, o, n, r, o, l, l, e, r] #define HAVE_COPY_FILE_RANGE 1
+config.h:19: [i, n, e, n, a, b, l, e, c, n, r, l, l, e, r, s] /* Define if CRIU is available */
+config.h:20: [i, n, e, n, a, e, _, c, n, r, e, r] /* #undef HAVE_CRIU */
+config.h:22: [i, n, t, e, n, a, l, e, c, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:23: [i, n, e, n, a, l, e, _, c, n, l, l, e] #define HAVE_DLFCN_H 1
+config.h:25: [i, n, e, n, a, b, l, e, o, n, o, l, l, e, s] /* Define if DLOPEN is available */
+config.h:26: [i, n, e, n, a, l, e, _, o, n, o, l, l, e] #define HAVE_DLOPEN 1
+config.h:28: [i, n, e, n, a, b, l, e, n, l, l, e, s] /* Define if eBPF is available */
+config.h:29: [i, n, e, n, a, b, e, _, n, e] #define HAVE_EBPF 1
+config.h:31: [i, n, t, e, n, a, l, e, o, n, t, r, o, l, l, e, r] /* Define to 1 if you have the <error.h> header file. */
+config.h:32: [i, n, e, n, a, e, _, o, n, r, o, e, r] #define HAVE_ERROR_H 1
+config.h:34: [i, n, t, e, n, a, e, _, c, o, n, t, r, o, e, r] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:35: [i, n, t, e, n, a, e, _, n, t, r, e, r] #define HAVE_FGETPWENT_R 1
+config.h:37: [i, n, t, e, n, a, e, c, o, n, t, r, o, e, r] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:38: [i, n, t, e, n, a, e, _, n, t, r, e, r] #define HAVE_FGETXATTR 1
+config.h:40: [i, n, t, e, n, a, b, l, e, _, c, o, n, t, r, o, l, l, e, r, s] /* Define if FSCONFIG_CMD_CREATE is available in linux/mount.h */
+config.h:41: [i, n, t, e, n, a, l, e, _, c, o, n, t, r, o, l, l, e, r, s] #define HAVE_FSCONFIG_CMD_CREATE_LINUX_MOUNT_H 1
+config.h:43: [i, n, t, e, n, a, b, l, e, _, c, o, n, t, r, o, l, l, e, r, s] /* Define if FSCONFIG_CMD_CREATE is available in sys/mount.h */
+config.h:44: [i, n, t, e, n, a, e, _, c, o, n, t, r, o, e, r, s] #define HAVE_FSCONFIG_CMD_CREATE_SYS_MOUNT_H 1
+config.h:46: [i, n, t, e, n, a, b, l, e, c, n, t, r, l, l, e, r, s] /* Define if gcrypt is available */
+config.h:47: [n, t, e, n, a, e, _, c, n, t, r, e, r] /* #undef HAVE_GCRYPT */
+config.h:49: [i, n, t, e, n, a, l, e, o, n, t, r, o, l, l, e, r, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:50: [i, n, t, e, n, a, e, _, n, t, e, s] #define HAVE_INTTYPES_H 1
+config.h:52: [i, n, t, e, n, a, e, c, o, n, t, o, e, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:53: [i, n, t, e, n, a, e, _, n, t, e, s] /* #undef HAVE_ISSETUGID */
+config.h
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case crun-1083.
+
+Target runtime: crun
+Title: runc incompatibility wrt. cgroup memory limits
+Upstream issue: https://github.com/containers/crun/issues/1083
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-1083
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-1083
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-1083
+Upstream URL: https://github.com/containers/crun/issues/1083
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo memory-limit-1083; cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || cat /sys/fs/cgroup/memory.max 2>/dev/null || true"]; linux.resources.memory: {"limit": 67108864, "swap": 134217728}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+The buggy crun build prints max for the memory limit, while runc and fixed crun print 67108864 for the configured 64 MiB limit.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-1083
+
+## Upstream Issue Summary
+- Title: runc incompatibility wrt. cgroup memory limits
+- URL: https://github.com/containers/crun/issues/1083
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Local dataset notes identify `crun version 1.7.1.0.0.0.6-258c` as the buggy build and `crun version 1.27.1.0.0.0.29-856f4` as fixed. Git log also matched `3880f04675f5` (`cgroup: always enable controller`); parent `258c237f5947` is the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-1083`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo memory-limit-1083; cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || cat /sys/fs/cgroup/memory.max 2>/dev/null || true"]; linux.resources.memory: {"limit": 67108864, "swap": 134217728}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: The buggy crun build prints max for the memory limit, while runc and fixed crun print 67108864 for the configured 64 MiB limit.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17 in the Docker Desktop/WSL2 validation environment. All three runtimes printed `67108864` for the configured memory limit. Reproducing the historical failure appears to require the affected pre-fix crun build or a host cgroup setup that exposes the old `max` behavior.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

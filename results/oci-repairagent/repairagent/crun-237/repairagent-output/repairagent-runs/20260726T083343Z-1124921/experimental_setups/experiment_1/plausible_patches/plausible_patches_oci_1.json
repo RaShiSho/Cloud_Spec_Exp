@@ -1,0 +1,75 @@
+[
+  {
+    "source": "write_fix",
+    "patch": [
+      {
+        "file_name": "src/libcrun/linux.c",
+        "insertions": [
+          {
+            "line_number": 49,
+            "new_lines": [
+              "#include <net/if.h>",
+              "#include <sys/ioctl.h>"
+            ]
+          },
+          {
+            "line_number": 2220,
+            "new_lines": [
+              "static int",
+              "set_loopback_up (libcrun_container_t *container, libcrun_error_t *err)",
+              "{",
+              "  struct ifreq ifr;",
+              "  cleanup_close int fd = -1;",
+              "  int ret;",
+              "",
+              "  /* Bring up loopback for freshly-created network namespaces.  Linux",
+              "     creates lo in a new netns as DOWN, so network=none containers would",
+              "     otherwise lose expected 127.0.0.1/loopback behavior.  */",
+              "  if ((get_private_data (container)->unshare_flags & CLONE_NEWNET) == 0)",
+              "    return 0;",
+              "",
+              "  fd = socket (AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);",
+              "  if (UNLIKELY (fd < 0))",
+              "    return crun_make_error (err, errno, \"open socket to configure loopback\");",
+              "",
+              "  memset (&ifr, 0, sizeof (ifr));",
+              "  strcpy (ifr.ifr_name, \"lo\");",
+              "",
+              "  ret = ioctl (fd, SIOCGIFFLAGS, &ifr);",
+              "  if (UNLIKELY (ret < 0))",
+              "    return crun_make_error (err, errno, \"get loopback interface flags\");",
+              "",
+              "  if ((ifr.ifr_flags & IFF_UP) == 0)",
+              "    {",
+              "      ifr.ifr_flags |= IFF_UP;",
+              "      ret = ioctl (fd, SIOCSIFFLAGS, &ifr);",
+              "      if (UNLIKELY (ret < 0))",
+              "        return crun_make_error (err, errno, \"set loopback interface up\");",
+              "    }",
+              "",
+              "  return 0;",
+              "}",
+              ""
+            ]
+          },
+          {
+            "line_number": 2226,
+            "new_lines": [
+              "  int ret;",
+              "",
+              "  /* Ensure a newly-created network namespace has a usable loopback",
+              "     interface before applying sysctls or starting the container process.  */",
+              "  ret = set_loopback_up (container, err);",
+              "  if (UNLIKELY (ret < 0))",
+              "    return ret;"
+            ]
+          }
+        ],
+        "deletions": [
+          2238
+        ],
+        "modifications": []
+      }
+    ]
+  }
+]

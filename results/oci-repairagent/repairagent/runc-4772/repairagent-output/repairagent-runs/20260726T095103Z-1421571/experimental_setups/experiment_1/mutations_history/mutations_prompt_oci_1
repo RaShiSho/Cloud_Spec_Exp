@@ -1,0 +1,784 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-4772.
+
+Target runtime: runc
+Title: Conversion of cgroup v1 CPU shares to v2 CPU weight causes workloads to have low CPU priority
+Upstream issue: https://github.com/opencontainers/runc/issues/4772
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4772
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4772
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4772
+Upstream URL: https://github.com/opencontainers/runc/issues/4772
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "printf \"cpu.weight=\"; cat /sys/fs/cgroup/cpu.weight 2>/dev/null || { echo cgroup-v2-required; exit 42; }"]; linux.resources.cpu: {"shares": 1024}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+On cgroup v2, affected runc 1.2.4 maps cpu.shares=1024 to cpu.weight=39. Fixed behavior maps it to cpu.weight=100. A cgroup-v2-required marker means the host is unsuitable.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4772
+
+## Upstream Issue Summary
+- Title: Conversion of cgroup v1 CPU shares to v2 CPU weight causes workloads to have low CPU priority
+- URL: https://github.com/opencontainers/runc/issues/4772
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names `runc 1.2.4` as affected: CPU shares 1024 is translated to cpu.weight 39 instead of 100. Git log matched the cgroups dependency bump `da9094784878`; parent `f24aa06ef6ac` is the pre-fix baseline for that dependency update.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4772`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "printf \"cpu.weight=\"; cat /sys/fs/cgroup/cpu.weight 2>/dev/null || { echo cgroup-v2-required; exit 42; }"]; linux.resources.cpu: {"shares": 1024}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: On cgroup v2, affected runc 1.2.4 maps cpu.shares=1024 to cpu.weight=39. Fixed behavior maps it to cpu.weight=100. A cgroup-v2-required marker means the host is unsuitable.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/memfd-bind/memfd-bind.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/configs/cgroup_deprecated.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/tocpuset_test.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_disabled_linux.go
+libcontainer/criu_linux.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device_deprecated.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/env.go
+libcontainer/env_test.go
+libcontainer/error.go
+libcontainer/exeseal/cloned_binary_linux.go
+libcontainer/exeseal/overlayfs_linux.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/bench_test.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/internal/userns/userns_maps_linux.go
+libcontainer/internal/userns/usernsfd_linux.go
+libcontainer/internal/userns/usernsfd_linux_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/mount_linux_test.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/sync_unix.go
+libcontainer/system/kernelversion/kernel_linux.go
+libcontainer/system/kernelversion/kernel_linux_test.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/rlimit_linux.go
+libcontainer/user/lookup_deprecated.go
+libcontainer/user/user_deprecated.go
+libcontainer/userns/userns_deprecated.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+notify_socket_test.go
+pause.go
+ps.go
+restore.go
+rlimit_linux.go
+rootless_linux.go
+run.go
+signals.go
+spec.go
+start.go
+state.go
+tests/cmd/fs-idmap/fs-idmap.go
+tests/cmd/pidfd-kill/pidfd-kill.go
+tests/cmd/recvtty/recvtty.go
+tests/cmd/remap-rootfs/remap-rootfs.go
+tests/cmd/sd-helper/helper.go
+tests/cmd/seccompagent/seccompagent.go
+tests/cmd/seccompagent/unsupported.go
+tty.go
+types/events.go
+types/features/features.go
+update.go
+utils.go
+utils_linux.go
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+3 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 620 to 980 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 620: 	// to block this as early as possible.
+Line 621: 	if strings.IndexByte(mnt.Source, 0) >= 0 ||
+Line 622: 		strings.IndexByte(mnt.Destination, 0) >= 0 ||
+Line 623: 		strings.IndexByte(mnt.Device, 0) >= 0 {
+Line 624: 		return nil, errors.New("mount field contains null byte")
+Line 625: 	}
+Line 626: 
+Line 627: 	return mnt, nil
+Line 628: }
+Line 629: 
+Line 630: // checkPropertyName checks if systemd property name is valid. A valid name
+Line 631: // should consist of latin letters only, and have least 3 of them.
+Line 632: func checkPropertyName(s string) error {
+Line 633: 	if len(s) < 3 {
+Line 634: 		return errors.New("too short")
+Line 635: 	}
+Line 636: 	// Check ASCII characters rather than Unicode runes,
+Line 637: 	// so we have to use indexes rather than range.
+Line 638: 	for i := 0; i < len(s); i++ {
+Line 639: 		ch := s[i]
+Line 640: 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+Line 641: 			continue
+Line 642: 		}
+Line 643: 		return errors.New("contains non-alphabetic character")
+Line 644: 	}
+Line 645: 	return nil
+Line 646: }
+Line 647: 
+Line 648: // getLinuxPersonalityFromStr converts the string domain received from spec to equivalent integer.
+Line 649: func ge
+[older content truncated]
+
+Lines 380 to 620 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 380: 	config := &configs.Config{
+Line 381: 		Rootfs:          rootfsPath,
+Line 382: 		NoPivotRoot:     opts.NoPivotRoot,
+Line 383: 		Readonlyfs:      spec.Root.Readonly,
+Line 384: 		Hostname:        spec.Hostname,
+Line 385: 		Domainname:      spec.Domainname,
+Line 386: 		Labels:          append(labels, "bundle="+cwd),
+Line 387: 		NoNewKeyring:    opts.NoNewKeyring,
+Line 388: 		RootlessEUID:    opts.RootlessEUID,
+Line 389: 		RootlessCgroups: opts.RootlessCgroups,
+Line 390: 	}
+Line 391: 
+Line 392: 	for _, m := range spec.Mounts {
+Line 393: 		cm, err := createLibcontainerMount(cwd, m)
+Line 394: 		if err != nil {
+Line 395: 			return nil, fmt.Errorf("invalid mount %+v: %w", m, err)
+Line 396: 		}
+Line 397: 		config.Mounts = append(config.Mounts, cm)
+Line 398: 	}
+Line 399: 
+Line 400: 	defaultDevs, err := createDevices(spec, config)
+Line 401: 	if err != nil {
+Line 402: 		return nil, err
+Line 403: 	}
+Line 404: 
+Line 405: 	c, err := CreateCgroupConfig(opts, defaultDevs)
+Line 406: 	if err != nil {
+Line 407: 		return nil, err
+Line 408: 	}
+Line 409: 
+Line 410: 	config.Cgroups = c
+Line 411: 	// set linux-specific config
+Line 412: 	if spec.Linux != nil {
+Line 413: 		initMaps()
+Line 414: 
+Line 415: 		if spec.Linux.RootfsPropagation != "" {
+Line 416: 			var exists bool
+Line 417: 			if config.RootPropagation, exists = mountPropagationMapping[spec.Linux.RootfsPropagation]; !exists {
+Line 418: 				return nil, fmt.Errorf("rootfsPropagation=%v is not supported", spec.Linux.RootfsPropagation)
+Line 419: 			}
+Line 420: 			if config.NoPivotRoot && (config.RootPropagation&unix.MS_PRIVATE != 0) {
+Line 421: 				return nil, errors.New("rootfsPropagation of [r]private is not safe without pivot_root")
+Line 422: 			}
+Line 423: 		}
+Line 424: 
+Line 425: 		for _, ns := range spec.Linux.Namespaces {
+Line 426: 			t, exists := namespaceMapping[ns.Type]
+Line 427: 			if !exists {
+Line 428: 				return nil, fmt.Errorf("namespace %q does not exist", ns)
+Line 429: 			}
+Line 430: 			if config.Namespaces.Contains(t) {
+Line 431: 				return nil, fmt.Errorf("malformed spec file: duplicated ns %q", ns)
+Line 432: 			}
+Line 433: 			config.Namespaces.Add(t, ns.Path)
+Line 434: 		}
+Line 435: 		if config.Namespaces.IsPrivate(configs.NEWNET) {
+Line 436: 			config.Networks = []*configs.Network{
+Line 437: 				{
+Line 438: 					Type: "loopback",
+Line 439: 				},
+Line 440: 			}
+Line 441: 		}
+Line 442: 		if config.Namespaces.Contains(configs.NEWUSER) {
+Line 443: 			if err := setupUserNamespace(spec, config); err != nil {
+Line 444: 				return nil, err
+Line 445: 			}
+Line 446: 			// For idmap and ridmap mounts without explicit mappings, use the
+Line 447: 			// ones from the container's userns. If we are joining another
+Line 448: 			// userns, stash the path.
+Line 449: 			for _, m := range config.Mounts {
+Line 450: 				if m.IDMapping != nil && m.IDMapping.UIDMappings == nil && m.IDMapping.GIDMappings == nil {
+Line 451: 					if path := config.Namespaces.PathOf(configs.NEWUSER); path != "" {
+Line 452: 						m.IDMapping.UserNSPath = path
+Line 453: 					} else {
+Line 454: 						m.IDMapping.UIDMappings = config.UIDMappings
+Line 455: 						m.IDMapping.GIDMappings = config.GIDMappings
+Line 456: 					}
+Line 457: 				}
+Line 458: 			}
+Line 459: 		}
+Line 460: 		config.MaskPaths = spec.Linux.MaskedPaths
+Line 461: 		config.ReadonlyPaths = spec.Linux.ReadonlyPaths
+Line 462: 		config.MountLabel = spec.Linux.MountLabel
+Line 463: 		config.Sysctl = spec.Linux.Sysctl
+Line 464: 		config.TimeOffsets = spec.Linux.TimeOffsets
+Line 465: 		if spec.Linux.Seccomp != nil {
+Line 466: 			seccomp, err := SetupSeccomp(spec.Linux.Seccomp)
+Line 467: 			if err != nil {
+Line 468: 				return nil, err
+Line 469: 			}
+Line 470: 			config.Seccomp = seccomp
+Line 471: 		}
+Line 472: 		if spec.Linux.IntelRdt != nil {
+Line 473: 			config.IntelRdt = &configs.IntelRdt{
+Line 474: 				ClosID:        spec.Linux.IntelRdt.ClosID,
+Line 475: 				L3CacheSchema: spec.Linux.IntelRdt.L3CacheSchema,
+Line 476: 				MemBwSchema:   spec.Linux.IntelRd
+
+Lines 980 to 1260 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 980: 				if sd.Path == ad.Path {
+Line 981: 					continue next
+Line 982: 				}
+Line 983: 			}
+Line 984: 		}
+Line 985: 		dedupedAllowDevs = append(dedupedAllowDevs, ad)
+Line 986: 		if ad.Path != "" {
+Line 987: 			config.Devices = append(config.Devices, ad)
+Line 988: 		}
+Line 989: 	}
+Line 990: 
+Line 991: 	// Merge in additional devices from the spec.
+Line 992: 	if spec.Linux != nil {
+Line 993: 		for _, d := range spec.Linux.Devices {
+Line 994: 			var uid, gid uint32
+Line 995: 			var filemode os.FileMode = 0o666
+Line 996: 
+Line 997: 			if d.UID != nil {
+Line 998: 				uid = *d.UID
+Line 999: 			}
+Line 1000: 			if d.GID != nil {
+Line 1001: 				gid = *d.GID
+Line 1002: 			}
+Line 1003: 			dt, err := stringToDeviceRune(d.Type)
+Line 1004: 			if err != nil {
+Line 1005: 				return nil, err
+Line 1006: 			}
+Line 1007: 			if d.FileMode != nil {
+Line 1008: 				filemode = *d.FileMode &^ unix.S_IFMT
+Line 1009: 			}
+Line 1010: 			device := &devices.Device{
+Line 1011: 				Rule: devices.Rule{
+Line 1012: 					Type:  dt,
+Line 1013: 					Major: d.Major,
+Line 1014: 					Minor: d.Minor,
+Line 1015: 				},
+Line 1016: 				Path:     d.Path,
+Line 1017: 				FileMode: filemode,
+Line 1018: 				Uid:      uid,
+Line 1019: 				Gid:      gid,
+Line 1020: 			}
+Line 1021: 			config.Devices = append(config.Devices, device)
+Line 1022: 		}
+Line 1023: 	}
+Line 1024: 
+Line 1025: 	return dedupedAllowDevs, nil
+Line 1026: }
+Line 1027: 
+Line 1028: func setupUserNamespace(spec *specs.Spec, config *configs.Config) error {
+Line 1029: 	if spec.Linux != nil {
+Line 1030: 		config.UIDMappings = toConfigIDMap(spec.Linux.UIDMappings)
+Line 1031: 		config.GIDMappings = toConfigIDMap(spec.Linux.GIDMappings)
+Line 1032: 	}
+Line 1033: 	if path := config.Namespaces.PathOf(configs.NEWUSER); path != "" {
+Line 1034: 		// Cache the current userns mappings in our configuration, so that we
+Line 1035: 		// can calculate uid and gid mappings within runc. These mappings are
+Line 1036: 		// never used for configuring the container if the path is set.
+Line 1037: 		uidMap, gidMap, err := userns.GetUserNamespaceMappings(path)
+Line 1038: 		if err != nil {
+Line 1039: 			return fmt.Errorf("failed to cache mappings for userns: %w", err)
+Line 1040: 		}
+Line 1041: 		// We cannot allow uid or gid mappings to be set if we are also asked
+Line 1042: 		// to join a userns.
+Line 1043: 		if config.UIDMappings != nil || config.GIDMappings != nil {
+Line 1044: 			// FIXME: It turns out that containerd and CRIO pass both a userns
+Line 1045: 			// path and the mappings of the namespace in the same config.json.
+Line 1046: 			// Such a configuration is technically not valid, but we used to
+Line 1047: 			// require mappings be specified, and thus users worked around our
+Line 1048: 			// bug -- so we can't regress it at the moment. But we also don't
+Line 1049: 			// want to produce broken behaviour if the mapping doesn't match
+Line 1050: 			// the userns. So (for now) we output a warning if the actual
+Line 1051: 			// userns mappings match the configuration, otherwise we return an
+Line 1052: 			// error.
+Line 1053: 			if !userns.IsSameMapping(uidMap, config.UIDMappings) ||
+Line 1054: 				!userns.IsSameMapping(gidMap, config.GIDMappings) {
+Line 1055: 				return errors.New("user namespaces enabled, but both namespace path and non-matching mapping specified -- you may only provide one")
+Line 1056: 			}
+Line 1057: 			logrus.Warnf("config.json has both a userns path to join and a matching userns mapping specified -- you may only provide one. Future versions of runc may return an error with this configuration, please report a bug on <https://github.com/opencontainers/runc> if you see this warning and cannot update your configuration.")
+Line 1058: 		}
+Line 1059: 
+Line 1060: 		config.UIDMappings = uidMap
+Line 1061: 		config.GIDMappings = gidMap
+Line 1062: 		logrus.WithFields(logrus.Fields{
+Line 1063: 			"uid_map": uidMap,
+Line 1064: 			"gid_map": gidMap,
+Line 1065: 		}).Debugf("config uses path-based userns configuration -- current 
+
+Lines 720 to 980 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 720: }
+Line 721: 
+Line 722: func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*cgroups.Cgroup, error) {
+Line 723: 	var (
+Line 724: 		myCgroupPath string
+Line 725: 
+Line 726: 		spec             = opts.Spec
+Line 727: 		useSystemdCgroup = opts.UseSystemdCgroup
+Line 728: 		name             = opts.CgroupName
+Line 729: 	)
+Line 730: 
+Line 731: 	c := &cgroups.Cgroup{
+Line 732: 		Systemd:   useSystemdCgroup,
+Line 733: 		Rootless:  opts.RootlessCgroups,
+Line 734: 		Resources: &cgroups.Resources{},
+Line 735: 	}
+Line 736: 
+Line 737: 	if useSystemdCgroup {
+Line 738: 		sp, err := initSystemdProps(spec)
+Line 739: 		if err != nil {
+Line 740: 			return nil, err
+Line 741: 		}
+Line 742: 		c.SystemdProps = sp
+Line 743: 	}
+Line 744: 
+Line 745: 	if spec.Linux != nil && spec.Linux.CgroupsPath != "" {
+Line 746: 		if useSystemdCgroup {
+Line 747: 			myCgroupPath = spec.Linux.CgroupsPath
+Line 748: 		} else {
+Line 749: 			myCgroupPath = libcontainerUtils.CleanPath(spec.Linux.CgroupsPath)
+Line 750: 		}
+Line 751: 	}
+Line 752: 
+Line 753: 	if useSystemdCgroup {
+Line 754: 		if myCgroupPath == "" {
+Line 755: 			// Default for c.Parent is set by systemd cgroup drivers.
+Line 756: 			c.ScopePrefix = "runc"
+Line 757: 			c.Name = name
+Line 758: 		} else {
+Line 759: 			// Parse the path from expected "slice:prefix:name"
+Line 760: 			// for e.g. "system.slice:docker:1234"
+Line 761: 			parts := strings.Split(myCgroupPath, ":")
+Line 762: 			if len(parts) != 3 {
+Line 763: 				return nil, fmt.Errorf("expected cgroupsPath to be of format \"slice:prefix:name\" for systemd cgroups, got %q instead", myCgroupPath)
+Line 764: 			}
+Line 765: 			c.Parent = parts[0]
+Line 766: 			c.ScopePrefix = parts[1]
+Line 767: 			c.Name = parts[2]
+Line 768: 		}
+Line 769: 	} else {
+Line 770: 		if myCgroupPath == "" {
+Line 771: 			c.Name = name
+Line 772: 		}
+Line 773: 		c.Path = myCgroupPath
+Line 774: 	}
+Line 775: 
+Line 776: 	// In rootless containers, any attempt to make cgroup changes is likely to fail.
+Line 777: 	// libcontainer will validate this but ignores the error.
+Line 778: 	if spec.Linux != nil {
+Line 779: 		r := spec.Linux.Resources
+Line 780: 		if r != nil {
+Line 781: 			for i, d := range r.Devices {
+Line 782: 				var (
+Line 783: 					t     = "a"
+Line 784: 					major = int64(-1)
+Line 785: 					minor = int64(-1)
+Line 786: 				)
+Line 787: 				if d.Type != "" {
+Line 788: 					t = d.Type
+Line 789: 				}
+Line 790: 				if d.Major != nil {
+Line 791: 					major = *d.Major
+Line 792: 				}
+Line 793: 				if d.Minor != nil {
+Line 794: 					minor = *d.Minor
+Line 795: 				}
+Line 796: 				if d.Access == "" {
+Line 797: 					return nil, fmt.Errorf("device access at %d field cannot be empty", i)
+Line 798: 				}
+Line 799: 				dt, err := stringToCgroupDeviceRune(t)
+Line 800: 				if err != nil {
+Line 801: 					return nil, err
+Line 802: 				}
+Line 803: 				c.Resources.Devices = append(c.Resources.Devices, &devices.Rule{
+Line 804: 					Type:        dt,
+Line 805: 					Major:       major,
+Line 806: 					Minor:       minor,
+Line 807: 					Permissions: devices.Permissions(d.Access),
+Line 808: 					Allow:       d.Allow,
+Line 809: 				})
+Line 810: 			}
+Line 811: 			if r.Memory != nil {
+Line 812: 				if r.Memory.Limit != nil {
+Line 813: 					c.Resources.Memory = *r.Memory.Limit
+Line 814: 				}
+Line 815: 				if r.Memory.Reservation != nil {
+Line 816: 					c.Resources.MemoryReservation = *r.Memory.Reservation
+Line 817: 				}
+Line 818: 				if r.Memory.Swap != nil {
+Line 819: 					c.Resources.MemorySwap = *r.Memory.Swap
+Line 820: 				}
+Line 821: 				if r.Memory.Kernel != nil || r.Memory.KernelTCP != nil { //nolint:staticcheck // Ignore SA1019. Need to keep deprecated package for compatibility.
+Line 822: 					logrus.Warn("Kernel memory settings are ignored and will be removed")
+Line 823: 				}
+Line 824: 				if r.Memory.Swappiness != nil {
+Line 825: 					c.Resources.MemorySwappiness = r.Memory.Swappiness
+Line 826: 				}
+Line 827: 				if r.Memory.DisableOOMKiller != nil {
+Line 828: 					c.Reso
+
+Lines 828 to 930 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 828: 					c.Resources.OomKillDisable = *r.Memory.DisableOOMKiller
+Line 829: 				}
+Line 830: 				if r.Memory.CheckBeforeUpdate != nil {
+Line 831: 					c.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+Line 832: 				}
+Line 833: 			}
+Line 834: 			if r.CPU != nil {
+Line 835: 				if r.CPU.Shares != nil {
+Line 836: 					c.Resources.CpuShares = *r.CPU.Shares
+Line 837: 
+Line 838: 					// CpuWeight is used for cgroupv2 and should be converted
+Line 839: 					c.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
+Line 840: 				}
+Line 841: 				if r.CPU.Quota != nil {
+Line 842: 					c.Resources.CpuQuota = *r.CPU.Quota
+Line 843: 				}
+Line 844: 				if r.CPU.Burst != nil {
+Line 845: 					c.Resources.CpuBurst = r.CPU.Burst
+Line 846: 				}
+Line 847: 				if r.CPU.Period != nil {
+Line 848: 					c.Resources.CpuPeriod = *r.CPU.Period
+Line 849: 				}
+Line 850: 				if r.CPU.RealtimeRuntime != nil {
+Line 851: 					c.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+Line 852: 				}
+Line 853: 				if r.CPU.RealtimePeriod != nil {
+Line 854: 					c.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+Line 855: 				}
+Line 856: 				c.Resources.CpusetCpus = r.CPU.Cpus
+Line 857: 				c.Resources.CpusetMems = r.CPU.Mems
+Line 858: 				c.Resources.CPUIdle = r.CPU.Idle
+Line 859: 			}
+Line 860: 			if r.Pids != nil {
+Line 861: 				c.Resources.PidsLimit = r.Pids.Limit
+Line 862: 			}
+Line 863: 			if r.BlockIO != nil {
+Line 864: 				if r.BlockIO.Weight != nil {
+Line 865: 					c.Resources.BlkioWeight = *r.BlockIO.Weight
+Line 866: 				}
+Line 867: 				if r.BlockIO.LeafWeight != nil {
+Line 868: 					c.Resources.BlkioLeafWeight = *r.BlockIO.LeafWeight
+Line 869: 				}
+Line 870: 				for _, wd := range r.BlockIO.WeightDevice {
+Line 871: 					var weight, leafWeight uint16
+Line 872: 					if wd.Weight != nil {
+Line 873: 						weight = *wd.Weight
+Line 874: 					}
+Line 875: 					if wd.LeafWeight != nil {
+Line 876: 						leafWeight = *wd.LeafWeight
+Line 877: 					}
+Line 878: 					weightDevice := cgroups.NewWeightDevice(wd.Major, wd.Minor, weight, leafWeight)
+Line 879: 					c.Resources.BlkioWeightDevice = append(c.Resources.BlkioWeightDevice, weightDevice)
+Line 880: 				}
+Line 881: 				for _, td := range r.BlockIO.ThrottleReadBpsDevice {
+Line 882: 					rate := td.Rate
+Line 883: 					throttleDevice := cgroups.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 884: 					c.Resources.BlkioThrottleReadBpsDevice = append(c.Resources.BlkioThrottleReadBpsDevice, throttleDevice)
+Line 885: 				}
+Line 886: 				for _, td := range r.BlockIO.ThrottleWriteBpsDevice {
+Line 887: 					rate := td.Rate
+Line 888: 					throttleDevice := cgroups.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 889: 					c.Resources.BlkioThrottleWriteBpsDevice = append(c.Resources.BlkioThrottleWriteBpsDevice, throttleDevice)
+Line 890: 				}
+Line 891: 				for _, td := range r.BlockIO.ThrottleReadIOPSDevice {
+Line 892: 					rate := td.Rate
+Line 893: 					throttleDevice := cgroups.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 894: 					c.Resources.BlkioThrottleReadIOPSDevice = append(c.Resources.BlkioThrottleReadIOPSDevice, throttleDevice)
+Line 895: 				}
+Line 896: 				for _, td := range r.BlockIO.ThrottleWriteIOPSDevice {
+Line 897: 					rate := td.Rate
+Line 898: 					throttleDevice := cgroups.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 899: 					c.Resources.BlkioThrottleWriteIOPSDevice = append(c.Resources.BlkioThrottleWriteIOPSDevice, throttleDevice)
+Line 900: 				}
+Line 901: 			}
+Line 902: 			for _, l := range r.HugepageLimits {
+Line 903: 				c.Resources.HugetlbLimit = append(c.Resources.HugetlbLimit, &cgroups.HugepageLimit{
+Line 904: 					Pagesize: l.Pagesize,
+Line 905: 					Limit:    l.Limit,
+Line 906: 				})
+Line 907: 			}
+Line 908: 			if len(r.Rdma) > 0 {
+Line 909: 				c.Resources.Rdma = make(map[string]cgroups.LinuxRdma, len(r.Rdma))
+Line 910: 				for k, v := range r.Rdma {
+Line 911: 					c.Resources.Rdma[k] = cgroups.LinuxRdma{
+Line 912: 						HcaHandles: v.HcaHandles,
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-4772.
+
+Target runtime: runc
+Title: Conversion of cgroup v1 CPU shares to v2 CPU weight causes workloads to have low CPU priority
+Upstream issue: https://github.com/opencontainers/runc/issues/4772
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4772
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4772
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4772
+Upstream URL: https://github.com/opencontainers/runc/issues/4772
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "printf \"cpu.weight=\"; cat /sys/fs/cgroup/cpu.weight 2>/dev/null || { echo cgroup-v2-required; exit 42; }"]; linux.resources.cpu: {"shares": 1024}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+On cgroup v2, affected runc 1.2.4 maps cpu.shares=1024 to cpu.weight=39. Fixed behavior maps it to cpu.weight=100. A cgroup-v2-required marker means the host is unsuitable.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4772
+
+## Upstream Issue Summary
+- Title: Conversion of cgroup v1 CPU shares to v2 CPU weight causes workloads to have low CPU priority
+- URL: https://github.com/opencontainers/runc/issues/4772
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly names `runc 1.2.4` as affected: CPU shares 1024 is translated to cpu.weight 39 instead of 100. Git log matched the cgroups dependency bump `da9094784878`; parent `f24aa06ef6ac` is the pre-fix baseline for that dependency update.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4772`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "printf \"cpu.weight=\"; cat /sys/fs/cgroup/cpu.weight 2>/dev/null || { echo cgroup-v2-required; exit 42; }"]; linux.resources.cpu: {"shares": 1024}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: On cgroup v2, affected runc 1.2.4 maps cpu.shares=1024 to cpu.weight=39. Fixed behavior maps it to cpu.weight=100. A cgroup-v2-required marker means the host is unsuitable.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

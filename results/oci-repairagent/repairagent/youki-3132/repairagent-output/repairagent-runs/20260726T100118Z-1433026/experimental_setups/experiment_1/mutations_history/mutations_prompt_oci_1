@@ -1,0 +1,1166 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case youki-3132.
+
+Target runtime: youki
+Title: [Bug]: Normal logs logged at Error level in container create
+Upstream issue: https://github.com/youki-dev/youki/issues/3132
+Category: Lifecycle & State
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-3132
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-3132
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-3132
+Upstream URL: https://github.com/youki-dev/youki/issues/3132
+Category: Lifecycle & State
+
+Payload under test:
+process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-3132
+
+## Upstream Issue Summary
+- Title: [Bug]: Normal logs logged at Error level in container create
+- URL: https://github.com/youki-dev/youki/issues/3132
+- Category: Lifecycle & State
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue text does not name an exact youki release; it reports the behavior on Pop OS after a recent kernel update and says it had been observed for roughly four to five months. The issue body shows two independent error-level log paths: cgroup mount retry logging and ambient capability logging. The issue page is closed and links PR #3150 and PR #3157 as relevant fixes. Local git history maps PR #3150 to `9560eb10405738668025ae69870401e28633e6c3` (`fix: capet Ambient log level`, 2025-04-19), whose parent is `df8f3aaadb61a6d488bcee08aa9c323fb5ac5dca`; it maps PR #3157 to `6b02740e8f339d558a1ddbd8ff6b1793fb9c04f0` (`fix: mount retry and logging (#3157)`, 2025-05-22), whose parent is `8b85144c0da42db558eec8e82899859cd278eaf9`. Use those parent commits as the two pre-fix buggy baselines for the ambient-capability and cgroup-mount log paths respectively. `git describe` places the PR #3150 parent at `v0.5.3-30-gdf8f3aaadb61` and the PR #3157 parent at `v0.5.3-53-g8b85144c0da4`, both before `v0.5.4`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-3132`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original log-level issue was not reproduced with the current `repro.sh`. The payload only runs `true`, and the script does not enable or capture a runtime log stream that can distinguish normal messages logged at `ERROR` level from expected output. In the previous isolated run, runc and crun completed without useful output, while youki timed out without exposing the specific log-level symptom. Reproducing the original issue appears to require the affected youki revision plus explicit log-level capture or the cgroup/ambient-capability logging conditions from the upstream report.
+
+
+Source files:
+crates/libcgroups/examples/bpf.rs
+crates/libcgroups/src/common.rs
+crates/libcgroups/src/lib.rs
+crates/libcgroups/src/stats.rs
+crates/libcgroups/src/stub/systemd/manager.rs
+crates/libcgroups/src/stub/systemd/mod.rs
+crates/libcgroups/src/stub/v1/manager.rs
+crates/libcgroups/src/stub/v1/mod.rs
+crates/libcgroups/src/stub/v2/manager.rs
+crates/libcgroups/src/stub/v2/mod.rs
+crates/libcgroups/src/systemd/controller.rs
+crates/libcgroups/src/systemd/controller_type.rs
+crates/libcgroups/src/systemd/cpu.rs
+crates/libcgroups/src/systemd/cpuset.rs
+crates/libcgroups/src/systemd/dbus_native/client.rs
+crates/libcgroups/src/systemd/dbus_native/dbus.rs
+crates/libcgroups/src/systemd/dbus_native/message.rs
+crates/libcgroups/src/systemd/dbus_native/mod.rs
+crates/libcgroups/src/systemd/dbus_native/proxy.rs
+crates/libcgroups/src/systemd/dbus_native/serialize.rs
+crates/libcgroups/src/systemd/dbus_native/utils.rs
+crates/libcgroups/src/systemd/manager.rs
+crates/libcgroups/src/systemd/memory.rs
+crates/libcgroups/src/systemd/mod.rs
+crates/libcgroups/src/systemd/pids.rs
+crates/libcgroups/src/systemd/unified.rs
+crates/libcgroups/src/test.rs
+crates/libcgroups/src/test_manager.rs
+crates/libcgroups/src/v1/blkio.rs
+crates/libcgroups/src/v1/controller.rs
+crates/libcgroups/src/v1/controller_type.rs
+crates/libcgroups/src/v1/cpu.rs
+crates/libcgroups/src/v1/cpuacct.rs
+crates/libcgroups/src/v1/cpuset.rs
+crates/libcgroups/src/v1/devices.rs
+crates/libcgroups/src/v1/freezer.rs
+crates/libcgroups/src/v1/hugetlb.rs
+crates/libcgroups/src/v1/manager.rs
+crates/libcgroups/src/v1/memory.rs
+crates/libcgroups/src/v1/mod.rs
+crates/libcgroups/src/v1/network_classifier.rs
+crates/libcgroups/src/v1/network_priority.rs
+crates/libcgroups/src/v1/perf_event.rs
+crates/libcgroups/src/v1/pids.rs
+crates/libcgroups/src/v1/util.rs
+crates/libcgroups/src/v2/controller.rs
+crates/libcgroups/src/v2/controller_type.rs
+crates/libcgroups/src/v2/cpu.rs
+crates/libcgroups/src/v2/cpuset.rs
+crates/libcgroups/src/v2/devices/bpf.rs
+crates/libcgroups/src/v2/devices/controller.rs
+crates/libcgroups/src/v2/devices/emulator.rs
+crates/libcgroups/src/v2/devices/mocks.rs
+crates/libcgroups/src/v2/devices/mod.rs
+crates/libcgroups/src/v2/devices/program.rs
+crates/libcgroups/src/v2/freezer.rs
+crates/libcgroups/src/v2/hugetlb.rs
+crates/libcgroups/src/v2/io.rs
+crates/libcgroups/src/v2/manager.rs
+crates/libcgroups/src/v2/memory.rs
+crates/libcgroups/src/v2/mod.rs
+crates/libcgroups/src/v2/pids.rs
+crates/libcgroups/src/v2/unified.rs
+crates/libcgroups/src/v2/util.rs
+crates/libcontainer/src/apparmor.rs
+crates/libcontainer/src/capabilities.rs
+crates/libcontainer/src/channel.rs
+crates/libcontainer/src/config.rs
+crates/libcontainer/src/container/builder.rs
+crates/libcontainer/src/container/builder_impl.rs
+crates/libcontainer/src/container/container.rs
+crates/libcontainer/src/container/container_checkpoint.rs
+crates/libcontainer/src/container/container_delete.rs
+crates/libcontainer/src/container/container_events.rs
+crates/libcontainer/src/container/container_kill.rs
+crates/libcontainer/src/container/container_pause.rs
+crates/libcontainer/src/container/container_resume.rs
+crates/libcontainer/src/container/container_start.rs
+crates/libcontainer/src/container/init_builder.rs
+crates/libcontainer/src/container/mod.rs
+crates/libcontainer/src/container/state.rs
+crates/libcontainer/src/container/tenant_builder.rs
+crates/libcontainer/src/error.rs
+crates/libcontainer/src/hooks.rs
+crates/libcontainer/src/lib.rs
+crates/libcontainer/src/namespaces.rs
+crates/libcontainer/src/notify_socket.rs
+crates/libcontainer/src/process/args.rs
+crates/libcontainer/src/process/channel.rs
+crates/libcontainer/src/process/container_intermediate_process.rs
+crates/libcontainer/src/process/container_main_process.rs
+crates/libcontainer/src/process/fork.rs
+crates/libcontainer/src/process/init/context.rs
+crates/libcontainer/src/process/init/error.rs
+crates/libcontainer/src/process/init/mod.rs
+crates/libcontainer/src/process/init/process.rs
+crates/libcontainer/src/process/intel_rdt.rs
+crates/libcontainer/src/process/message.rs
+crates/libcontainer/src/process/mod.rs
+crates/libcontainer/src/process/seccomp_listener.rs
+crates/libcontainer/src/rootfs/device.rs
+crates/libcontainer/src/rootfs/mod.rs
+crates/libcontainer/src/rootfs/mount.rs
+crates/libcontainer/src/rootfs/rootfs.rs
+crates/libcontainer/src/rootfs/symlink.rs
+crates/libcontainer/src/rootfs/utils.rs
+crates/libcontainer/src/seccomp/mod.rs
+crates/libcontainer/src/signal.rs
+crates/libcontainer/src/syscall/linux.rs
+crates/libcontainer/src/syscall/mod.rs
+crates/libcontainer/src/syscall/syscall.rs
+crates/libcontainer/src/syscall/test.rs
+crates/libcontainer/src/test_utils.rs
+crates/libcontainer/src/tty.rs
+crates/libcontainer/src/user_ns.rs
+crates/libcontainer/src/utils.rs
+crates/libcontainer/src/workload/default.rs
+crates/libcontainer/src/workload/mod.rs
+crates/libcontainer/tests/as_sibling.rs
+crates/liboci-cli/src/checkpoint.rs
+crates/liboci-cli/src/create.rs
+crates/liboci-cli/src/delete.rs
+crates/liboci-cli/src/events.rs
+crates/liboci-cli/src/exec.rs
+crates/liboci-cli/src/features.rs
+crates/liboci-cli/src/info.rs
+crates/liboci-cli/src/kill.rs
+crates/liboci-cli/src/lib.rs
+crates/liboci-cli/src/list.rs
+crates/liboci-cli/src/pause.rs
+crates/liboci-cli/src/ps.rs
+crates/liboci-cli/src/resume.rs
+crates/liboci-cli/src/run.rs
+crates/liboci-cli/src/spec.rs
+crates/liboci-cli/src/start.rs
+crates/liboci-cli/src/state.rs
+crates/liboci-cli/src/update.rs
+crates/youki/build.rs
+crates/youki/src/commands/checkpoint.rs
+crates/youki/src/commands/completion.rs
+crates/youki/src/commands/create.rs
+crates/youki/src/commands/delete.rs
+crates/youki/src/commands/events.rs
+crates/youki/src/commands/exec.rs
+crates/youki/src/commands/features.rs
+crates/youki/src/commands/info.rs
+crates/youki/src/commands/kill.rs
+crates/youki/src/commands/list.rs
+crates/youki/src/commands/mod.rs
+crates/youki/src/commands/pause.rs
+crates/youki/src/commands/ps.rs
+crates/youki/src/commands/resume.rs
+crates/youki/src/commands/run.rs
+crates/youki/src/commands/spec_json.rs
+crates/youki/src/commands/start.rs
+crates/youki/src/commands/state.rs
+crates/youki/src/commands/update.rs
+crates/youki/src/main.rs
+crates/youki/src/observability.rs
+crates/youki/src/rootpath.rs
+crates/youki/src/workload/executor.rs
+crates/youki/src/workload/mod.rs
+crates/youki/src/workload/wasmedge.rs
+crates/youki/src/workload/wasmer.rs
+crates/youki/src/workload/wasmtime.rs
+experiment/seccomp/src/instruction/arch.rs
+experiment/seccomp/src/instruction/consts.rs
+experiment/seccomp/src/instruction/inst.rs
+experiment/seccomp/src/instruction/mod.rs
+experiment/seccomp/src/lib.rs
+experiment/seccomp/src/main.rs
+experiment/seccomp/src/seccomp.rs
+experiment/selinux/src/lib.rs
+experiment/selinux/src/main.rs
+experiment/selinux/src/selinux.rs
+experiment/selinux/src/selinux_label.rs
+experiment/selinux/src/tools/mod.rs
+experiment/selinux/src/tools/sockopt.rs
+experiment/selinux/src/tools/xattr.rs
+tests/contest/contest/src/lib.rs
+tests/contest/contest/src/logger.rs
+tests/contest/contest/src/main.rs
+tests/contest/contest/src/tests/cgroups/blkio.rs
+tests/contest/contest/src/tests/cgroups/cpu/mod.rs
+tests/contest/contest/src/tests/cgroups/cpu/v1.rs
+tests/contest/contest/src/tests/cgroups/cpu/v2.rs
+tests/contest/contest/src/tests/cgroups/memory.rs
+tests/contest/contest/src/tests/cgroups/mod.rs
+tests/contest/contest/src/tests/cgroups/network/absolute_network.rs
+tests/contest/contest/src/tests/cgroups/network/mod.rs
+tests/contest/contest/src/tests/cgroups/network/relative_network.rs
+tests/contest/contest/src/tests/cgroups/pids.rs
+tests/contest/contest/src/tests/delete/delete_test.rs
+tests/contest/contest/src/tests/delete/mod.rs
+tests/contest/contest/src/tests/devices/devices_test.rs
+tests/contest/contest/src/tests/devices/mod.rs
+tests/contest/contest/src/tests/domainname/mod.rs
+tests/contest/contest/src/tests/example/hello_world.rs
+tests/contest/contest/src/tests/example/mod.rs
+tests/contest/contest/src/tests/fd_control/mod.rs
+... 68 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+5 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 180 to 360 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 180:         let ppid = std::os::unix::process::parent_id();
+Line 181:         // The non-zero ppid means that the PID Namespace is not separated.
+Line 182:         let ppid = if ppid == 0 { std::process::id() } else { ppid };
+Line 183:         let root_cgroups = Process::new(ppid as i32)?.cgroups()?.0;
+Line 184:         let process_cgroups: HashMap<String, String> = Process::myself()?
+Line 185:             .cgroups()?
+Line 186:             .into_iter()
+Line 187:             .map(|c| {
+Line 188:                 let hierarchy = c.hierarchy;
+Line 189:                 // When youki itself is running inside a container, the cgroup path
+Line 190:                 // will include the path of pid-1, which needs to be stripped before
+Line 191:                 // mounting.
+Line 192:                 let root_pathname = root_cgroups
+Line 193:                     .iter()
+Line 194:                     .find(|c| c.hierarchy == hierarchy)
+Line 195:                     .map(|c| c.pathname.as_ref())
+Line 196:                     .unwrap_or("");
+Line 197:                 let path = c
+Line 198:                     .pathname
+Line 199:                     .strip_prefix(root_path
+[older content truncated]
+
+Lines 250 to 460 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 250:     // On some distros cgroup subsystems are comounted e.g. cpu,cpuacct or net_cls,net_prio. These systems
+Line 251:     // have to be comounted in the container as well as the kernel will reject trying to mount them separately.
+Line 252:     #[cfg(feature = "v1")]
+Line 253:     fn setup_namespaced_subsystem(
+Line 254:         &self,
+Line 255:         cgroup_mount: &SpecMount,
+Line 256:         options: &MountOptions,
+Line 257:         subsystem_name: &str,
+Line 258:         named: bool,
+Line 259:     ) -> Result<()> {
+Line 260:         tracing::debug!(
+Line 261:             "Mounting (namespaced) {:?} cgroup subsystem",
+Line 262:             subsystem_name
+Line 263:         );
+Line 264:         let subsystem_mount = SpecMountBuilder::default()
+Line 265:             .source("cgroup")
+Line 266:             .typ("cgroup")
+Line 267:             .destination(cgroup_mount.destination().join(subsystem_name))
+Line 268:             .options(
+Line 269:                 ["noexec", "nosuid", "nodev"]
+Line 270:                     .iter()
+Line 271:                     .map(|o| o.to_string())
+Line 272:                     .collect::<Vec<String>>(),
+Line 273:             )
+Line 274:             .build()
+Line 275:             .map_err(|err| {
+Line 276:                 tracing::error!("failed to build {subsystem_name} mount: {err}");
+Line 277:                 err
+Line 278:             })?;
+Line 279: 
+Line 280:         let data: Cow<str> = if named {
+Line 281:             format!("name={subsystem_name}").into()
+Line 282:         } else {
+Line 283:             subsystem_name.into()
+Line 284:         };
+Line 285: 
+Line 286:         let mount_options_config = MountOptionConfig {
+Line 287:             flags: MsFlags::MS_NOEXEC | MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+Line 288:             data: data.to_string(),
+Line 289:             rec_attr: None,
+Line 290:         };
+Line 291: 
+Line 292:         self.mount_into_container(
+Line 293:             &subsystem_mount,
+Line 294:             options.root,
+Line 295:             &mount_options_config,
+Line 296:             options.label,
+Line 297:         )
+Line 298:         .map_err(|err| {
+Line 299:             tracing::error!("failed to mount {subsystem_mount:?}: {err}");
+Line 300:             err
+Line 301:         })
+Line 302:     }
+Line 303: 
+Line 304:     #[cfg(feature = "v1")]
+Line 305:     fn setup_emulated_subsystem(
+Line 306:         &self,
+Line 307:         cgroup_mount: &SpecMount,
+Line 308:         options: &MountOptions,
+Line 309:         subsystem_name: &str,
+Line 310:         named: bool,
+Line 311:         host_mount: &Path,
+Line 312:         process_cgroups: &HashMap<String, String>,
+Line 313:     ) -> Result<()> {
+Line 314:         tracing::debug!("Mounting (emulated) {:?} cgroup subsystem", subsystem_name);
+Line 315:         let named_hierarchy: Cow<str> = if named {
+Line 316:             format!("name={subsystem_name}").into()
+Line 317:         } else {
+Line 318:             subsystem_name.into()
+Line 319:         };
+Line 320: 
+Line 321:         if let Some(proc_path) = process_cgroups.get(named_hierarchy.as_ref()) {
+Line 322:             let emulated = SpecMountBuilder::default()
+Line 323:                 .source(
+Line 324:                     host_mount
+Line 325:                         .join_safely(proc_path.as_str())
+Line 326:                         .map_err(|err| {
+Line 327:                             tracing::error!(
+Line 328:                                 "failed to join mount source for {subsystem_name} subsystem: {}",
+Line 329:                                 err
+Line 330:                             );
+Line 331:                             MountError::Other(err.into())
+Line 332:                         })?,
+Line 333:                 )
+Line 334:                 .destination(
+Line 335:                     cgroup_mount
+Line 336:                         .destination()
+Line 337:                         .join_safely(subsystem_name)
+Line 338:                         .m
+
+Lines 334 to 430 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 334:                 .destination(
+Line 335:                     cgroup_mount
+Line 336:                         .destination()
+Line 337:                         .join_safely(subsystem_name)
+Line 338:                         .map_err(|err| {
+Line 339:                             tracing::error!(
+Line 340:                                 "failed to join mount destination for {subsystem_name} subsystem: {}",
+Line 341:                                 err
+Line 342:                             );
+Line 343:                             MountError::Other(err.into())
+Line 344:                         })?,
+Line 345:                 )
+Line 346:                 .typ("bind")
+Line 347:                 .options(
+Line 348:                     ["rw", "rbind"]
+Line 349:                         .iter()
+Line 350:                         .map(|o| o.to_string())
+Line 351:                         .collect::<Vec<String>>(),
+Line 352:                 )
+Line 353:                 .build()?;
+Line 354:             tracing::debug!("Mounting emulated cgroup subsystem: {:?}", emulated);
+Line 355: 
+Line 356:             self.setup_mount(&emulated, options).map_err(|err| {
+Line 357:                 tracing::error!("failed to mount {subsystem_name} cgroup hierarchy: {}", err);
+Line 358:                 err
+Line 359:             })?;
+Line 360:         } else {
+Line 361:             tracing::warn!("Could not mount {:?} cgroup subsystem", subsystem_name);
+Line 362:         }
+Line 363: 
+Line 364:         Ok(())
+Line 365:     }
+Line 366: 
+Line 367:     #[cfg(feature = "v2")]
+Line 368:     fn mount_cgroup_v2(
+Line 369:         &self,
+Line 370:         cgroup_mount: &SpecMount,
+Line 371:         options: &MountOptions,
+Line 372:         mount_option_config: &MountOptionConfig,
+Line 373:     ) -> Result<()> {
+Line 374:         tracing::debug!("Mounting cgroup v2 filesystem");
+Line 375: 
+Line 376:         let cgroup_mount = SpecMountBuilder::default()
+Line 377:             .typ("cgroup2")
+Line 378:             .source("cgroup")
+Line 379:             .destination(cgroup_mount.destination())
+Line 380:             .options(Vec::new())
+Line 381:             .build()?;
+Line 382:         tracing::debug!("{:?}", cgroup_mount);
+Line 383: 
+Line 384:         if self
+Line 385:             .mount_into_container(
+Line 386:                 &cgroup_mount,
+Line 387:                 options.root,
+Line 388:                 mount_option_config,
+Line 389:                 options.label,
+Line 390:             )
+Line 391:             .is_err()
+Line 392:         {
+Line 393:             let host_mount = libcgroups::v2::util::get_unified_mount_point().map_err(|err| {
+Line 394:                 tracing::error!("failed to get unified mount point: {}", err);
+Line 395:                 MountError::Other(err.into())
+Line 396:             })?;
+Line 397: 
+Line 398:             let process_cgroup = Process::myself()
+Line 399:                 .map_err(|err| {
+Line 400:                     tracing::error!("failed to get /proc/self: {}", err);
+Line 401:                     MountError::Other(err.into())
+Line 402:                 })?
+Line 403:                 .cgroups()
+Line 404:                 .map_err(|err| {
+Line 405:                     tracing::error!("failed to get process cgroups: {}", err);
+Line 406:                     MountError::Other(err.into())
+Line 407:                 })?
+Line 408:                 .into_iter()
+Line 409:                 .find(|c| c.hierarchy == 0)
+Line 410:                 .map(|c| PathBuf::from(c.pathname))
+Line 411:                 .ok_or_else(|| {
+Line 412:                     MountError::Custom("failed to find unified process cgroup".into())
+Line 413:                 })?;
+Line 414:             let bind_mount = SpecMountBuilder::default()
+Line 415:                 .typ("bind")
+Line 416:                 .source(host_mount.join_safely(process_cgroup).map_err(|err| {
+Line 417:                     tracing::error!("failed to join host mount for cgroup hierarchy: {}", err);
+Lin
+
+Lines 414 to 500 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 414:             let bind_mount = SpecMountBuilder::default()
+Line 415:                 .typ("bind")
+Line 416:                 .source(host_mount.join_safely(process_cgroup).map_err(|err| {
+Line 417:                     tracing::error!("failed to join host mount for cgroup hierarchy: {}", err);
+Line 418:                     MountError::Other(err.into())
+Line 419:                 })?)
+Line 420:                 .destination(cgroup_mount.destination())
+Line 421:                 .options(Vec::new())
+Line 422:                 .build()
+Line 423:                 .map_err(|err| {
+Line 424:                     tracing::error!("failed to build cgroup bind mount: {}", err);
+Line 425:                     err
+Line 426:                 })?;
+Line 427:             tracing::debug!("{:?}", bind_mount);
+Line 428: 
+Line 429:             let mut mount_option_config = (*mount_option_config).clone();
+Line 430:             mount_option_config.flags |= MsFlags::MS_BIND;
+Line 431:             self.mount_into_container(
+Line 432:                 &bind_mount,
+Line 433:                 options.root,
+Line 434:                 &mount_option_config,
+Line 435:                 options.label,
+Line 436:             )
+Line 437:             .map_err(|err| {
+Line 438:                 tracing::error!("failed to bind mount cgroup hierarchy: {}", err);
+Line 439:                 err
+Line 440:             })?;
+Line 441:         }
+Line 442: 
+Line 443:         Ok(())
+Line 444:     }
+Line 445: 
+Line 446:     /// Make parent mount of rootfs private if it was shared, which is required by pivot_root.
+Line 447:     /// It also makes sure following bind mount does not propagate in other namespaces.
+Line 448:     pub fn make_parent_mount_private(&self, rootfs: &Path) -> Result<Option<MountInfo>> {
+Line 449:         let mount_infos = Process::myself()
+Line 450:             .map_err(|err| {
+Line 451:                 tracing::error!("failed to get /proc/self: {}", err);
+Line 452:                 MountError::Other(err.into())
+Line 453:             })?
+Line 454:             .mountinfo()
+Line 455:             .map_err(|err| {
+Line 456:                 tracing::error!("failed to get mount info: {}", err);
+Line 457:                 MountError::Other(err.into())
+Line 458:             })?;
+Line 459:         let parent_mount = find_parent_mount(rootfs, mount_infos.0)?;
+Line 460: 
+Line 461:         // check parent mount has 'shared' propagation type
+Line 462:         if parent_mount
+Line 463:             .opt_fields
+Line 464:             .iter()
+Line 465:             .any(|field| matches!(field, MountOptFields::Shared(_)))
+Line 466:         {
+Line 467:             self.syscall.mount(
+Line 468:                 None,
+Line 469:                 &parent_mount.mount_point,
+Line 470:                 None,
+Line 471:                 MsFlags::MS_PRIVATE,
+Line 472:                 None,
+Line 473:             )?;
+Line 474:             Ok(Some(parent_mount))
+Line 475:         } else {
+Line 476:             Ok(None)
+Line 477:         }
+Line 478:     }
+Line 479: 
+Line 480:     fn mount_into_container(
+Line 481:         &self,
+Line 482:         m: &SpecMount,
+Line 483:         rootfs: &Path,
+Line 484:         mount_option_config: &MountOptionConfig,
+Line 485:         label: Option<&str>,
+Line 486:     ) -> Result<()> {
+Line 487:         let typ = m.typ().as_deref();
+Line 488:         let mut d = mount_option_config.data.to_string();
+Line 489: 
+Line 490:         if let Some(l) = label {
+Line 491:             if typ != Some("proc") && typ != Some("sysfs") {
+Line 492:                 match mount_option_config.data.is_empty() {
+Line 493:                     true => d = format!("context=\"{l}\""),
+Line 494:                     false => d = format!("{},context=\"{}\"", mount_option_config.data, l),
+Line 495:                 }
+Line 496:             }
+Line 497:         }
+Line 498: 
+Line 499:         let dest_for_host = safe_path::scoped_join(rootfs, m.destination()).map_err(|err| {
+Line 500:             traci
+
+Lines 480 to 620 from file: crates/libcontainer/src/rootfs/mount.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 480:     fn mount_into_container(
+Line 481:         &self,
+Line 482:         m: &SpecMount,
+Line 483:         rootfs: &Path,
+Line 484:         mount_option_config: &MountOptionConfig,
+Line 485:         label: Option<&str>,
+Line 486:     ) -> Result<()> {
+Line 487:         let typ = m.typ().as_deref();
+Line 488:         let mut d = mount_option_config.data.to_string();
+Line 489: 
+Line 490:         if let Some(l) = label {
+Line 491:             if typ != Some("proc") && typ != Some("sysfs") {
+Line 492:                 match mount_option_config.data.is_empty() {
+Line 493:                     true => d = format!("context=\"{l}\""),
+Line 494:                     false => d = format!("{},context=\"{}\"", mount_option_config.data, l),
+Line 495:                 }
+Line 496:             }
+Line 497:         }
+Line 498: 
+Line 499:         let dest_for_host = safe_path::scoped_join(rootfs, m.destination()).map_err(|err| {
+Line 500:             tracing::error!(
+Line 501:                 "failed to join rootfs {:?} with mount destination {:?}: {}",
+Line 502:                 rootfs,
+Line 503:                 m.destination(),
+Line 504:                 err
+Line 505:             );
+Line 506:             MountError::Other(err.into())
+Line 507:         })?;
+Line 508: 
+Line 509:         let dest = Path::new(&dest_for_host);
+Line 510:         let source = m.source().as_ref().ok_or(MountError::NoSource)?;
+Line 511:         let src = if typ == Some("bind") {
+Line 512:             let src = canonicalize(source).map_err(|err| {
+Line 513:                 tracing::error!("failed to canonicalize {:?}: {}", source, err);
+Line 514:                 err
+Line 515:             })?;
+Line 516:             let dir = if src.is_file() {
+Line 517:                 Path::new(&dest).parent().unwrap()
+Line 518:             } else {
+Line 519:                 Path::new(&dest)
+Line 520:             };
+Line 521: 
+Line 522:             create_dir_all(dir).map_err(|err| {
+Line 523:                 tracing::error!("failed to create dir for bind mount {:?}: {}", dir, err);
+Line 524:                 err
+Line 525:             })?;
+Line 526: 
+Line 527:             if src.is_file() && !dest.exists() {
+Line 528:                 OpenOptions::new()
+Line 529:                     .create(true)
+Line 530:                     .truncate(true)
+Line 531:                     .write(true)
+Line 532:                     .open(dest)
+Line 533:                     .map_err(|err| {
+Line 534:                         tracing::error!("failed to create file for bind mount {:?}: {}", src, err);
+Line 535:                         err
+Line 536:                     })?;
+Line 537:             }
+Line 538: 
+Line 539:             src
+Line 540:         } else {
+Line 541:             create_dir_all(dest).map_err(|err| {
+Line 542:                 tracing::error!("failed to create device: {:?}", dest);
+Line 543:                 err
+Line 544:             })?;
+Line 545: 
+Line 546:             PathBuf::from(source)
+Line 547:         };
+Line 548: 
+Line 549:         if let Err(err) =
+Line 550:             self.syscall
+Line 551:                 .mount(Some(&*src), dest, typ, mount_option_config.flags, Some(&*d))
+Line 552:         {
+Line 553:             if let SyscallError::Nix(errno) = err {
+Line 554:                 if !matches!(errno, Errno::EINVAL) {
+Line 555:                     tracing::error!("mount of {:?} failed. {}", m.destination(), errno);
+Line 556:                     return Err(err.into());
+Line 557:                 }
+Line 558:             }
+Line 559: 
+Line 560:             self.syscall
+Line 561:                 .mount(
+Line 562:                     Some(&*src),
+Line 563:                     dest,
+Line 564:                     typ,
+Line 565:                     mount_option_config.flags,
+Line 566:                     Some(&mount_option_config.data),
+Line 567:                 )
+Line 568:                 .map_err(|err| {
+Line 569:                     tracing::error!("failed to mount {src:?} to {dest:?}");
+Li
+
+
+## The list of implementations of some methods in the code base:
+Command extract_method_code returned a lengthy response, we truncated it to the first 4000 characters: Line 110:                 }
+Line 111:             }
+Line 112:             _ => {
+Line 113:                 if *mount.destination() == PathBuf::from("/dev") {
+Line 114:                     mount_option_config.flags &= !MsFlags::MS_RDONLY;
+Line 115:                     self.mount_into_container(
+Line 116:                         mount,
+Line 117:                         options.root,
+Line 118:                         &mount_option_config,
+Line 119:                         options.label,
+Line 120:                     )
+Line 121:                     .map_err(|err| {
+Line 122:                         tracing::error!("failed to mount /dev: {}", err);
+Line 123:                         err
+Line 124:                     })?;
+Line 125:                 } else {
+Line 126:                     self.mount_into_container(
+Line 127:                         mount,
+Line 128:                         options.root,
+Line 129:                         &mount_option_config,
+Line 130:                         options.label,
+Line 131:                     )
+Line 132:                     .map_err(|err| {
+Line 133:                         tracing::error!("failed to mount {:?}: {}", mount, err);
+Line 134:                         err
+Line 135:                     })?;
+Line 136:                 }
+Line 137:             }
+Line 138:         }
+Line 139: 
+Line 140:         Ok(())
+Line 141:     }
+Line 142: 
+Line 143:     #[cfg(feature = "v1")]
+Line 144:     fn mount_cgroup_v1(&self, cgroup_mount: &SpecMount, options: &MountOptions) -> Result<()> {
+Line 145:         tracing::debug!("mounting cgroup v1 filesystem");
+Line 146:         // create tmpfs into which the cgroup subsystems will be mounted
+Line 147:         let tmpfs = SpecMountBuilder::default()
+Line 148:             .source("tmpfs")
+Line 149:             .typ("tmpfs")
+Line 150:             .destination(cgroup_mount.destination())
+Line 151:             .options(
+Line 152:                 ["noexec", "nosuid", "nodev", "mode=755"]
+Line 153:                     .iter()
+Line 154:                     .map(|o| o.to_string())
+Line 155:                     .collect::<Vec<String>>(),
+Line 156:             )
+Line 157:             .build()
+Line 158:             .map_err(|err| {
+Line 159:                 tracing::error!("failed to build tmpfs for cgroup: {}", err);
+Line 160:                 err
+Line 161:             })?;
+Line 162: 
+Line 163:         self.setup_mount(&tmpfs, options).map_err(|err| {
+Line 164:             tracing::error!("failed to mount tmpfs for cgroup: {}", err);
+Line 165:             err
+Line 166:         })?;
+Line 167: 
+Line 168:         // get all cgroup mounts on the host system
+Line 169:         let host_mounts: Vec<PathBuf> = libcgroups::v1::util::list_subsystem_mount_points()
+Line 170:             .map_err(|err| {
+Line 171:                 tracing::error!("failed to get subsystem mount points: {}", err);
+Line 172:                 MountError::Other(err.into())
+Line 173:             })?
+Line 174:             .into_iter()
+Line 175:             .filter(|p| p.as_path().starts_with(DEFAULT_CGROUP_ROOT))
+Line 176:             .collect();
+Line 177:         tracing::debug!("cgroup mounts: {:?}", host_mounts);
+Line 178: 
+Line 179:         // get process cgroups
+Line 180:         let ppid = std::os::unix::process::parent_id();
+Line 181:         // The non-zero ppid means that the PID Namespace is not separated.
+Line 182:         let ppid = if ppid == 0 { std::process::id() } else { ppid };
+Line 183:         let root_cgroups = Process::new(ppid as i32)?.cgroups()?.0;
+Line 184:         let process_cgroups: HashMap<String, String> = Process::myself()?
+Line 185:             .cgroups()?
+Line 186:             .into_iter()
+Line 187:             .map(|c| {
+Line 188:                 let hierarchy = c.hierarchy;
+Line 189:                 // When youki itself is running inside a container, the cgroup path
+Line 190:                 // will include the path of pid-1, which needs to be stripped before
+Line 191:            
+Command extract_method_code returned: Line 129:     syscall.set_capability(CapSet::Effective, &permitted)?;
+Line 130:     Ok(())
+Line 131: }
+Line 132: 
+Line 133: /// Drop any extra granted capabilities, and reset to defaults which are in oci specification
+Line 134: pub fn drop_privileges<S: Syscall + ?Sized>(
+Line 135:     cs: &LinuxCapabilities,
+Line 136:     syscall: &S,
+Line 137: ) -> Result<(), SyscallError> {
+Line 138:     tracing::debug!("dropping bounding capabilities to {:?}", cs.bounding());
+Line 139:     if let Some(bounding) = cs.bounding() {
+Line 140:         syscall.set_capability(CapSet::Bounding, &to_set(bounding))?;
+Line 141:     }
+Line 142: 
+Line 143:     if let Some(effective) = cs.effective() {
+Line 144:         syscall.set_capability(CapSet::Effective, &to_set(effective))?;
+Line 145:     }
+Line 146: 
+Line 147:     if let Some(permitted) = cs.permitted() {
+Line 148:         syscall.set_capability(CapSet::Permitted, &to_set(permitted))?;
+Line 149:     }
+Line 150: 
+Line 151:     if let Some(inheritable) = cs.inheritable() {
+Line 152:         syscall.set_capability(CapSet::Inheritable, &to_set(inheritable))?;
+Line 153:     }
+Line 154: 
+Line 155:     if let Some(ambient) = cs.ambient() {
+Line 156:         // check specifically for ambient, as those might not always be available
+Line 157:         if let Err(e) = syscall.set_capability(CapSet::Ambient, &to_set(ambient)) {
+Line 158:             tracing::warn!("failed to set ambient capabilities: {}", e);
+Line 159:         }
+Line 160:     }
+Line 161: 
+Line 162:     Ok(())
+Line 163: }
+Line 164: 
+Line 165: #[cfg(test)]
+Line 166: mod tests {
+Line 167:     use std::collections::HashSet;
+Line 168: 
+Line 169:     use oci_spec::runtime::LinuxCapabilitiesBuilder;
+Line 170: 
+Line 171:     use super::*;
+Line 172:     use crate::syscall::test::TestHelperSyscall;
+Line 173: 
+Line 174:     #[test]
+Line 175:     fn test_reset_effective() {
+Line 176:         let test_command = TestHelperSyscall::default();
+Line 177:         let permitted_caps = caps::read(None, CapSet::Permitted).unwrap();
+Line 178:         assert!(reset_effective(&test_command).is_ok());
+Line 179:         let set_capability_args: Vec<_> = test_command
+Line 180:             .get_set_capability_args()
+Line 181:             .into_iter()
+Line 182:             .map(|(_capset, caps)| caps)
+Line 183:             .collect();
+Line 184:         assert_eq!(set_capability_args, vec![permitted_caps]);
+Line 185:     }
+Line 186: 
+Line 187:     #[test]
+Line 188:     fn test_convert_oci_spec_to_caps_type() {
+Line 189:         struct Testcase {
+Line 190:             input: SpecCapability,
+Line 191:             want: CapsCapability,
+Line 192:         }
+Line 193: 
+Line 194:         let tests = vec![
+Line 195:             Testcase {
+Line 196:                 input: SpecCapability::AuditControl,
+Line 197:                 want: CapsCapability::CAP_AUDIT_CONTROL,
+Line 198:             },
+Line 199:             Testcase {
+Line 200:                 input: SpecCapability::AuditRead,
+Line 201:                 want: CapsCapability::CAP_AUDIT_READ,
+Line 202:             },
+Line 203:             Testcase {
+Line 204:                 input: SpecCapability::AuditWrite,
+Line 205:                 want: CapsCapability::CAP_AUDIT_WRITE,
+Line 206:             },
+Line 207:             Testcase {
+Line 208:                 input: SpecCapability::BlockSuspend,
+Line 209:                 want: CapsCapability::CAP_BLOCK_SUSPEND,
+Line 210:             },
+Line 211:             Testcase {
+Line 212:                 input: SpecCapability::Bpf,
+Line 213:                 want: CapsCapability::CAP_BPF,
+
+## Executed search queries within the code base:
+Searching keywords: tracing::error! mount retry, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: crates/libcontainer/tests/as_sibling.rs:1: [t, a, c, i, n, :, :, e, o, m, o, u, n, t, e, t] use std::collections::HashMap;
+crates/libcontainer/tests/as_sibling.rs:2: [t, r, a, c, i, :, :, e, r, r, r, u, t, r, e, t, r] use std::fs::create_dir;
+crates/libcontainer/tests/as_sibling.rs:3: [t, r, a, :, :, e, r, r, r, u, t, r, e, t, r] use std::hash::{DefaultHasher, Hash, Hasher};
+crates/libcontainer/tests/as_sibling.rs:4: [t, a, :, :, e, u, t, e, t] use std::path::Path;
+crates/libcontainer/tests/as_sibling.rs:6: [t, r, a, n, :, :, e, r, r, o, r, o, u, n, t, r, e, t, r, y] use anyhow::Result;
+crates/libcontainer/tests/as_sibling.rs:7: [t, r, a, c, i, n, :, :, e, r, r, o, r, o, u, n, t, r, e, t, r] use libcontainer::container::builder::ContainerBuilder;
+crates/libcontainer/tests/as_sibling.rs:8: [t, r, a, c, i, n, :, :, e, r, r, o, r, o, u, n, t, r, e, t, r, y] use libcontainer::syscall::syscall::SyscallType;
+crates/libcontainer/tests/as_sibling.rs:9: [t, r, a, c, i, n, :, :, e, r, r, o, r, o, u, n, t, r, e, t, r] use libcontainer::workload::{
+crates/libcontainer/tests/as_sibling.rs:10: [t, r, a, c, i, n, e, r, r, o, r, o, u, n, t, r, e, t, r] Executor, ExecutorError, ExecutorSetEnvsError, ExecutorValidationError,
+crates/libcontainer/tests/as_sibling.rs:12: [t, i, n, g, :, :, e, u, n, t, e, t] use nix::unistd::{getegid, geteuid};
+crates/libcontainer/tests/as_sibling.rs:13: [t, r, c, i, n, :, :, e, r, r, o, r, m, o, u, n, t, r, e, t, r] use oci_spec::runtime::{RootBuilder, Spec};
+crates/libcontainer/tests/as_sibling.rs:14: [r, c, :, :, e, r, r, o, r, o, u, r, e, r] use procfs::process::Process;
+crates/libcontainer/tests/as_sibling.rs:15: [t, r, a, i, :, :, e, r, r, r, u, t, r, e, t, r] use serial_test::serial;
+crates/libcontainer/tests/as_sibling.rs:16: [t, r, i, :, :, e, r, r, r, m, u, t, r, e, t, r] use tempfile::tempdir;
+crates/libcontainer/tests/as_sibling.rs:18: [t, r, a, c, i, n, :, :, e, r, r, o, r, m, o, u, n, t, r, e, t, r] fn prepare_container_root(root: impl AsRef<Path>) -> Result<()> {
+crates/libcontainer/tests/as_sibling.rs:19: [t, r, a, e, r, r, o, r, o, t, r, e, t, r] let root = root.as_ref();
+crates/libcontainer/tests/as_sibling.rs:20: [t, r, a, c, i, n, e, r, r, o, r, o, n, t, r, e, t, r] create_dir(root.join("rootfs"))?;
+crates/libcontainer/tests/as_sibling.rs:22: [t, r, a, i, g, e, r, r, r, u, t, r, e, t, r] let uid = geteuid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:23: [t, r, a, i, g, e, r, r, r, t, r, e, t, r] let gid = getegid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:25: [t, r, c, i, g, :, :, e, r, r, o, r, m, o, u, t, r, e, t, r] let mut spec = Spec::rootless(uid, gid);
+crates/libcontainer/tests/as_sibling.rs:26: [t, r, c, e, r, r, o, r, o, t, r, e, t, r] spec.set_root(
+crates/libcontainer/tests/as_sibling.rs:27: [t, r, a, i, :, :, e, r, r, o, r, o, u, t, r, e, t, r] RootBuilder::default()
+crates/libcontainer/tests/as_sibling.rs:28: [t, r, a, r, r, o, r, o, t, r, t, r] .path("rootfs")
+crates/libcontainer/tests/as_sibling.rs:29: [r, a, n, e, r, r, o, r, o, n, r, e, r, y] .readonly(false)
+crates/libcontainer/tests/as_sibling.rs:30: [i, u] .build()
+crates/libcontainer/tests/as_sibling.rs:31: [o, o] .ok(),
+crates/libcontainer/tests/as_sibling.rs:34: [t, r, a, c, i, n, g, e, r, r, o, r, o, n, t, r, e, t, r] spec.save(root.join("config.json"))?;
+crates/libcontainer/tests/as_sibling.rs:36: [o, o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:39: [a, i, n, :, :, m, u, n] fn hash(v: impl Hash) -> u64 {
+crates/libcontainer/tests/as_sibling.rs:40: [t, r, a, :, :, e, r, r, r, m, u, t, r, e, t, r] let mut hasher = DefaultHasher::default();
+crates/libcontainer/tests/as_sibling.rs:41: [t, r, a, e, r, r, r, m, u, t, r, e, t, r] v.hash(&mut hasher);
+crates/libcontainer/tests/as_sibling.rs:42: [r, a, i, n, e, r, r, r, n, r, e, r] hasher.finish()
+crates/libcontainer/tests/as_sibling.rs:45: [r, c, i, n, e, r, r, o, r, o, n, r, e, r] #[derive(Clone)]
+crates/libcontainer/tests/as_sibling.rs:46: [t, r, c, e, r, 
+
+Searching keywords: tracing::error!, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: crates/libcontainer/tests/as_sibling.rs:1: [t, a, c, i, n, :, :, e, o] use std::collections::HashMap;
+crates/libcontainer/tests/as_sibling.rs:2: [t, r, a, c, i, :, :, e, r, r, r] use std::fs::create_dir;
+crates/libcontainer/tests/as_sibling.rs:3: [t, r, a, :, :, e, r, r, r] use std::hash::{DefaultHasher, Hash, Hasher};
+crates/libcontainer/tests/as_sibling.rs:4: [t, a, :, :, e] use std::path::Path;
+crates/libcontainer/tests/as_sibling.rs:6: [t, r, a, n, :, :, e, r, r, o, r] use anyhow::Result;
+crates/libcontainer/tests/as_sibling.rs:7: [t, r, a, c, i, n, :, :, e, r, r, o, r] use libcontainer::container::builder::ContainerBuilder;
+crates/libcontainer/tests/as_sibling.rs:8: [t, r, a, c, i, n, :, :, e, r, r, o, r] use libcontainer::syscall::syscall::SyscallType;
+crates/libcontainer/tests/as_sibling.rs:9: [t, r, a, c, i, n, :, :, e, r, r, o, r] use libcontainer::workload::{
+crates/libcontainer/tests/as_sibling.rs:10: [t, r, a, c, i, n, e, r, r, o, r] Executor, ExecutorError, ExecutorSetEnvsError, ExecutorValidationError,
+crates/libcontainer/tests/as_sibling.rs:12: [t, i, n, g, :, :, e] use nix::unistd::{getegid, geteuid};
+crates/libcontainer/tests/as_sibling.rs:13: [t, r, c, i, n, :, :, e, r, r, o, r] use oci_spec::runtime::{RootBuilder, Spec};
+crates/libcontainer/tests/as_sibling.rs:14: [r, c, :, :, e, r, r, o, r] use procfs::process::Process;
+crates/libcontainer/tests/as_sibling.rs:15: [t, r, a, i, :, :, e, r, r, r] use serial_test::serial;
+crates/libcontainer/tests/as_sibling.rs:16: [t, r, i, :, :, e, r, r, r] use tempfile::tempdir;
+crates/libcontainer/tests/as_sibling.rs:18: [t, r, a, c, i, n, :, :, e, r, r, o, r] fn prepare_container_root(root: impl AsRef<Path>) -> Result<()> {
+crates/libcontainer/tests/as_sibling.rs:19: [t, r, a, e, r, r, o, r] let root = root.as_ref();
+crates/libcontainer/tests/as_sibling.rs:20: [t, r, a, c, i, n, e, r, r, o, r] create_dir(root.join("rootfs"))?;
+crates/libcontainer/tests/as_sibling.rs:22: [t, r, a, i, g, e, r, r, r] let uid = geteuid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:23: [t, r, a, i, g, e, r, r, r] let gid = getegid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:25: [t, r, c, i, g, :, :, e, r, r, o, r] let mut spec = Spec::rootless(uid, gid);
+crates/libcontainer/tests/as_sibling.rs:26: [t, r, c, e, r, r, o, r] spec.set_root(
+crates/libcontainer/tests/as_sibling.rs:27: [t, r, a, i, :, :, e, r, r, o, r] RootBuilder::default()
+crates/libcontainer/tests/as_sibling.rs:28: [t, r, a, r, r, o, r] .path("rootfs")
+crates/libcontainer/tests/as_sibling.rs:29: [r, a, n, e, r, r, o, r] .readonly(false)
+crates/libcontainer/tests/as_sibling.rs:30: [i] .build()
+crates/libcontainer/tests/as_sibling.rs:31: [o] .ok(),
+crates/libcontainer/tests/as_sibling.rs:34: [t, r, a, c, i, n, g, e, r, r, o, r] spec.save(root.join("config.json"))?;
+crates/libcontainer/tests/as_sibling.rs:36: [o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:39: [a, i, n, :, :] fn hash(v: impl Hash) -> u64 {
+crates/libcontainer/tests/as_sibling.rs:40: [t, r, a, :, :, e, r, r, r] let mut hasher = DefaultHasher::default();
+crates/libcontainer/tests/as_sibling.rs:41: [t, r, a, e, r, r, r] v.hash(&mut hasher);
+crates/libcontainer/tests/as_sibling.rs:42: [r, a, i, n, e, r, r, r] hasher.finish()
+crates/libcontainer/tests/as_sibling.rs:45: [r, c, i, n, e, r, r, o, r] #[derive(Clone)]
+crates/libcontainer/tests/as_sibling.rs:46: [t, r, c, e, r, r, o, r] struct SomeExecutor;
+crates/libcontainer/tests/as_sibling.rs:48: [t, r, c, i, e, r, r, o, r] impl Executor for SomeExecutor {
+crates/libcontainer/tests/as_sibling.rs:49: [t, r, a, c, i, n, g, :, :, e, r, r, o, r] fn setup_envs(&self, _: HashMap<String, String>) -> Result<(), ExecutorSetEnvsError> {
+crates/libcontainer/tests/as_sibling.rs:50: [o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:53: [t, r, a, c, i, n, :, :, e, r, r, o, r] fn validate(&self, _: &Spec) -> Result<(), ExecutorValidationError> {
+crates/libcontainer/tests/as_sibling.rs:54: [o] Ok(())
+crates/libcontainer/t
+
+Searching keywords: retry mount cgroup, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: crates/libcontainer/tests/as_sibling.rs:1: [e, t, m, o, u, n, t, c, o, u, p] use std::collections::HashMap;
+crates/libcontainer/tests/as_sibling.rs:2: [r, e, t, r, u, t, c, r, u] use std::fs::create_dir;
+crates/libcontainer/tests/as_sibling.rs:3: [r, e, t, r, u, t, r, u] use std::hash::{DefaultHasher, Hash, Hasher};
+crates/libcontainer/tests/as_sibling.rs:4: [e, t, u, t, u, p] use std::path::Path;
+crates/libcontainer/tests/as_sibling.rs:6: [r, e, t, r, y, o, u, n, t, r, o, u] use anyhow::Result;
+crates/libcontainer/tests/as_sibling.rs:7: [r, e, t, r, o, u, n, t, c, r, o, u] use libcontainer::container::builder::ContainerBuilder;
+crates/libcontainer/tests/as_sibling.rs:8: [r, e, t, r, y, o, u, n, t, c, r, o, u, p] use libcontainer::syscall::syscall::SyscallType;
+crates/libcontainer/tests/as_sibling.rs:9: [r, e, t, r, o, u, n, t, c, r, o, u] use libcontainer::workload::{
+crates/libcontainer/tests/as_sibling.rs:10: [r, e, t, r, o, u, n, t, c, r, o, u] Executor, ExecutorError, ExecutorSetEnvsError, ExecutorValidationError,
+crates/libcontainer/tests/as_sibling.rs:12: [e, t, u, n, t, g, u] use nix::unistd::{getegid, geteuid};
+crates/libcontainer/tests/as_sibling.rs:13: [r, e, t, r, m, o, u, n, t, c, r, o, u, p] use oci_spec::runtime::{RootBuilder, Spec};
+crates/libcontainer/tests/as_sibling.rs:14: [r, e, r, o, u, c, r, o, u, p] use procfs::process::Process;
+crates/libcontainer/tests/as_sibling.rs:15: [r, e, t, r, u, t, r, u] use serial_test::serial;
+crates/libcontainer/tests/as_sibling.rs:16: [r, e, t, r, m, u, t, r, u, p] use tempfile::tempdir;
+crates/libcontainer/tests/as_sibling.rs:18: [r, e, t, r, m, o, u, n, t, c, r, o, u, p] fn prepare_container_root(root: impl AsRef<Path>) -> Result<()> {
+crates/libcontainer/tests/as_sibling.rs:19: [r, e, t, r, o, t, r, o] let root = root.as_ref();
+crates/libcontainer/tests/as_sibling.rs:20: [r, e, t, r, o, n, t, c, r, o] create_dir(root.join("rootfs"))?;
+crates/libcontainer/tests/as_sibling.rs:22: [r, e, t, r, u, t, g, r, u] let uid = geteuid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:23: [r, e, t, r, t, g, r] let gid = getegid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:25: [r, e, t, r, m, o, u, t, c, g, r, o, u, p] let mut spec = Spec::rootless(uid, gid);
+crates/libcontainer/tests/as_sibling.rs:26: [r, e, t, r, o, t, c, r, o, p] spec.set_root(
+crates/libcontainer/tests/as_sibling.rs:27: [r, e, t, r, o, u, t, r, o, u] RootBuilder::default()
+crates/libcontainer/tests/as_sibling.rs:28: [r, t, r, o, t, r, o, p] .path("rootfs")
+crates/libcontainer/tests/as_sibling.rs:29: [r, e, r, y, o, n, r, o] .readonly(false)
+crates/libcontainer/tests/as_sibling.rs:30: [u, u] .build()
+crates/libcontainer/tests/as_sibling.rs:31: [o, o] .ok(),
+crates/libcontainer/tests/as_sibling.rs:34: [r, e, t, r, o, n, t, c, g, r, o, p] spec.save(root.join("config.json"))?;
+crates/libcontainer/tests/as_sibling.rs:36: [o, o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:39: [m, u, n, u, p] fn hash(v: impl Hash) -> u64 {
+crates/libcontainer/tests/as_sibling.rs:40: [r, e, t, r, m, u, t, r, u] let mut hasher = DefaultHasher::default();
+crates/libcontainer/tests/as_sibling.rs:41: [r, e, t, r, m, u, t, r, u] v.hash(&mut hasher);
+crates/libcontainer/tests/as_sibling.rs:42: [r, e, r, n, r] hasher.finish()
+crates/libcontainer/tests/as_sibling.rs:45: [r, e, r, o, n, c, r, o] #[derive(Clone)]
+crates/libcontainer/tests/as_sibling.rs:46: [r, e, t, r, m, o, u, t, c, r, o, u] struct SomeExecutor;
+crates/libcontainer/tests/as_sibling.rs:48: [r, e, t, r, m, o, u, t, c, r, o, u, p] impl Executor for SomeExecutor {
+crates/libcontainer/tests/as_sibling.rs:49: [r, e, t, r, m, o, u, n, t, c, g, r, o, u, p] fn setup_envs(&self, _: HashMap<String, String>) -> Result<(), ExecutorSetEnvsError> {
+crates/libcontainer/tests/as_sibling.rs:50: [o, o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:53: [r, e, t, r, o, u, n, t, c, r, o, u, p] fn validate(&self, _: &Spec) -> Result<(), ExecutorValidationError> {
+crates/libcontainer/tests/as
+
+Searching keywords: retrying mount, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: crates/libcontainer/tests/as_sibling.rs:1: [e, t, i, n, m, o, u, n, t] use std::collections::HashMap;
+crates/libcontainer/tests/as_sibling.rs:2: [r, e, t, r, i, u, t] use std::fs::create_dir;
+crates/libcontainer/tests/as_sibling.rs:3: [r, e, t, r, u, t] use std::hash::{DefaultHasher, Hash, Hasher};
+crates/libcontainer/tests/as_sibling.rs:4: [e, t, u, t] use std::path::Path;
+crates/libcontainer/tests/as_sibling.rs:6: [r, e, t, r, y, n, o, u, n, t] use anyhow::Result;
+crates/libcontainer/tests/as_sibling.rs:7: [r, e, t, r, i, n, o, u, n, t] use libcontainer::container::builder::ContainerBuilder;
+crates/libcontainer/tests/as_sibling.rs:8: [r, e, t, r, y, i, n, o, u, n, t] use libcontainer::syscall::syscall::SyscallType;
+crates/libcontainer/tests/as_sibling.rs:9: [r, e, t, r, i, n, o, u, n, t] use libcontainer::workload::{
+crates/libcontainer/tests/as_sibling.rs:10: [r, e, t, r, i, n, o, u, n, t] Executor, ExecutorError, ExecutorSetEnvsError, ExecutorValidationError,
+crates/libcontainer/tests/as_sibling.rs:12: [e, t, i, n, g, u, n, t] use nix::unistd::{getegid, geteuid};
+crates/libcontainer/tests/as_sibling.rs:13: [r, e, t, r, i, n, m, o, u, n, t] use oci_spec::runtime::{RootBuilder, Spec};
+crates/libcontainer/tests/as_sibling.rs:14: [r, e, r, o, u] use procfs::process::Process;
+crates/libcontainer/tests/as_sibling.rs:15: [r, e, t, r, i, u, t] use serial_test::serial;
+crates/libcontainer/tests/as_sibling.rs:16: [r, e, t, r, i, m, u, t] use tempfile::tempdir;
+crates/libcontainer/tests/as_sibling.rs:18: [r, e, t, r, i, n, m, o, u, n, t] fn prepare_container_root(root: impl AsRef<Path>) -> Result<()> {
+crates/libcontainer/tests/as_sibling.rs:19: [r, e, t, r, o, t] let root = root.as_ref();
+crates/libcontainer/tests/as_sibling.rs:20: [r, e, t, r, i, n, o, n, t] create_dir(root.join("rootfs"))?;
+crates/libcontainer/tests/as_sibling.rs:22: [r, e, t, r, i, g, u, t] let uid = geteuid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:23: [r, e, t, r, i, g, t] let gid = getegid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:25: [r, e, t, r, i, g, m, o, u, t] let mut spec = Spec::rootless(uid, gid);
+crates/libcontainer/tests/as_sibling.rs:26: [r, e, t, r, o, t] spec.set_root(
+crates/libcontainer/tests/as_sibling.rs:27: [r, e, t, r, i, o, u, t] RootBuilder::default()
+crates/libcontainer/tests/as_sibling.rs:28: [r, t, r, o, t] .path("rootfs")
+crates/libcontainer/tests/as_sibling.rs:29: [r, e, r, y, n, o, n] .readonly(false)
+crates/libcontainer/tests/as_sibling.rs:30: [i, u] .build()
+crates/libcontainer/tests/as_sibling.rs:31: [o] .ok(),
+crates/libcontainer/tests/as_sibling.rs:34: [r, e, t, r, i, n, g, o, n, t] spec.save(root.join("config.json"))?;
+crates/libcontainer/tests/as_sibling.rs:36: [o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:39: [i, n, m, u, n] fn hash(v: impl Hash) -> u64 {
+crates/libcontainer/tests/as_sibling.rs:40: [r, e, t, r, m, u, t] let mut hasher = DefaultHasher::default();
+crates/libcontainer/tests/as_sibling.rs:41: [r, e, t, r, m, u, t] v.hash(&mut hasher);
+crates/libcontainer/tests/as_sibling.rs:42: [r, e, r, i, n, n] hasher.finish()
+crates/libcontainer/tests/as_sibling.rs:45: [r, e, r, i, n, o, n] #[derive(Clone)]
+crates/libcontainer/tests/as_sibling.rs:46: [r, e, t, r, m, o, u, t] struct SomeExecutor;
+crates/libcontainer/tests/as_sibling.rs:48: [r, e, t, r, i, m, o, u, t] impl Executor for SomeExecutor {
+crates/libcontainer/tests/as_sibling.rs:49: [r, e, t, r, i, n, g, m, o, u, n, t] fn setup_envs(&self, _: HashMap<String, String>) -> Result<(), ExecutorSetEnvsError> {
+crates/libcontainer/tests/as_sibling.rs:50: [o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:53: [r, e, t, r, i, n, o, u, n, t] fn validate(&self, _: &Spec) -> Result<(), ExecutorValidationError> {
+crates/libcontainer/tests/as_sibling.rs:54: [o] Ok(())
+crates/libcontainer/tests/as_sibling.rs:57: [r, e, t, r, n, o, u, n, t] fn exec(&self, _: &Spec) -> Result<(), ExecutorError> {
+crates/libcontainer/tests/as_sibling.rs:58: [o] Ok(())
+crates/li
+
+Searching keywords: Ambient ambient capabilities tracing::error, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: crates/libcontainer/tests/as_sibling.rs:1: [a, m, i, e, n, t, a, m, i, e, n, t, c, a, p, a, i, l, i, t, i, e, s, t, a, c, i, n, :, :, e, o] use std::collections::HashMap;
+crates/libcontainer/tests/as_sibling.rs:2: [a, i, e, t, a, i, e, t, c, a, a, i, i, t, i, e, s, t, r, a, c, i, :, :, e, r, r, r] use std::fs::create_dir;
+crates/libcontainer/tests/as_sibling.rs:3: [a, e, t, a, e, t, a, a, l, t, e, s, t, r, a, :, :, e, r, r, r] use std::hash::{DefaultHasher, Hash, Hasher};
+crates/libcontainer/tests/as_sibling.rs:4: [a, e, t, a, e, t, a, p, a, t, e, s, t, a, :, :, e] use std::path::Path;
+crates/libcontainer/tests/as_sibling.rs:6: [a, e, n, t, a, e, n, t, a, a, l, t, e, s, t, r, a, n, :, :, e, r, r, o, r] use anyhow::Result;
+crates/libcontainer/tests/as_sibling.rs:7: [a, b, i, e, n, t, a, b, i, e, n, t, c, a, a, b, i, l, i, t, i, e, s, t, r, a, c, i, n, :, :, e, r, r, o, r] use libcontainer::container::builder::ContainerBuilder;
+crates/libcontainer/tests/as_sibling.rs:8: [a, b, i, e, n, t, a, b, i, e, n, t, c, a, p, a, b, i, l, i, t, i, e, s, t, r, a, c, i, n, :, :, e, r, r, o, r] use libcontainer::syscall::syscall::SyscallType;
+crates/libcontainer/tests/as_sibling.rs:9: [a, b, i, e, n, t, a, b, i, e, n, t, c, a, a, b, i, l, i, t, i, e, s, t, r, a, c, i, n, :, :, e, r, r, o, r] use libcontainer::workload::{
+crates/libcontainer/tests/as_sibling.rs:10: [a, i, e, n, t, a, i, e, n, t, c, a, a, i, l, i, t, i, e, s, t, r, a, c, i, n, e, r, r, o, r] Executor, ExecutorError, ExecutorSetEnvsError, ExecutorValidationError,
+crates/libcontainer/tests/as_sibling.rs:12: [i, e, n, t, i, e, n, t, i, i, t, i, e, s, t, i, n, g, :, :, e] use nix::unistd::{getegid, geteuid};
+crates/libcontainer/tests/as_sibling.rs:13: [m, b, i, e, n, t, m, b, i, e, n, t, c, p, b, i, l, i, t, i, e, s, t, r, c, i, n, :, :, e, r, r, o, r] use oci_spec::runtime::{RootBuilder, Spec};
+crates/libcontainer/tests/as_sibling.rs:14: [e, e, c, p, e, s, r, c, :, :, e, r, r, o, r] use procfs::process::Process;
+crates/libcontainer/tests/as_sibling.rs:15: [a, i, e, t, a, i, e, t, a, a, i, l, i, t, i, e, s, t, r, a, i, :, :, e, r, r, r] use serial_test::serial;
+crates/libcontainer/tests/as_sibling.rs:16: [m, i, e, t, m, i, e, t, p, i, l, i, t, i, e, s, t, r, i, :, :, e, r, r, r] use tempfile::tempdir;
+crates/libcontainer/tests/as_sibling.rs:18: [a, m, i, e, n, t, a, m, i, e, n, t, c, a, p, a, i, l, i, t, i, e, s, t, r, a, c, i, n, :, :, e, r, r, o, r] fn prepare_container_root(root: impl AsRef<Path>) -> Result<()> {
+crates/libcontainer/tests/as_sibling.rs:19: [a, e, t, a, e, t, a, a, l, t, e, s, t, r, a, e, r, r, o, r] let root = root.as_ref();
+crates/libcontainer/tests/as_sibling.rs:20: [a, i, e, n, t, a, i, e, n, t, c, a, a, i, i, t, i, e, s, t, r, a, c, i, n, e, r, r, o, r] create_dir(root.join("rootfs"))?;
+crates/libcontainer/tests/as_sibling.rs:22: [a, i, e, t, a, i, e, t, a, a, i, l, i, t, i, e, s, t, r, a, i, g, e, r, r, r] let uid = geteuid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:23: [a, i, e, t, a, i, e, t, a, a, i, l, i, t, i, e, s, t, r, a, i, g, e, r, r, r] let gid = getegid().as_raw();
+crates/libcontainer/tests/as_sibling.rs:25: [m, i, e, t, m, i, e, t, c, p, i, l, i, t, i, e, s, t, r, c, i, g, :, :, e, r, r, o, r] let mut spec = Spec::rootless(uid, gid);
+crates/libcontainer/tests/as_sibling.rs:26: [e, t, e, t, c, p, t, e, s, t, r, c, e, r, r, o, r] spec.set_root(
+crates/libcontainer/tests/as_sibling.rs:27: [a, b, i, e, t, a, b, i, e, t, a, a, b, i, l, i, t, i, e, t, r, a, i, :, :, e, r, r, o, r] RootBuilder::default()
+crates/libcontainer/tests/as_sibling.rs:28: [a, t, a, t, a, p, a, t, s, t, r, a, r, r, o, r] .path("rootfs")
+crates/libcontainer/tests/as_sibling.rs:29: [a, e, n, a, e, n, a, a, l, e, s, r, a, n, e, r, r, o, r] .readonly(false)
+crates/libcontainer/tests/as_sibling.rs:30: [b, i, b, i, b, i, l, i, i, i] .build()
+crates/libcontainer/tests/as_sibling.rs:31: [o] .ok(),
+crates/libcontainer/tests/as_sibling.rs:34: [a, i, e, n, t, a, i, e, n, t, c, a,
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case youki-3132.
+
+Target runtime: youki
+Title: [Bug]: Normal logs logged at Error level in container create
+Upstream issue: https://github.com/youki-dev/youki/issues/3132
+Category: Lifecycle & State
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-3132
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-3132
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-3132
+Upstream URL: https://github.com/youki-dev/youki/issues/3132
+Category: Lifecycle & State
+
+Payload under test:
+process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-3132
+
+## Upstream Issue Summary
+- Title: [Bug]: Normal logs logged at Error level in container create
+- URL: https://github.com/youki-dev/youki/issues/3132
+- Category: Lifecycle & State
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue text does not name an exact youki release; it reports the behavior on Pop OS after a recent kernel update and says it had been observed for roughly four to five months. The issue body shows two independent error-level log paths: cgroup mount retry logging and ambient capability logging. The issue page is closed and links PR #3150 and PR #3157 as relevant fixes. Local git history maps PR #3150 to `9560eb10405738668025ae69870401e28633e6c3` (`fix: capet Ambient log level`, 2025-04-19), whose parent is `df8f3aaadb61a6d488bcee08aa9c323fb5ac5dca`; it maps PR #3157 to `6b02740e8f339d558a1ddbd8ff6b1793fb9c04f0` (`fix: mount retry and logging (#3157)`, 2025-05-22), whose parent is `8b85144c0da42db558eec8e82899859cd278eaf9`. Use those parent commits as the two pre-fix buggy baselines for the ambient-capability and cgroup-mount log paths respectively. `git describe` places the PR #3150 parent at `v0.5.3-30-gdf8f3aaadb61` and the PR #3157 parent at `v0.5.3-53-g8b85144c0da4`, both before `v0.5.4`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-3132`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original log-level issue was not reproduced with the current `repro.sh`. The payload only runs `true`, and the script does not enable or capture a runtime log stream that can distinguish normal messages logged at `ERROR` level from expected output. In the previous isolated run, runc and crun completed without useful output, while youki timed out without exposing the specific log-level symptom. Reproducing the original issue appears to require the affected youki revision plus explicit log-level capture or the cgroup/ambient-capability logging conditions from the upstream report.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

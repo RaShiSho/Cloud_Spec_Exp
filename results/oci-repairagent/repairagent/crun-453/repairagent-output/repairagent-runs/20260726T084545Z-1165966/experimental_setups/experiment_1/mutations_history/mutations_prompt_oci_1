@@ -1,0 +1,451 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case crun-453.
+
+Target runtime: crun
+Title: invalid seccomp action `SCMP_ACT_LOG`
+Upstream issue: https://github.com/containers/crun/issues/453
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-453
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-453
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-453
+Upstream URL: https://github.com/containers/crun/issues/453
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo seccomp-log-action-453; true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_LOG", "architectures": ["SCMP_ARCH_X86_64"], "syscalls": [{"names": ["read", "write", "exit", "exit_group"], "action": "SCMP_ACT_ALLOW"}]}
+
+Expected differential behavior:
+A supporting runtime accepts SCMP_ACT_LOG and starts. An unsupported runtime fails during seccomp setup.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-453
+
+## Upstream Issue Summary
+- Title: invalid seccomp action `SCMP_ACT_LOG`
+- URL: https://github.com/containers/crun/issues/453
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched `47dd153de924` (`seccomp: support SCMP_ACT_LOG`); use parent `8aa48d5db588` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-453`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo seccomp-log-action-453; true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_LOG", "architectures": ["SCMP_ARCH_X86_64"], "syscalls": [{"names": ["read", "write", "exit", "exit_group"], "action": "SCMP_ACT_ALLOW"}]}
+
+Oracle: A supporting runtime accepts SCMP_ACT_LOG and starts. An unsupported runtime fails during seccomp setup.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original unsupported-`SCMP_ACT_LOG` behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes accepted the seccomp action and printed `seccomp-log-action-453`. Reproduction appears to require a runtime or libseccomp environment that lacks `SCMP_ACT_LOG` support.
+
+
+Source files:
+contrib/notify-socket-server/notify-socket-server.c
+contrib/terminal-receiver/terminal-receiver.c
+python/crun_python.c
+src/checkpoint.c
+src/checkpoint.h
+src/create.c
+src/create.h
+src/crun.c
+src/crun.h
+src/delete.c
+src/delete.h
+src/exec.c
+src/exec.h
+src/kill.c
+src/kill.h
+src/libcrun/cgroup.c
+src/libcrun/cgroup.h
+src/libcrun/chroot_realpath.c
+src/libcrun/cloned_binary.c
+src/libcrun/container.c
+src/libcrun/container.h
+src/libcrun/criu.c
+src/libcrun/criu.h
+src/libcrun/ebpf.c
+src/libcrun/ebpf.h
+src/libcrun/error.c
+src/libcrun/error.h
+src/libcrun/intprops.h
+src/libcrun/linux.c
+src/libcrun/linux.h
+src/libcrun/seccomp.c
+src/libcrun/seccomp.h
+src/libcrun/signals.c
+src/libcrun/status.c
+src/libcrun/status.h
+src/libcrun/terminal.c
+src/libcrun/terminal.h
+src/libcrun/utils.c
+src/libcrun/utils.h
+src/list.c
+src/list.h
+src/pause.c
+src/pause.h
+src/ps.c
+src/ps.h
+src/restore.c
+src/restore.h
+src/run.c
+src/run.h
+src/spec.c
+src/spec.h
+src/start.c
+src/start.h
+src/state.c
+src/state.h
+src/unpause.c
+src/unpause.h
+src/update.c
+src/update.h
+tests/init.c
+tests/tests_libcrun_errors.c
+tests/tests_libcrun_utils.c
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 240 from file: src/libcrun/seccomp.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: /*
+Line 2:  * crun - OCI runtime written in C
+Line 3:  *
+Line 4:  * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+Line 5:  * crun is free software; you can redistribute it and/or modify
+Line 6:  * it under the terms of the GNU Lesser General Public License as published by
+Line 7:  * the Free Software Foundation; either version 2.1 of the License, or
+Line 8:  * (at your option) any later version.
+Line 9:  *
+Line 10:  * crun is distributed in the hope that it will be useful,
+Line 11:  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+Line 12:  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+Line 13:  * GNU Lesser General Public License for more details.
+Line 14:  *
+Line 15:  * You should have received a copy of the GNU Lesser General Public License
+Line 16:  * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+Line 17:  */
+Line 18: 
+Line 19: #define _GNU_SOURCE
+Line 20: 
+Line 21: #include <config.h>
+Line 22: #include "seccomp.h"
+Line 23: #include "linux.h"
+Line 24: #include "utils.h"
+Line 25: #include <string.h>
+Line 26: #include <sched.h>
+Line 27: #include <fcntl.h>
+Line 28: #include <unistd.h>
+Line 29: #include <sys/mount.h>
+Line 30: #include <sys/syscall.h>
+Line 31: #include <sys/prctl.h>
+Line 32: #include <sys/capability.h>
+Line 33: #include <sys/time.h>
+Line 34: #include <sys/resource.h>
+Line 35: #include <sys/sysmacros.h>
+Line 36: #include <sys/types.h>
+Line 37: #include <sys/stat.h>
+Line 38: #include <seccomp.h>
+Line 39: #include <linux/seccomp.h>
+Line 40: #include <linux/filter.h>
+Line 41: #include <sys/prctl.h>
+Line 42: #include <sys/syscall.h>
+Line 43: 
+Line 44: #ifndef __NR_seccomp
+Line 45: # define __NR_seccomp 0xffff //seccomp syscall number unknown for this architecture
+Line 46: #endif
+Line 47: 
+Line 48: #ifndef SECCOMP_SET_MODE_STRICT
+Line 49: # define SECCOMP_SET_MODE_STRICT 0
+Line 50: #endif
+Line 51: 
+Line 52: #ifndef SECCOMP_SET_MODE_FILTER
+Line 53: # define SECCOMP_SET_MODE_FILTER 1
+Line 54: #endif
+Line 55: 
+Line 56: #ifndef SECCOMP_FILTER_FLAG_TSYNC
+Line 57: # define SECCOMP_FILTER_FLAG_TSYNC (1UL << 0)
+Line 58: #endif
+Line 59: 
+Line 60: #ifndef SECCOMP_FILTER_FLAG_LOG
+Line 61: # define SECCOMP_FILTER_FLAG_LOG (1UL << 1)
+Line 62: #endif
+Line 63: 
+Line 64: #ifndef SECCOMP_FILTER_FLAG_SPEC_ALLOW
+Line 65: # define SECCOMP_FILTER_FLAG_SPEC_ALLOW	(1UL << 2)
+Line 66: #endif
+Line 67: 
+Line 68: static int
+Line 69: syscall_seccomp (unsigned int operation, unsigned int flags, void *args)
+Line 70: {
+Line 71:   return (int) syscall (__NR_seccomp, operation, flags, args);
+Line 72: }
+Line 73: 
+Line 74: static unsigned long
+Line 75: get_seccomp_operator (const char *name, libcrun_error_t *err)
+Line 76: {
+Line 77:   if (strcmp (name, "SCMP_CMP_NE") == 0)
+Line 78:     return SCMP_CMP_NE;
+Line 79:   if (strcmp (name, "SCMP_CMP_LT") == 0)
+Line 80:     return SCMP_CMP_LT;
+Line 81:   if (strcmp (name, "SCMP_CMP_LE") == 0)
+Line 82:     return SCMP_CMP_LE;
+Line 83:   if (strcmp (name, "SCMP_CMP_EQ") == 0)
+Line 84:     return SCMP_CMP_EQ;
+Line 85:   if (strcmp (name, "SCMP_CMP_GE") == 0)
+Line 86:     return SCMP_CMP_GE;
+Line 87:   if (strcmp (name, "SCMP_CMP_GT") == 0)
+Line 88:     return SCMP_CMP_GT;
+Line 89:   if (strcmp (name, "SCMP_CMP_MASKED_EQ") == 0)
+Line 90:     return SCMP_CMP_MASKED_EQ;
+Line 91: 
+Line 92:   crun_make_error (err, 0, "seccomp get operator", name);
+Line 93:   return 0;
+Line 94: }
+Line 95: 
+Line 96: static unsigned long long
+Line 97: get_seccomp_action (const char *name, int errno_ret, libcrun_error_t *err)
+Line 98: {
+Line 99:   const char *p;
+Line 100: 
+Line 101:   p = name;
+Line 102:   if (strncmp (p, "SCMP_ACT_", 9))
+Line 103:     goto fail;
+Line 104: 
+Line 105:   p += 9;
+Line 106: 
+Line 107:   if (strcmp (p, "ALLOW") == 0)
+Line 108:     return SCMP_ACT_ALLOW;
+Line 109:   else if (strcmp (p, "ERRNO") == 0)
+Line 110:     return SCMP_ACT_ERRNO (errno_ret);
+Line 111:   else if (strcmp (p, "KILL") == 0)
+Line 112:     return SCMP_ACT_KI
+
+Lines 96 to 150 from file: src/libcrun/seccomp.c
+Command read_range returned: Line 96: static unsigned long long
+Line 97: get_seccomp_action (const char *name, int errno_ret, libcrun_error_t *err)
+Line 98: {
+Line 99:   const char *p;
+Line 100: 
+Line 101:   p = name;
+Line 102:   if (strncmp (p, "SCMP_ACT_", 9))
+Line 103:     goto fail;
+Line 104: 
+Line 105:   p += 9;
+Line 106: 
+Line 107:   if (strcmp (p, "ALLOW") == 0)
+Line 108:     return SCMP_ACT_ALLOW;
+Line 109:   else if (strcmp (p, "ERRNO") == 0)
+Line 110:     return SCMP_ACT_ERRNO (errno_ret);
+Line 111:   else if (strcmp (p, "KILL") == 0)
+Line 112:     return SCMP_ACT_KILL;
+Line 113:   else if (strcmp (p, "TRAP") == 0)
+Line 114:     return SCMP_ACT_TRAP;
+Line 115:   else if (strcmp (p, "TRACE") == 0)
+Line 116:     return SCMP_ACT_TRACE (errno_ret);
+Line 117: #ifdef SCMP_ACT_KILL_PROCESS
+Line 118:   else if (strcmp (p, "KILL_PROCESS") == 0)
+Line 119:     return SCMP_ACT_KILL_PROCESS;
+Line 120: #endif
+Line 121: 
+Line 122:  fail:
+Line 123:   crun_make_error (err, 0, "seccomp get action", name);
+Line 124:   return 0;
+Line 125: }
+Line 126: 
+Line 127: static void
+Line 128: make_lowercase (char *str)
+Line 129: {
+Line 130:   while (*str)
+Line 131:     {
+Line 132:       *str = tolower (*str);
+Line 133:       str++;
+Line 134:     }
+Line 135: }
+Line 136: 
+Line 137: static void
+Line 138: cleanup_seccompp (void *p)
+Line 139: {
+Line 140:   scmp_filter_ctx *ctx = (void **) p;
+Line 141:   if (*ctx)
+Line 142:     seccomp_release (*ctx);
+Line 143: }
+Line 144: #define cleanup_seccomp __attribute__((cleanup (cleanup_seccompp)))
+Line 145: 
+Line 146: int
+Line 147: libcrun_apply_seccomp (int infd, char **seccomp_flags, size_t seccomp_flags_len, libcrun_error_t *err)
+Line 148: {
+Line 149:   int ret;
+Line 150:   struct sock_fprog seccomp_filter;
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case crun-453.
+
+Target runtime: crun
+Title: invalid seccomp action `SCMP_ACT_LOG`
+Upstream issue: https://github.com/containers/crun/issues/453
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-453
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-453
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-453
+Upstream URL: https://github.com/containers/crun/issues/453
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo seccomp-log-action-453; true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_LOG", "architectures": ["SCMP_ARCH_X86_64"], "syscalls": [{"names": ["read", "write", "exit", "exit_group"], "action": "SCMP_ACT_ALLOW"}]}
+
+Expected differential behavior:
+A supporting runtime accepts SCMP_ACT_LOG and starts. An unsupported runtime fails during seccomp setup.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-453
+
+## Upstream Issue Summary
+- Title: invalid seccomp action `SCMP_ACT_LOG`
+- URL: https://github.com/containers/crun/issues/453
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched `47dd153de924` (`seccomp: support SCMP_ACT_LOG`); use parent `8aa48d5db588` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-453`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo seccomp-log-action-453; true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_LOG", "architectures": ["SCMP_ARCH_X86_64"], "syscalls": [{"names": ["read", "write", "exit", "exit_group"], "action": "SCMP_ACT_ALLOW"}]}
+
+Oracle: A supporting runtime accepts SCMP_ACT_LOG and starts. An unsupported runtime fails during seccomp setup.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original unsupported-`SCMP_ACT_LOG` behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes accepted the seccomp action and printed `seccomp-log-action-453`. Reproduction appears to require a runtime or libseccomp environment that lacks `SCMP_ACT_LOG` support.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

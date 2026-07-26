@@ -1,0 +1,1138 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-2928.
+
+Target runtime: runc
+Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+Upstream issue: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-2928
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-2928
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2928
+Upstream URL: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-2928
+
+## Upstream Issue Summary
+- Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+- URL: https://github.com/opencontainers/runc/issues/2928
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly reports the failing runc revision `d279ebd97d8832020e2c6f50cc3a11d0499a4690`. It also identifies the regression as PR #2917, including `2192670a2430` (`libct/configs/validate: validate mounts`) whose parent is `1f1e91b1a09b`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-2928`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/recvtty/recvtty.go
+create.go
+delete.go
+events.go
+exec.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/cgroups_unsupported.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/ebpf/devicefilter/devicefilter.go
+libcontainer/cgroups/ebpf/devicefilter/devicefilter_test.go
+libcontainer/cgroups/ebpf/ebpf.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/devices_test.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/unsupported.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/devices.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fscommon/fscommon.go
+libcontainer/cgroups/fscommon/fscommon_test.go
+libcontainer/cgroups/fscommon/open.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/unsupported.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/devices.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/error.go
+libcontainer/error_test.go
+libcontainer/factory.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/generic_error.go
+libcontainer/generic_error_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_linux_v2.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/nsenter_unsupported.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/stacktrace/capture.go
+libcontainer/stacktrace/capture_test.go
+libcontainer/stacktrace/frame.go
+libcontainer/stacktrace/frame_test.go
+libcontainer/stacktrace/stacktrace.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+libcontainer/system/userns_deprecated.go
+libcontainer/system/xattrs_linux.go
+libcontainer/user/lookup_unix.go
+libcontainer/user/user.go
+libcontainer/user/user_fuzzer.go
+libcontainer/user/user_test.go
+libcontainer/userns/userns.go
+libcontainer/userns/userns_fuzzer.go
+libcontainer/userns/userns_linux.go
+libcontainer/userns/userns_linux_test.go
+libcontainer/userns/userns_unsupported.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+pause.go
+... 14 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 240 from file: libcontainer/configs/validate/validator.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package validate
+Line 2: 
+Line 3: import (
+Line 4: 	"errors"
+Line 5: 	"fmt"
+Line 6: 	"os"
+Line 7: 	"path/filepath"
+Line 8: 	"strings"
+Line 9: 	"sync"
+Line 10: 
+Line 11: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 12: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 13: 	"github.com/opencontainers/runc/libcontainer/intelrdt"
+Line 14: 	selinux "github.com/opencontainers/selinux/go-selinux"
+Line 15: 	"golang.org/x/sys/unix"
+Line 16: )
+Line 17: 
+Line 18: type Validator interface {
+Line 19: 	Validate(*configs.Config) error
+Line 20: }
+Line 21: 
+Line 22: func New() Validator {
+Line 23: 	return &ConfigValidator{}
+Line 24: }
+Line 25: 
+Line 26: type ConfigValidator struct {
+Line 27: }
+Line 28: 
+Line 29: type check func(config *configs.Config) error
+Line 30: 
+Line 31: func (v *ConfigValidator) Validate(config *configs.Config) error {
+Line 32: 	checks := []check{
+Line 33: 		v.rootfs,
+Line 34: 		v.network,
+Line 35: 		v.hostname,
+Line 36: 		v.security,
+Line 37: 		v.usernamespace,
+Line 38: 		v.cgroupnamespace,
+Line 39: 		v.sysctl,
+Line 40: 		v.intelrdt,
+Line 41: 		v.rootlessEUID,
+Line 42: 		v.mounts,
+Line 43: 	}
+Line 44: 	for _, c := range checks {
+Line 45: 		if err := c(config); err != nil {
+Line 46: 			return err
+Line 47: 		}
+Line 48: 	}
+Line 49: 	if err := v.cgroups(config); err != nil {
+Line 50: 		return err
+Line 51: 	}
+Line 52: 
+Line 53: 	return nil
+Line 54: }
+Line 55: 
+Line 56: // rootfs validates if the rootfs is an absolute path and is not a symlink
+Line 57: // to the container's root filesystem.
+Line 58: func (v *ConfigValidator) rootfs(config *configs.Config) error {
+Line 59: 	if _, err := os.Stat(config.Rootfs); err != nil {
+Line 60: 		if os.IsNotExist(err) {
+Line 61: 			return fmt.Errorf("rootfs (%s) does not exist", config.Rootfs)
+Line 62: 		}
+Line 63: 		return err
+Line 64: 	}
+Line 65: 	cleaned, err := filepath.Abs(config.Rootfs)
+Line 66: 	if err != nil {
+Line 67: 		return err
+Line 68: 	}
+Line 69: 	if cleaned, err = filepath.EvalSymlinks(cleaned); err != nil {
+Line 70: 		return err
+Line 71: 	}
+Line 72: 	if filepath.Clean(config.Rootfs) != cleaned {
+Line 73: 		return fmt.Errorf("%s is not an absolute path or is a symlink", config.Rootfs)
+Line 74: 	}
+Line 75: 	return nil
+Line 76: }
+Line 77: 
+Line 78: func (v *ConfigValidator) network(config *configs.Config) error {
+Line 79: 	if !config.Namespaces.Contains(configs.NEWNET) {
+Line 80: 		if len(config.Networks) > 0 || len(config.Routes) > 0 {
+Line 81: 			return errors.New("unable to apply network settings without a private NET namespace")
+Line 82: 		}
+Line 83: 	}
+Line 84: 	return nil
+Line 85: }
+Line 86: 
+Line 87: func (v *ConfigValidator) hostname(config *configs.Config) error {
+Line 88: 	if config.Hostname != "" && !config.Namespaces.Contains(configs.NEWUTS) {
+Line 89: 		return errors.New("unable to set hostname without a private UTS namespace")
+Line 90: 	}
+Line 91: 	return nil
+Line 92: }
+Line 93: 
+Line 94: func (v *ConfigValidator) security(config *configs.Config) error {
+Line 95: 	// restrict sys without mount namespace
+Line 96: 	if (len(config.MaskPaths) > 0 || len(config.ReadonlyPaths) > 0) &&
+Line 97: 		!config.Namespaces.Contains(configs.NEWNS) {
+Line 98: 		return errors.New("unable to restrict sys entries without a private MNT namespace")
+Line 99: 	}
+Line 100: 	if config.ProcessLabel != "" && !selinux.GetEnabled() {
+Line 101: 		return errors.New("selinux label is specified in config, but selinux is disabled or not supported")
+Line 102: 	}
+Line 103: 
+Line 104: 	return nil
+Line 105: }
+Line 106: 
+Line 107: func (v *ConfigValidator) usernamespace(config *configs.Config) error {
+Line 108: 	if config.Namespaces.Contains(configs.NEWUSER) {
+Line 109: 		if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+Line 110: 			return errors.New("USER namespaces aren't enabled in the kernel")
+Line 111: 		}
+Line 112: 	} else {
+Line 113: 		if config.UidMappings != nil || config.GidMappings != nil {
+Line 114: 			return errors.New("User namespace mappin
+
+Lines 240 to 420 from file: libcontainer/configs/validate/validator.go
+Command read_range returned: Line 240: 	if cgroups.IsCgroup2UnifiedMode() {
+Line 241: 		_, err := cgroups.ConvertMemorySwapToCgroupV2Value(r.MemorySwap, r.Memory)
+Line 242: 		if err != nil {
+Line 243: 			return err
+Line 244: 		}
+Line 245: 	}
+Line 246: 
+Line 247: 	return nil
+Line 248: }
+Line 249: 
+Line 250: func (v *ConfigValidator) mounts(config *configs.Config) error {
+Line 251: 	for _, m := range config.Mounts {
+Line 252: 		if !filepath.IsAbs(m.Destination) {
+Line 253: 			return fmt.Errorf("invalid mount %+v: mount destination not absolute", m)
+Line 254: 		}
+Line 255: 	}
+Line 256: 
+Line 257: 	return nil
+Line 258: }
+Line 259: 
+Line 260: func isHostNetNS(path string) (bool, error) {
+Line 261: 	const currentProcessNetns = "/proc/self/ns/net"
+Line 262: 
+Line 263: 	var st1, st2 unix.Stat_t
+Line 264: 
+Line 265: 	if err := unix.Stat(currentProcessNetns, &st1); err != nil {
+Line 266: 		return false, fmt.Errorf("unable to stat %q: %s", currentProcessNetns, err)
+Line 267: 	}
+Line 268: 	if err := unix.Stat(path, &st2); err != nil {
+Line 269: 		return false, fmt.Errorf("unable to stat %q: %s", path, err)
+Line 270: 	}
+Line 271: 
+Line 272: 	return (st1.Dev == st2.Dev) && (st1.Ino == st2.Ino), nil
+Line 273: }
+EOF
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-2928.
+
+Target runtime: runc
+Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+Upstream issue: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-2928
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-2928
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2928
+Upstream URL: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-2928
+
+## Upstream Issue Summary
+- Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+- URL: https://github.com/opencontainers/runc/issues/2928
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly reports the failing runc revision `d279ebd97d8832020e2c6f50cc3a11d0499a4690`. It also identifies the regression as PR #2917, including `2192670a2430` (`libct/configs/validate: validate mounts`) whose parent is `1f1e91b1a09b`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-2928`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-2928.
+
+Target runtime: runc
+Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+Upstream issue: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-2928
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-2928
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2928
+Upstream URL: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-2928
+
+## Upstream Issue Summary
+- Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+- URL: https://github.com/opencontainers/runc/issues/2928
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly reports the failing runc revision `d279ebd97d8832020e2c6f50cc3a11d0499a4690`. It also identifies the regression as PR #2917, including `2192670a2430` (`libct/configs/validate: validate mounts`) whose parent is `1f1e91b1a09b`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-2928`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/recvtty/recvtty.go
+create.go
+delete.go
+events.go
+exec.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/cgroups_unsupported.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/ebpf/devicefilter/devicefilter.go
+libcontainer/cgroups/ebpf/devicefilter/devicefilter_test.go
+libcontainer/cgroups/ebpf/ebpf.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/devices_test.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/unsupported.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/devices.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fscommon/fscommon.go
+libcontainer/cgroups/fscommon/fscommon_test.go
+libcontainer/cgroups/fscommon/open.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/unsupported.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/devices.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/error.go
+libcontainer/error_test.go
+libcontainer/factory.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/generic_error.go
+libcontainer/generic_error_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_linux_v2.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/nsenter_unsupported.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/stacktrace/capture.go
+libcontainer/stacktrace/capture_test.go
+libcontainer/stacktrace/frame.go
+libcontainer/stacktrace/frame_test.go
+libcontainer/stacktrace/stacktrace.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+libcontainer/system/userns_deprecated.go
+libcontainer/system/xattrs_linux.go
+libcontainer/user/lookup_unix.go
+libcontainer/user/user.go
+libcontainer/user/user_fuzzer.go
+libcontainer/user/user_test.go
+libcontainer/userns/userns.go
+libcontainer/userns/userns_fuzzer.go
+libcontainer/userns/userns_linux.go
+libcontainer/userns/userns_linux_test.go
+libcontainer/userns/userns_unsupported.go
+libcontainer/utils/cmsg.go
+libcontainer/utils/utils.go
+libcontainer/utils/utils_test.go
+libcontainer/utils/utils_unix.go
+list.go
+main.go
+notify_socket.go
+pause.go
+... 14 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+Lines 1 to 240 from file: libcontainer/configs/validate/validator.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package validate
+Line 2: 
+Line 3: import (
+Line 4: 	"errors"
+Line 5: 	"fmt"
+Line 6: 	"os"
+Line 7: 	"path/filepath"
+Line 8: 	"strings"
+Line 9: 	"sync"
+Line 10: 
+Line 11: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 12: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 13: 	"github.com/opencontainers/runc/libcontainer/intelrdt"
+Line 14: 	selinux "github.com/opencontainers/selinux/go-selinux"
+Line 15: 	"golang.org/x/sys/unix"
+Line 16: )
+Line 17: 
+Line 18: type Validator interface {
+Line 19: 	Validate(*configs.Config) error
+Line 20: }
+Line 21: 
+Line 22: func New() Validator {
+Line 23: 	return &ConfigValidator{}
+Line 24: }
+Line 25: 
+Line 26: type ConfigValidator struct {
+Line 27: }
+Line 28: 
+Line 29: type check func(config *configs.Config) error
+Line 30: 
+Line 31: func (v *ConfigValidator) Validate(config *configs.Config) error {
+Line 32: 	checks := []check{
+Line 33: 		v.rootfs,
+Line 34: 		v.network,
+Line 35: 		v.hostname,
+Line 36: 		v.security,
+Line 37: 		v.usernamespace,
+Line 38: 		v.cgroupnamespace,
+Line 39: 		v.sysctl,
+Line 40: 		v.intelrdt,
+Line 41: 		v.rootlessEUID,
+Line 42: 		v.mounts,
+Line 43: 	}
+Line 44: 	for _, c := range checks {
+Line 45: 		if err := c(config); err != nil {
+Line 46: 			return err
+Line 47: 		}
+Line 48: 	}
+Line 49: 	if err := v.cgroups(config); err != nil {
+Line 50: 		return err
+Line 51: 	}
+Line 52: 
+Line 53: 	return nil
+Line 54: }
+Line 55: 
+Line 56: // rootfs validates if the rootfs is an absolute path and is not a symlink
+Line 57: // to the container's root filesystem.
+Line 58: func (v *ConfigValidator) rootfs(config *configs.Config) error {
+Line 59: 	if _, err := os.Stat(config.Rootfs); err != nil {
+Line 60: 		if os.IsNotExist(err) {
+Line 61: 			return fmt.Errorf("rootfs (%s) does not exist", config.Rootfs)
+Line 62: 		}
+Line 63: 		return err
+Line 64: 	}
+Line 65: 	cleaned, err := filepath.Abs(config.Rootfs)
+Line 66: 	if err != nil {
+Line 67: 		return err
+Line 68: 	}
+Line 69: 	if cleaned, err = filepath.EvalSymlinks(cleaned); err != nil {
+Line 70: 		return err
+Line 71: 	}
+Line 72: 	if filepath.Clean(config.Rootfs) != cleaned {
+Line 73: 		return fmt.Errorf("%s is not an absolute path or is a symlink", config.Rootfs)
+Line 74: 	}
+Line 75: 	return nil
+Line 76: }
+Line 77: 
+Line 78: func (v *ConfigValidator) network(config *configs.Config) error {
+Line 79: 	if !config.Namespaces.Contains(configs.NEWNET) {
+Line 80: 		if len(config.Networks) > 0 || len(config.Routes) > 0 {
+Line 81: 			return errors.New("unable to apply network settings without a private NET namespace")
+Line 82: 		}
+Line 83: 	}
+Line 84: 	return nil
+Line 85: }
+Line 86: 
+Line 87: func (v *ConfigValidator) hostname(config *configs.Config) error {
+Line 88: 	if config.Hostname != "" && !config.Namespaces.Contains(configs.NEWUTS) {
+Line 89: 		return errors.New("unable to set hostname without a private UTS namespace")
+Line 90: 	}
+Line 91: 	return nil
+Line 92: }
+Line 93: 
+Line 94: func (v *ConfigValidator) security(config *configs.Config) error {
+Line 95: 	// restrict sys without mount namespace
+Line 96: 	if (len(config.MaskPaths) > 0 || len(config.ReadonlyPaths) > 0) &&
+Line 97: 		!config.Namespaces.Contains(configs.NEWNS) {
+Line 98: 		return errors.New("unable to restrict sys entries without a private MNT namespace")
+Line 99: 	}
+Line 100: 	if config.ProcessLabel != "" && !selinux.GetEnabled() {
+Line 101: 		return errors.New("selinux label is specified in config, but selinux is disabled or not supported")
+Line 102: 	}
+Line 103: 
+Line 104: 	return nil
+Line 105: }
+Line 106: 
+Line 107: func (v *ConfigValidator) usernamespace(config *configs.Config) error {
+Line 108: 	if config.Namespaces.Contains(configs.NEWUSER) {
+Line 109: 		if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+Line 110: 			return errors.New("USER namespaces aren't enabled in the kernel")
+Line 111: 		}
+Line 112: 	} else {
+Line 113: 		if config.UidMappings != nil || config.GidMappings != nil {
+Line 114: 			return errors.New("User namespace mappin
+
+Lines 240 to 420 from file: libcontainer/configs/validate/validator.go
+Command read_range returned: Line 240: 	if cgroups.IsCgroup2UnifiedMode() {
+Line 241: 		_, err := cgroups.ConvertMemorySwapToCgroupV2Value(r.MemorySwap, r.Memory)
+Line 242: 		if err != nil {
+Line 243: 			return err
+Line 244: 		}
+Line 245: 	}
+Line 246: 
+Line 247: 	return nil
+Line 248: }
+Line 249: 
+Line 250: func (v *ConfigValidator) mounts(config *configs.Config) error {
+Line 251: 	for _, m := range config.Mounts {
+Line 252: 		if !filepath.IsAbs(m.Destination) {
+Line 253: 			return fmt.Errorf("invalid mount %+v: mount destination not absolute", m)
+Line 254: 		}
+Line 255: 	}
+Line 256: 
+Line 257: 	return nil
+Line 258: }
+Line 259: 
+Line 260: func isHostNetNS(path string) (bool, error) {
+Line 261: 	const currentProcessNetns = "/proc/self/ns/net"
+Line 262: 
+Line 263: 	var st1, st2 unix.Stat_t
+Line 264: 
+Line 265: 	if err := unix.Stat(currentProcessNetns, &st1); err != nil {
+Line 266: 		return false, fmt.Errorf("unable to stat %q: %s", currentProcessNetns, err)
+Line 267: 	}
+Line 268: 	if err := unix.Stat(path, &st2); err != nil {
+Line 269: 		return false, fmt.Errorf("unable to stat %q: %s", path, err)
+Line 270: 	}
+Line 271: 
+Line 272: 	return (st1.Dev == st2.Dev) && (st1.Ino == st2.Ino), nil
+Line 273: }
+EOF
+
+
+## Suggested fixes:
+This is the list of suggested fixes so far but none of them worked:
+###Fix:
+[{'file_name': 'libcontainer/configs/validate/validator.go', 'insertions': [], 'deletions': [255, 256, 257, 258], 'modifications': [{'line_number': 251, 'modified_line': '\t// Keep accepting relative mount destinations for compatibility with'}, {'line_number': 252, 'modified_line': '\t// historical runc/libcontainer callers; mount setup is responsible for'}, {'line_number': 253, 'modified_line': '\t// resolving the destination relative to the container rootfs.'}, {'line_number': 254, 'modified_line': '\treturn nil'}]}]
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-2928.
+
+Target runtime: runc
+Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+Upstream issue: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-2928
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-2928
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-2928
+Upstream URL: https://github.com/opencontainers/runc/issues/2928
+Category: Filesystem & Mounts
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Expected differential behavior:
+Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-2928
+
+## Upstream Issue Summary
+- Title: runc@master failing with Moby CI: mount destination templated_config not absolute
+- URL: https://github.com/opencontainers/runc/issues/2928
+- Category: Filesystem & Mounts
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text explicitly reports the failing runc revision `d279ebd97d8832020e2c6f50cc3a11d0499a4690`. It also identifies the regression as PR #2917, including `2192670a2430` (`libct/configs/validate: validate mounts`) whose parent is `1f1e91b1a09b`.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-2928`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /templated_config/marker 2>/dev/null || echo mount-not-visible"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; relative mount destinations: [{"destination": "templated_config", "type": "bind", "source": "/tmp/runc-2928-relative-mount-source", "options": ["rbind", "ro"]}]
+
+Oracle: Strict builds report that templated_config is not an absolute mount destination. Compatibility builds warn or start and may expose the marker file.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

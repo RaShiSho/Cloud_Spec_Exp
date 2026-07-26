@@ -1,0 +1,2472 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-4014.
+
+Target runtime: runc
+Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+Upstream issue: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4014
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4014
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4014
+Upstream URL: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4014
+
+## Upstream Issue Summary
+- Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+- URL: https://github.com/opencontainers/runc/issues/4014
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched the pids.limit fix series, including `3b75374cc797` (`runtime-spec: update pids.limit handling to match new guidance`); use parent `eec1f7e34b33` as the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4014`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, no divergent or obviously incorrect `pids.limit=0` behavior was reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes printed `max` for `pids.max`. Reproducing the historical ambiguity appears to require an affected runtime revision or a host cgroup configuration where `pids.limit=0` is interpreted differently.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/fs-idmap/fs-idmap.go
+contrib/cmd/recvtty/recvtty.go
+contrib/cmd/sd-helper/helper.go
+contrib/cmd/seccompagent/seccompagent.go
+contrib/cmd/seccompagent/unsupported.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/devices/devicefilter.go
+libcontainer/cgroups/devices/devicefilter_test.go
+libcontainer/cgroups/devices/devices.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/devices/ebpf_linux.go
+libcontainer/cgroups/devices/systemd.go
+libcontainer/cgroups/devices/systemd_test.go
+libcontainer/cgroups/devices/v1.go
+libcontainer/cgroups/devices/v1_test.go
+libcontainer/cgroups/devices/v2.go
+libcontainer/cgroups/file.go
+libcontainer/cgroups/file_test.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/error.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/paths.go
+libcontainer/cgroups/fs/paths_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/rdma.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/io_test.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/memory_test.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fs2/psi.go
+libcontainer/cgroups/fs2/psi_test.go
+libcontainer/cgroups/fscommon/rdma.go
+libcontainer/cgroups/fscommon/rdma_test.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/getallpids.go
+libcontainer/cgroups/getallpids_test.go
+libcontainer/cgroups/manager/manager_test.go
+libcontainer/cgroups/manager/new.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/devices.go
+libcontainer/cgroups/systemd/freeze_test.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/rdma.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_linux.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/eaccess_go119.go
+libcontainer/eaccess_stub.go
+libcontainer/error.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+... 33 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+2 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 1 to 200 from file: libcontainer/cgroups/fs2/pids.go
+Command read_range returned: Line 1: package fs2
+Line 2: 
+Line 3: import (
+Line 4: 	"errors"
+Line 5: 	"math"
+Line 6: 	"os"
+Line 7: 	"strings"
+Line 8: 
+Line 9: 	"golang.org/x/sys/unix"
+Line 10: 
+Line 11: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 12: 	"github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
+Line 13: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 14: )
+Line 15: 
+Line 16: func isPidsSet(r *configs.Resources) bool {
+Line 17: 	return r.PidsLimit != 0
+Line 18: }
+Line 19: 
+Line 20: func setPids(dirPath string, r *configs.Resources) error {
+Line 21: 	if !isPidsSet(r) {
+Line 22: 		return nil
+Line 23: 	}
+Line 24: 	if val := numToStr(r.PidsLimit); val != "" {
+Line 25: 		if err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil {
+Line 26: 			return err
+Line 27: 		}
+Line 28: 	}
+Line 29: 
+Line 30: 	return nil
+Line 31: }
+Line 32: 
+Line 33: func statPidsFromCgroupProcs(dirPath string, stats *cgroups.Stats) error {
+Line 34: 	// if the controller is not enabled, let's read PIDS from cgroups.procs
+Line 35: 	// (or threads if cgroup.threads is enabled)
+Line 36: 	contents, err := cgroups.ReadFile(dirPath, "cgroup.procs")
+Line 37: 	if errors.Is(err, unix.ENOTSUP) {
+Line 38: 		contents, err = cgroups.ReadFile(dirPath, "cgroup.threads")
+Line 39:
+[older content truncated]
+
+Lines 1 to 220 from file: libcontainer/configs/cgroup_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package configs
+Line 2: 
+Line 3: import (
+Line 4: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 5: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 6: )
+Line 7: 
+Line 8: type FreezerState string
+Line 9: 
+Line 10: const (
+Line 11: 	Undefined FreezerState = ""
+Line 12: 	Frozen    FreezerState = "FROZEN"
+Line 13: 	Thawed    FreezerState = "THAWED"
+Line 14: )
+Line 15: 
+Line 16: // Cgroup holds properties of a cgroup on Linux.
+Line 17: type Cgroup struct {
+Line 18: 	// Name specifies the name of the cgroup
+Line 19: 	Name string `json:"name,omitempty"`
+Line 20: 
+Line 21: 	// Parent specifies the name of parent of cgroup or slice
+Line 22: 	Parent string `json:"parent,omitempty"`
+Line 23: 
+Line 24: 	// Path specifies the path to cgroups that are created and/or joined by the container.
+Line 25: 	// The path is assumed to be relative to the host system cgroup mountpoint.
+Line 26: 	Path string `json:"path"`
+Line 27: 
+Line 28: 	// ScopePrefix describes prefix for the scope name
+Line 29: 	ScopePrefix string `json:"scope_prefix"`
+Line 30: 
+Line 31: 	// Resources contains various cgroups settings to apply
+Line 32: 	*Resources
+Line 33: 
+Line 34: 	// Systemd tells if systemd should be used to manage cgroups.
+Line 35: 	Systemd bool
+Line 36: 
+Line 37: 	// SystemdProps are any additional properties for systemd,
+Line 38: 	// derived from org.systemd.property.xxx annotations.
+Line 39: 	// Ignored unless systemd is used for managing cgroups.
+Line 40: 	SystemdProps []systemdDbus.Property `json:"-"`
+Line 41: 
+Line 42: 	// Rootless tells if rootless cgroups should be used.
+Line 43: 	Rootless bool
+Line 44: 
+Line 45: 	// The host UID that should own the cgroup, or nil to accept
+Line 46: 	// the default ownership.  This should only be set when the
+Line 47: 	// cgroupfs is to be mounted read/write.
+Line 48: 	// Not all cgroup manager implementations support changing
+Line 49: 	// the ownership.
+Line 50: 	OwnerUID *int `json:"owner_uid,omitempty"`
+Line 51: }
+Line 52: 
+Line 53: type Resources struct {
+Line 54: 	// Devices is the set of access rules for devices in the container.
+Line 55: 	Devices []*devices.Rule `json:"devices"`
+Line 56: 
+Line 57: 	// Memory limit (in bytes)
+Line 58: 	Memory int64 `json:"memory"`
+Line 59: 
+Line 60: 	// Memory reservation or soft_limit (in bytes)
+Line 61: 	MemoryReservation int64 `json:"memory_reservation"`
+Line 62: 
+Line 63: 	// Total memory usage (memory + swap); set `-1` to enable unlimited swap
+Line 64: 	MemorySwap int64 `json:"memory_swap"`
+Line 65: 
+Line 66: 	// CPU shares (relative weight vs. other containers)
+Line 67: 	CpuShares uint64 `json:"cpu_shares"`
+Line 68: 
+Line 69: 	// CPU hardcap limit (in usecs). Allowed cpu time in a given period.
+Line 70: 	CpuQuota int64 `json:"cpu_quota"`
+Line 71: 
+Line 72: 	// CPU hardcap burst limit (in usecs). Allowed accumulated cpu time additionally for burst in a given period.
+Line 73: 	CpuBurst *uint64 `json:"cpu_burst"` //nolint:revive
+Line 74: 
+Line 75: 	// CPU period to be used for hardcapping (in usecs). 0 to use system default.
+Line 76: 	CpuPeriod uint64 `json:"cpu_period"`
+Line 77: 
+Line 78: 	// How many time CPU will use in realtime scheduling (in usecs).
+Line 79: 	CpuRtRuntime int64 `json:"cpu_rt_quota"`
+Line 80: 
+Line 81: 	// CPU period to be used for realtime scheduling (in usecs).
+Line 82: 	CpuRtPeriod uint64 `json:"cpu_rt_period"`
+Line 83: 
+Line 84: 	// CPU to use
+Line 85: 	CpusetCpus string `json:"cpuset_cpus"`
+Line 86: 
+Line 87: 	// MEM to use
+Line 88: 	CpusetMems string `json:"cpuset_mems"`
+Line 89: 
+Line 90: 	// cgroup SCHED_IDLE
+Line 91: 	CPUIdle *int64 `json:"cpu_idle,omitempty"`
+Line 92: 
+Line 93: 	// Process limit; set <= `0' to disable limit.
+Line 94: 	PidsLimit int64 `json:"pids_limit"`
+Line 95: 
+Line 96: 	// Specifies per cgroup weight, range is from 10 to 1000.
+Line 97: 	BlkioWeight uint16 `json:"blkio_weight"`
+Line 98: 
+Line 99: 	// Specifies tasks' weight in the given cgroup while competing with the cgroup's child cgroups, ran
+
+Lines 1 to 220 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // Package specconv implements conversion of specifications to libcontainer
+Line 2: // configurations
+Line 3: package specconv
+Line 4: 
+Line 5: import (
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"os"
+Line 9: 	"path/filepath"
+Line 10: 	"sort"
+Line 11: 	"strings"
+Line 12: 	"sync"
+Line 13: 	"time"
+Line 14: 
+Line 15: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 16: 	dbus "github.com/godbus/dbus/v5"
+Line 17: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 18: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 19: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 20: 	"github.com/opencontainers/runc/libcontainer/seccomp"
+Line 21: 	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+Line 22: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 23: 	"github.com/sirupsen/logrus"
+Line 24: 
+Line 25: 	"golang.org/x/sys/unix"
+Line 26: )
+Line 27: 
+Line 28: var (
+Line 29: 	initMapsOnce            sync.Once
+Line 30: 	namespaceMapping        map[specs.LinuxNamespaceType]configs.NamespaceType
+Line 31: 	mountPropagationMapping map[string]int
+Line 32: 	recAttrFlags            map[string]struct {
+Line 33: 		clear bool
+Line 34: 		flag  uint64
+Line 35: 	}
+Line 36: 	mountFlags, extensionFlags map[string]struct {
+Line 37: 		clear bool
+Line 38: 		flag  int
+Line 39: 	}
+Line 40: )
+Line 41: 
+Line 42: func initMaps() {
+Line 43: 	initMapsOnce.Do(func() {
+Line 44: 		namespaceMapping = map[specs.LinuxNamespaceType]configs.NamespaceType{
+Line 45: 			specs.PIDNamespace:     configs.NEWPID,
+Line 46: 			specs.NetworkNamespace: configs.NEWNET,
+Line 47: 			specs.MountNamespace:   configs.NEWNS,
+Line 48: 			specs.UserNamespace:    configs.NEWUSER,
+Line 49: 			specs.IPCNamespace:     configs.NEWIPC,
+Line 50: 			specs.UTSNamespace:     configs.NEWUTS,
+Line 51: 			specs.CgroupNamespace:  configs.NEWCGROUP,
+Line 52: 			specs.TimeNamespace:    configs.NEWTIME,
+Line 53: 		}
+Line 54: 
+Line 55: 		mountPropagationMapping = map[string]int{
+Line 56: 			"rprivate":    unix.MS_PRIVATE | unix.MS_REC,
+Line 57: 			"private":     unix.MS_PRIVATE,
+Line 58: 			"rslave":      unix.MS_SLAVE | unix.MS_REC,
+Line 59: 			"slave":       unix.MS_SLAVE,
+Line 60: 			"rshared":     unix.MS_SHARED | unix.MS_REC,
+Line 61: 			"shared":      unix.MS_SHARED,
+Line 62: 			"runbindable": unix.MS_UNBINDABLE | unix.MS_REC,
+Line 63: 			"unbindable":  unix.MS_UNBINDABLE,
+Line 64: 		}
+Line 65: 
+Line 66: 		mountFlags = map[string]struct {
+Line 67: 			clear bool
+Line 68: 			flag  int
+Line 69: 		}{
+Line 70: 			// "acl" cannot be mapped to MS_POSIXACL: https://github.com/opencontainers/runc/issues/3738
+Line 71: 			"async":         {true, unix.MS_SYNCHRONOUS},
+Line 72: 			"atime":         {true, unix.MS_NOATIME},
+Line 73: 			"bind":          {false, unix.MS_BIND},
+Line 74: 			"defaults":      {false, 0},
+Line 75: 			"dev":           {true, unix.MS_NODEV},
+Line 76: 			"diratime":      {true, unix.MS_NODIRATIME},
+Line 77: 			"dirsync":       {false, unix.MS_DIRSYNC},
+Line 78: 			"exec":          {true, unix.MS_NOEXEC},
+Line 79: 			"iversion":      {false, unix.MS_I_VERSION},
+Line 80: 			"lazytime":      {false, unix.MS_LAZYTIME},
+Line 81: 			"loud":          {true, unix.MS_SILENT},
+Line 82: 			"mand":          {false, unix.MS_MANDLOCK},
+Line 83: 			"noatime":       {false, unix.MS_NOATIME},
+Line 84: 			"nodev":         {false, unix.MS_NODEV},
+Line 85: 			"nodiratime":    {false, unix.MS_NODIRATIME},
+Line 86: 			"noexec":        {false, unix.MS_NOEXEC},
+Line 87: 			"noiversion":    {true, unix.MS_I_VERSION},
+Line 88: 			"nolazytime":    {true, unix.MS_LAZYTIME},
+Line 89: 			"nomand":        {true, unix.MS_MANDLOCK},
+Line 90: 			"norelatime":    {true, unix.MS_RELATIME},
+Line 91: 			"nostrictatime": {true, unix.MS_STRICTATIME},
+Line 92: 			"nosuid":        {false, unix.MS_NOSUID},
+Line 93: 			"nosymfollow":   {false, unix.MS_NOSYMFOLLOW}, // since kernel 5.10
+Line 94: 			"rbind":         {false, unix.MS_BIND | unix.MS_REC},
+Line 95: 			"relatime
+
+Lines 636 to 760 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 636: func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*configs.Cgroup, error) {
+Line 637: 	var (
+Line 638: 		myCgroupPath string
+Line 639: 
+Line 640: 		spec             = opts.Spec
+Line 641: 		useSystemdCgroup = opts.UseSystemdCgroup
+Line 642: 		name             = opts.CgroupName
+Line 643: 	)
+Line 644: 
+Line 645: 	c := &configs.Cgroup{
+Line 646: 		Systemd:   useSystemdCgroup,
+Line 647: 		Rootless:  opts.RootlessCgroups,
+Line 648: 		Resources: &configs.Resources{},
+Line 649: 	}
+Line 650: 
+Line 651: 	if useSystemdCgroup {
+Line 652: 		sp, err := initSystemdProps(spec)
+Line 653: 		if err != nil {
+Line 654: 			return nil, err
+Line 655: 		}
+Line 656: 		c.SystemdProps = sp
+Line 657: 	}
+Line 658: 
+Line 659: 	if spec.Linux != nil && spec.Linux.CgroupsPath != "" {
+Line 660: 		if useSystemdCgroup {
+Line 661: 			myCgroupPath = spec.Linux.CgroupsPath
+Line 662: 		} else {
+Line 663: 			myCgroupPath = libcontainerUtils.CleanPath(spec.Linux.CgroupsPath)
+Line 664: 		}
+Line 665: 	}
+Line 666: 
+Line 667: 	if useSystemdCgroup {
+Line 668: 		if myCgroupPath == "" {
+Line 669: 			// Default for c.Parent is set by systemd cgroup drivers.
+Line 670: 			c.ScopePrefix = "runc"
+Line 671: 			c.Name = name
+Line 672: 		} else {
+Line 673: 			// Parse the path from expected "slice:prefix:name"
+Line 674: 			// for e.g. "system.slice:docker:1234"
+Line 675: 			parts := strings.Split(myCgroupPath, ":")
+Line 676: 			if len(parts) != 3 {
+Line 677: 				return nil, fmt.Errorf("expected cgroupsPath to be of format \"slice:prefix:name\" for systemd cgroups, got %q instead", myCgroupPath)
+Line 678: 			}
+Line 679: 			c.Parent = parts[0]
+Line 680: 			c.ScopePrefix = parts[1]
+Line 681: 			c.Name = parts[2]
+Line 682: 		}
+Line 683: 	} else {
+Line 684: 		if myCgroupPath == "" {
+Line 685: 			c.Name = name
+Line 686: 		}
+Line 687: 		c.Path = myCgroupPath
+Line 688: 	}
+Line 689: 
+Line 690: 	// In rootless containers, any attempt to make cgroup changes is likely to fail.
+Line 691: 	// libcontainer will validate this but ignores the error.
+Line 692: 	if spec.Linux != nil {
+Line 693: 		r := spec.Linux.Resources
+Line 694: 		if r != nil {
+Line 695: 			for i, d := range r.Devices {
+Line 696: 				var (
+Line 697: 					t     = "a"
+Line 698: 					major = int64(-1)
+Line 699: 					minor = int64(-1)
+Line 700: 				)
+Line 701: 				if d.Type != "" {
+Line 702: 					t = d.Type
+Line 703: 				}
+Line 704: 				if d.Major != nil {
+Line 705: 					major = *d.Major
+Line 706: 				}
+Line 707: 				if d.Minor != nil {
+Line 708: 					minor = *d.Minor
+Line 709: 				}
+Line 710: 				if d.Access == "" {
+Line 711: 					return nil, fmt.Errorf("device access at %d field cannot be empty", i)
+Line 712: 				}
+Line 713: 				dt, err := stringToCgroupDeviceRune(t)
+Line 714: 				if err != nil {
+Line 715: 					return nil, err
+Line 716: 				}
+Line 717: 				c.Resources.Devices = append(c.Resources.Devices, &devices.Rule{
+Line 718: 					Type:        dt,
+Line 719: 					Major:       major,
+Line 720: 					Minor:       minor,
+Line 721: 					Permissions: devices.Permissions(d.Access),
+Line 722: 					Allow:       d.Allow,
+Line 723: 				})
+Line 724: 			}
+Line 725: 			if r.Memory != nil {
+Line 726: 				if r.Memory.Limit != nil {
+Line 727: 					c.Resources.Memory = *r.Memory.Limit
+Line 728: 				}
+Line 729: 				if r.Memory.Reservation != nil {
+Line 730: 					c.Resources.MemoryReservation = *r.Memory.Reservation
+Line 731: 				}
+Line 732: 				if r.Memory.Swap != nil {
+Line 733: 					c.Resources.MemorySwap = *r.Memory.Swap
+Line 734: 				}
+Line 735: 				if r.Memory.Kernel != nil || r.Memory.KernelTCP != nil {
+Line 736: 					logrus.Warn("Kernel memory settings are ignored and will be removed")
+Line 737: 				}
+Line 738: 				if r.Memory.Swappiness != nil {
+Line 739: 					c.Resources.MemorySwappiness = r.Memory.Swappiness
+Line 740: 				}
+Line 741: 				if r.Memory.DisableOOMKiller != nil {
+Line 742: 					c.Resources.OomKillDisable = *r.Memory.DisableOOMKiller
+Line 743: 				}
+Line 744: 				if r.Memory.CheckBeforeUpdate != 
+
+Lines 744 to 860 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 744: 				if r.Memory.CheckBeforeUpdate != nil {
+Line 745: 					c.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+Line 746: 				}
+Line 747: 			}
+Line 748: 			if r.CPU != nil {
+Line 749: 				if r.CPU.Shares != nil {
+Line 750: 					c.Resources.CpuShares = *r.CPU.Shares
+Line 751: 
+Line 752: 					// CpuWeight is used for cgroupv2 and should be converted
+Line 753: 					c.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
+Line 754: 				}
+Line 755: 				if r.CPU.Quota != nil {
+Line 756: 					c.Resources.CpuQuota = *r.CPU.Quota
+Line 757: 				}
+Line 758: 				if r.CPU.Burst != nil {
+Line 759: 					c.Resources.CpuBurst = r.CPU.Burst
+Line 760: 				}
+Line 761: 				if r.CPU.Period != nil {
+Line 762: 					c.Resources.CpuPeriod = *r.CPU.Period
+Line 763: 				}
+Line 764: 				if r.CPU.RealtimeRuntime != nil {
+Line 765: 					c.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+Line 766: 				}
+Line 767: 				if r.CPU.RealtimePeriod != nil {
+Line 768: 					c.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+Line 769: 				}
+Line 770: 				c.Resources.CpusetCpus = r.CPU.Cpus
+Line 771: 				c.Resources.CpusetMems = r.CPU.Mems
+Line 772: 				c.Resources.CPUIdle = r.CPU.Idle
+Line 773: 			}
+Line 774: 			if r.Pids != nil {
+Line 775: 				c.Resources.PidsLimit = r.Pids.Limit
+Line 776: 			}
+Line 777: 			if r.BlockIO != nil {
+Line 778: 				if r.BlockIO.Weight != nil {
+Line 779: 					c.Resources.BlkioWeight = *r.BlockIO.Weight
+Line 780: 				}
+Line 781: 				if r.BlockIO.LeafWeight != nil {
+Line 782: 					c.Resources.BlkioLeafWeight = *r.BlockIO.LeafWeight
+Line 783: 				}
+Line 784: 				for _, wd := range r.BlockIO.WeightDevice {
+Line 785: 					var weight, leafWeight uint16
+Line 786: 					if wd.Weight != nil {
+Line 787: 						weight = *wd.Weight
+Line 788: 					}
+Line 789: 					if wd.LeafWeight != nil {
+Line 790: 						leafWeight = *wd.LeafWeight
+Line 791: 					}
+Line 792: 					weightDevice := configs.NewWeightDevice(wd.Major, wd.Minor, weight, leafWeight)
+Line 793: 					c.Resources.BlkioWeightDevice = append(c.Resources.BlkioWeightDevice, weightDevice)
+Line 794: 				}
+Line 795: 				for _, td := range r.BlockIO.ThrottleReadBpsDevice {
+Line 796: 					rate := td.Rate
+Line 797: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 798: 					c.Resources.BlkioThrottleReadBpsDevice = append(c.Resources.BlkioThrottleReadBpsDevice, throttleDevice)
+Line 799: 				}
+Line 800: 				for _, td := range r.BlockIO.ThrottleWriteBpsDevice {
+Line 801: 					rate := td.Rate
+Line 802: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 803: 					c.Resources.BlkioThrottleWriteBpsDevice = append(c.Resources.BlkioThrottleWriteBpsDevice, throttleDevice)
+Line 804: 				}
+Line 805: 				for _, td := range r.BlockIO.ThrottleReadIOPSDevice {
+Line 806: 					rate := td.Rate
+Line 807: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 808: 					c.Resources.BlkioThrottleReadIOPSDevice = append(c.Resources.BlkioThrottleReadIOPSDevice, throttleDevice)
+Line 809: 				}
+Line 810: 				for _, td := range r.BlockIO.ThrottleWriteIOPSDevice {
+Line 811: 					rate := td.Rate
+Line 812: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 813: 					c.Resources.BlkioThrottleWriteIOPSDevice = append(c.Resources.BlkioThrottleWriteIOPSDevice, throttleDevice)
+Line 814: 				}
+Line 815: 			}
+Line 816: 			for _, l := range r.HugepageLimits {
+Line 817: 				c.Resources.HugetlbLimit = append(c.Resources.HugetlbLimit, &configs.HugepageLimit{
+Line 818: 					Pagesize: l.Pagesize,
+Line 819: 					Limit:    l.Limit,
+Line 820: 				})
+Line 821: 			}
+Line 822: 			if len(r.Rdma) > 0 {
+Line 823: 				c.Resources.Rdma = make(map[string]configs.LinuxRdma, len(r.Rdma))
+Line 824: 				for k, v := range r.Rdma {
+Line 825: 					c.Resources.Rdma[k] = configs.LinuxRdma{
+Line 826: 						HcaHandles: v.HcaHandles,
+Line 827: 						HcaObjects: v.HcaObjects,
+Line 828: 					}
+Line 829: 				}
+Line 830: 	
+
+
+## The list of implementations of some methods in the code base:
+Command extract_method_code returned: Line 373: 	defaultDevs, err := createDevices(spec, config)
+Line 374: 	if err != nil {
+Line 375: 		return nil, err
+Line 376: 	}
+Line 377: 
+Line 378: 	c, err := CreateCgroupConfig(opts, defaultDevs)
+Line 379: 	if err != nil {
+Line 380: 		return nil, err
+Line 381: 	}
+Line 382: 
+Line 383: 	config.Cgroups = c
+Line 384: 	// set linux-specific config
+Line 385: 	if spec.Linux != nil {
+Line 386: 		initMaps()
+Line 387: 
+Line 388: 		if spec.Linux.RootfsPropagation != "" {
+Line 389: 			var exists bool
+Line 390: 			if config.RootPropagation, exists = mountPropagationMapping[spec.Linux.RootfsPropagation]; !exists {
+Line 391: 				return nil, fmt.Errorf("rootfsPropagation=%v is not supported", spec.Linux.RootfsPropagation)
+Line 392: 			}
+Line 393: 			if config.NoPivotRoot && (config.RootPropagation&unix.MS_PRIVATE != 0) {
+Line 394: 				return nil, errors.New("rootfsPropagation of [r]private is not safe without pivot_root")
+Line 395: 			}
+Line 396: 		}
+Line 397: 
+Line 398: 		for _, ns := range spec.Linux.Namespaces {
+Line 399: 			t, exists := namespaceMapping[ns.Type]
+Line 400: 			if !exists {
+Line 401: 				return nil, fmt.Errorf("namespace %q does not exist", ns)
+Line 402: 			}
+Line 403: 			if config.Namespaces.Contains(t) {
+Line 404: 				return nil, fmt.Errorf("malformed spec file: duplicated ns %q", ns)
+Line 405: 			}
+Line 406: 			config.Namespaces.Add(t, ns.Path)
+Line 407: 		}
+Line 408: 		if config.Namespaces.Contains(configs.NEWNET) && config.Namespaces.PathOf(configs.NEWNET) == "" {
+Line 409: 			config.Networks = []*configs.Network{
+Line 410: 				{
+Line 411: 					Type: "loopback",
+Line 412: 				},
+Line 413: 			}
+Line 414: 		}
+Line 415: 		if config.Namespaces.Contains(configs.NEWUSER) {
+Line 416: 			if err := setupUserNamespace(spec, config); err != nil {
+Line 417: 				return nil, err
+Line 418: 			}
+Line 419: 		}
+Line 420: 		config.MaskPaths = spec.Linux.MaskedPaths
+Line 421: 		config.ReadonlyPaths = spec.Linux.ReadonlyPaths
+Line 422: 		config.MountLabel = spec.Linux.MountLabel
+Line 423: 		config.Sysctl = spec.Linux.Sysctl
+Line 424: 		config.TimeOffsets = spec.Linux.TimeOffsets
+Line 425: 		if spec.Linux.Seccomp != nil {
+Line 426: 			seccomp, err := SetupSeccomp(spec.Linux.Seccomp)
+Line 427: 			if err != nil {
+Line 428: 				return nil, err
+Line 429: 			}
+Line 430: 			config.Seccomp = seccomp
+Line 431: 		}
+Line 432: 		if spec.Linux.IntelRdt != nil {
+Line 433: 			config.IntelRdt = &configs.IntelRdt{
+Line 434: 				ClosID:        spec.Linux.IntelRdt.ClosID,
+Line 435: 				L3CacheSchema: spec.Linux.IntelRdt.L3CacheSchema,
+Line 436: 				MemBwSchema:   spec.Linux.IntelRdt.MemBwSchema,
+Line 437: 			}
+Line 438: 		}
+Line 439: 	}
+Line 440: 
+Line 441: 	// Set the host UID that should own the container's cgroup.
+Line 442: 	// This must be performed after setupUserNamespace, so that
+Line 443: 	// config.HostRootUID() returns the correct result.
+Line 444: 	//
+Line 445: 	// Only set it if the container will have its own cgroup
+Line 446: 	// namespace and the cgroupfs will be mounted read/write.
+Line 447: 	//
+Line 448: 	hasCgroupNS := config.Namespaces.Contains(configs.NEWCGROUP) && config.Namespaces.PathOf(configs.NEWCGROUP) == ""
+Line 449: 	hasRwCgroupfs := false
+Line 450: 	if hasCgroupNS {
+Line 451: 		for _, m := range config.Mounts {
+Line 452: 			if m.Source == "cgroup" && filepath.Clean(m.Destination) == "/sys/fs/cgroup" && (m.Flags&unix.MS_RDONLY) == 0 {
+Line 453: 				hasRwCgroupfs = true
+Line 454: 				break
+Line 455: 			}
+Line 456: 		}
+Line 457: 	}
+Command extract_method_code returned: Line 17: 
+Line 18: func (s *PidsGroup) Apply(path string, _ *configs.Resources, pid int) error {
+Line 19: 	return apply(path, pid)
+Line 20: }
+Line 21: 
+Line 22: func (s *PidsGroup) Set(path string, r *configs.Resources) error {
+Line 23: 	if r.PidsLimit != 0 {
+Line 24: 		// "max" is the fallback value.
+Line 25: 		limit := "max"
+Line 26: 
+Line 27: 		if r.PidsLimit > 0 {
+Line 28: 			limit = strconv.FormatInt(r.PidsLimit, 10)
+Line 29: 		}
+Line 30: 
+Line 31: 		if err := cgroups.WriteFile(path, "pids.max", limit); err != nil {
+Line 32: 			return err
+Line 33: 		}
+Line 34: 	}
+Line 35: 
+Line 36: 	return nil
+Line 37: }
+Line 38: 
+Line 39: func (s *PidsGroup) GetStats(path string, stats *cgroups.Stats) error {
+Line 40: 	if !cgroups.PathExists(path) {
+Line 41: 		return nil
+Line 42: 	}
+Line 43: 	current, err := fscommon.GetCgroupParamUint(path, "pids.current")
+Line 44: 	if err != nil {
+Line 45: 		return err
+Line 46: 	}
+Line 47: 
+Line 48: 	max, err := fscommon.GetCgroupParamUint(path, "pids.max")
+Line 49: 	if err != nil {
+Line 50: 		return err
+Line 51: 	}
+Line 52: 	// If no limit is set, read from pids.max returns "max", which is
+Line 53: 	// converted to MaxUint64 by GetCgroupParamUint. Historically, we
+Line 54: 	// represent "no limit" for pids as 0, thus this conversion.
+Line 55: 	if max == math.MaxUint64 {
+Line 56: 		max = 0
+Line 57: 	}
+Line 58: 
+Line 59: 	stats.PidsStats.Current = current
+Line 60: 	stats.PidsStats.Limit = max
+Line 61: 	return nil
+Line 62: }
+
+## Executed search queries within the code base:
+Searching keywords: PidsLimit, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, i, i, m, i] package main
+spec.go:3: [p, i, i, m, i, t] import (
+spec.go:4: [i, d, s, i, i] "encoding/json"
+spec.go:5: [s] "errors"
+spec.go:6: [m, t] "fmt"
+spec.go:7: [s] "os"
+spec.go:9: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [p, i, s, i, m, i, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [i, l, i, m, i, t] "github.com/urfave/cli"
+spec.go:15: [p, i, d, s, l, i, m, i] var specCommand = cli.Command{
+spec.go:16: [p, s, m] Name:      "spec",
+spec.go:17: [p, i, s, l, i, i, t] Usage:     "create a new specification file",
+spec.go:18: [s] ArgsUsage: "",
+spec.go:19: [p, i, d, s, l, i, m, i, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, l, t] the bundle.
+spec.go:22: [p, i, d, s, l, i, i, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [p, i, d, s, l, i, m, i, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [p, i, d, s, l, i, m, i, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [i, d, s, l, i, m, i, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [p, i, d, s, l, i, m, i, t] work for containers that do not include the "sh" program.
+spec.go:28: [p, l, m] EXAMPLE:
+spec.go:29: [p, i, d, s, l, i, m, i, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [p, i, d, s, l, i, m, i, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [i, d, s, l, i, m, i, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [p, i, d, s, l, i, m, i, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [i, d, l, i, m, i, t] command in a new hello-world container named container1:
+spec.go:35: [i, d, l, i, m, i] mkdir hello
+spec.go:36: [d, l] cd hello
+spec.go:37: [p, d, l] docker pull hello-world
+spec.go:38: [p, d, l, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [i, d, s, i, m, i, t] mkdir rootfs
+spec.go:40: [d, s, l, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, s] runc spec
+spec.go:42: [p, i, d, s, l, i, i] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [i, i, i, t] runc run container1
+spec.go:45: [i, d, s, i, m, i, t] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [p, i, d, s, i, m, i, t] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, s, i, m, i, t] must be unique on your host.
+spec.go:49: [p, i, d, s, l, i, m, i, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [p, i, d, s, l, i, m, i, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [p, i, s, l, i, m, i, t] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [i, i, m, i, t] to get more information.
+spec.go:54: [p, i, d, s, l, i, i, t] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [p, i, d, s, l, i, i, t] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [p, i, d, s, l, i, m, i, t] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [i, s, i, i, t] container on your host.
+spec.go:59: [i, s, l, i, i, t] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [p, i, d, s, l, i, i, t] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [p, i, d, s, l, i, m, i, t] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [p, 
+
+Searching keywords: type Resources struct, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, e, e, c, e, c] package main
+spec.go:3: [t, p, r, o, r, t, r, t] import (
+spec.go:4: [e, e, s, o, c, e, s, s, c] "encoding/json"
+spec.go:5: [e, r, e, s, o, r, e, s, s, r] "errors"
+spec.go:6: [t, t, t] "fmt"
+spec.go:7: [s, o, s, s] "os"
+spec.go:9: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [t, e, r, e, o, u, r, c, e, t, r, u, c, t] "github.com/urfave/cli"
+spec.go:15: [p, e, r, e, s, o, r, c, e, s, s, r, c] var specCommand = cli.Command{
+spec.go:16: [p, e, e, s, c, e, s, s, c] Name:      "spec",
+spec.go:17: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] Usage:     "create a new specification file",
+spec.go:18: [e, r, e, s, u, r, e, s, s, r, u] ArgsUsage: "",
+spec.go:19: [t, p, e, r, e, s, o, r, c, e, s, s, t, r, c, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [t, e, e, u, e, t, u, t] the bundle.
+spec.go:22: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [t, y, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [t, y, p, e, r, e, s, o, r, c, e, s, s, t, r, c, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [t, y, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] work for containers that do not include the "sh" program.
+spec.go:28: [p, e, e, e] EXAMPLE:
+spec.go:29: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [t, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [t, e, r, e, o, r, c, e, t, r, c, t] command in a new hello-world container named container1:
+spec.go:35: [e, r, e, o, r, e, r] mkdir hello
+spec.go:36: [e, e, o, c, e, c] cd hello
+spec.go:37: [p, e, r, e, o, u, r, c, e, r, u, c] docker pull hello-world
+spec.go:38: [t, p, e, r, e, o, r, c, e, t, r, c, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [t, r, s, o, r, s, s, t, r, t] mkdir rootfs
+spec.go:40: [t, e, r, e, s, o, r, c, e, s, s, t, r, c, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, e, r, e, s, u, r, c, e, s, s, r, u, c] runc spec
+spec.go:42: [p, e, e, s, o, c, e, s, s, c] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [t, e, r, e, o, u, r, c, e, t, r, u, c, t] runc run container1
+spec.go:45: [t, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [t, y, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] container that you are starting. The name you provide for the container instance
+spec.go:47: [t, y, e, r, e, s, o, u, r, e, s, s, t, r, u, t] must be unique on your host.
+spec.go:49: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [t, y, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [t, y, p, e, r, e, 
+
+Searching keywords: PidsLimit =, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, i, i, m, i] package main
+spec.go:3: [p, i, i, m, i, t] import (
+spec.go:4: [i, d, s, i, i] "encoding/json"
+spec.go:5: [s] "errors"
+spec.go:6: [m, t] "fmt"
+spec.go:7: [s] "os"
+spec.go:9: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [p, i, s, i, m, i, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [i, l, i, m, i, t] "github.com/urfave/cli"
+spec.go:15: [p, i, d, s, l, i, m, i, =] var specCommand = cli.Command{
+spec.go:16: [p, s, m] Name:      "spec",
+spec.go:17: [p, i, s, l, i, i, t] Usage:     "create a new specification file",
+spec.go:18: [s] ArgsUsage: "",
+spec.go:19: [p, i, d, s, l, i, m, i, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, l, t] the bundle.
+spec.go:22: [p, i, d, s, l, i, i, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [p, i, d, s, l, i, m, i, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [p, i, d, s, l, i, m, i, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [i, d, s, l, i, m, i, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [p, i, d, s, l, i, m, i, t] work for containers that do not include the "sh" program.
+spec.go:28: [p, l, m] EXAMPLE:
+spec.go:29: [p, i, d, s, l, i, m, i, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [p, i, d, s, l, i, m, i, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [i, d, s, l, i, m, i, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [p, i, d, s, l, i, m, i, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [i, d, l, i, m, i, t] command in a new hello-world container named container1:
+spec.go:35: [i, d, l, i, m, i] mkdir hello
+spec.go:36: [d, l] cd hello
+spec.go:37: [p, d, l] docker pull hello-world
+spec.go:38: [p, d, l, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [i, d, s, i, m, i, t] mkdir rootfs
+spec.go:40: [d, s, l, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, s] runc spec
+spec.go:42: [p, i, d, s, l, i, i] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [i, i, i, t] runc run container1
+spec.go:45: [i, d, s, i, m, i, t] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [p, i, d, s, i, m, i, t] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, s, i, m, i, t] must be unique on your host.
+spec.go:49: [p, i, d, s, l, i, m, i, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [p, i, d, s, l, i, m, i, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [p, i, s, l, i, m, i, t] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [i, i, m, i, t] to get more information.
+spec.go:54: [p, i, d, s, l, i, i, t] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [p, i, d, s, l, i, i, t] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [p, i, d, s, l, i, m, i, t] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [i, s, i, i, t] container on your host.
+spec.go:59: [i, s, l, i, i, t] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [p, i, d, s, l, i, i, t] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [p, i, d, s, l, i, m, i, t] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [
+
+Searching keywords: func CreateCgroupConfig Pids Limit, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [n, c, c, e, a, e, c, g, p, c, n, i, g, p, i, i, m, i] package main
+spec.go:3: [r, t, r, o, p, o, i, p, i, i, m, i, t] import (
+spec.go:4: [n, c, c, e, e, c, g, o, c, o, n, i, g, i, d, s, i, i] "encoding/json"
+spec.go:5: [r, e, e, r, o, o, s] "errors"
+spec.go:6: [f, t, f, m, t] "fmt"
+spec.go:7: [o, o, s] "os"
+spec.go:9: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, s, i, m, i, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [f, u, c, c, r, e, a, t, e, c, g, r, o, u, c, o, f, i, g, i, l, i, m, i, t] "github.com/urfave/cli"
+spec.go:15: [n, c, c, r, e, a, e, c, r, o, p, c, o, n, i, p, i, d, s, l, i, m, i] var specCommand = cli.Command{
+spec.go:16: [n, c, c, e, a, e, c, p, c, n, p, s, m] Name:      "spec",
+spec.go:17: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, s, l, i, i, t] Usage:     "create a new specification file",
+spec.go:18: [u, r, e, a, e, g, r, u, g, s] ArgsUsage: "",
+spec.go:19: [f, n, c, c, r, e, a, t, e, c, g, r, o, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [u, n, e, t, e, u, n, d, l, t] the bundle.
+spec.go:22: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, i, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [n, c, c, r, e, a, t, e, c, r, o, p, c, o, n, i, p, i, d, s, l, i, m, i, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, c, o, n, f, i, g, i, d, s, l, i, m, i, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] work for containers that do not include the "sh" program.
+spec.go:28: [e, a, e, p, p, l, m] EXAMPLE:
+spec.go:29: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, d, s, l, i, m, i, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, d, s, l, i, m, i, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, c, o, n, f, i, g, i, d, s, l, i, m, i, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [n, c, c, r, e, a, t, e, c, r, o, c, o, n, i, i, d, l, i, m, i, t] command in a new hello-world container named container1:
+spec.go:35: [r, e, e, r, o, o, i, i, d, l, i, m, i] mkdir hello
+spec.go:36: [c, c, e, e, c, o, c, o, d, l] cd hello
+spec.go:37: [u, c, c, r, e, e, c, r, o, u, p, c, o, p, d, l] docker pull hello-world
+spec.go:38: [c, c, r, e, a, t, e, c, r, o, p, c, o, p, d, l, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [f, r, t, r, o, o, f, i, i, d, s, i, m, i, t] mkdir rootfs
+spec.go:40: [f, c, c, r, e, a, t, e, c, r, o, c, o, f, d, s, l, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [u, n, c, c, r, e, e, c, r, u, p, c, n, p, s] runc spec
+spec.go:42: [f, n, c, c, e, e, c, g, o, p, c, o, n, f, i, g, p, i, d, s, l, i, i] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [u, 
+
+Searching keywords: func numToStr, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [n, c, n, m] package main
+spec.go:3: [m, t, o, t, r] import (
+spec.go:4: [n, c, n, o, s] "encoding/json"
+spec.go:5: [o, s, r] "errors"
+spec.go:6: [f, m, t, t] "fmt"
+spec.go:7: [o, s] "os"
+spec.go:9: [f, u, n, c, n, u, m, t, o, s, t, r] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [u, n, c, n, u, m, t, o, s, t, r] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [u, n, c, n, u, m, t, o, s, t, r] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [f, u, c, u, m, t, o, t, r] "github.com/urfave/cli"
+spec.go:15: [n, c, n, m, o, s, r] var specCommand = cli.Command{
+spec.go:16: [n, c, n, m, s] Name:      "spec",
+spec.go:17: [f, u, n, c, n, u, t, o, s, t, r] Usage:     "create a new specification file",
+spec.go:18: [u, u, s, r] ArgsUsage: "",
+spec.go:19: [f, n, c, n, m, t, o, s, t, r] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [u, n, n, u, t, t] the bundle.
+spec.go:22: [f, u, n, c, n, u, t, o, s, t, r] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [f, u, n, c, n, u, m, t, o, s, t, r] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [n, c, n, m, t, o, s, t, r] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [f, u, n, c, n, u, m, t, o, s, t, r] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [f, u, n, c, n, u, m, t, o, s, t, r] work for containers that do not include the "sh" program.
+spec.go:28: [m] EXAMPLE:
+spec.go:29: [u, n, c, n, u, m, t, o, s, t, r] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [u, n, c, n, u, m, t, o, s, t, r] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [f, u, n, c, n, u, m, t, o, s, t, r] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [f, u, n, c, n, u, m, t, o, s, t, r] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [n, c, n, m, t, o, t, r] command in a new hello-world container named container1:
+spec.go:35: [m, o, r] mkdir hello
+spec.go:36: [c, o] cd hello
+spec.go:37: [u, c, u, o, r] docker pull hello-world
+spec.go:38: [c, t, o, t, r] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [f, m, t, o, s, t, r] mkdir rootfs
+spec.go:40: [f, c, t, o, s, t, r] tar -C rootfs -xf hello-world.tar
+spec.go:41: [u, n, c, n, u, s, r] runc spec
+spec.go:42: [f, n, c, n, o, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [u, n, c, n, u, t, o, t, r] runc run container1
+spec.go:45: [f, u, n, c, n, u, m, t, o, s, t, r] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [f, u, n, c, n, u, m, t, o, s, t, r] container that you are starting. The name you provide for the container instance
+spec.go:47: [u, n, n, u, m, t, o, s, t, r] must be unique on your host.
+spec.go:49: [f, u, n, c, n, u, m, t, o, s, t, r] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [f, u, n, c, n, u, m, t, o, s, t, r] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [u, n, c, n, u, m, t, o, s, t, r] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [f, n, n, m, t, o, t, r] to get more information.
+spec.go:54: [f, u, n, c, n, u, t, o, s, t, r] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [f, u, n, c, n, u, t, o, s, t, r] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [u, n, c, n, u, m, t, o, s, t, r] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [u, n, c, n, u, t, o, s, t, r] container on your host.
+spec.go:59: [u, n, c, n, u, t, o, s, t, r] Alternativel
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-4014.
+
+Target runtime: runc
+Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+Upstream issue: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4014
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4014
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4014
+Upstream URL: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4014
+
+## Upstream Issue Summary
+- Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+- URL: https://github.com/opencontainers/runc/issues/4014
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched the pids.limit fix series, including `3b75374cc797` (`runtime-spec: update pids.limit handling to match new guidance`); use parent `eec1f7e34b33` as the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4014`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, no divergent or obviously incorrect `pids.limit=0` behavior was reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes printed `max` for `pids.max`. Reproducing the historical ambiguity appears to require an affected runtime revision or a host cgroup configuration where `pids.limit=0` is interpreted differently.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case runc-4014.
+
+Target runtime: runc
+Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+Upstream issue: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4014
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4014
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4014
+Upstream URL: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4014
+
+## Upstream Issue Summary
+- Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+- URL: https://github.com/opencontainers/runc/issues/4014
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched the pids.limit fix series, including `3b75374cc797` (`runtime-spec: update pids.limit handling to match new guidance`); use parent `eec1f7e34b33` as the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4014`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, no divergent or obviously incorrect `pids.limit=0` behavior was reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes printed `max` for `pids.max`. Reproducing the historical ambiguity appears to require an affected runtime revision or a host cgroup configuration where `pids.limit=0` is interpreted differently.
+
+
+Source files:
+checkpoint.go
+contrib/cmd/fs-idmap/fs-idmap.go
+contrib/cmd/recvtty/recvtty.go
+contrib/cmd/sd-helper/helper.go
+contrib/cmd/seccompagent/seccompagent.go
+contrib/cmd/seccompagent/unsupported.go
+create.go
+delete.go
+events.go
+exec.go
+features.go
+init.go
+kill.go
+libcontainer/apparmor/apparmor.go
+libcontainer/apparmor/apparmor_linux.go
+libcontainer/apparmor/apparmor_unsupported.go
+libcontainer/capabilities/capabilities.go
+libcontainer/capabilities/capabilities_linux_test.go
+libcontainer/capabilities/capabilities_unsupported.go
+libcontainer/cgroups/cgroups.go
+libcontainer/cgroups/cgroups_test.go
+libcontainer/cgroups/devices/devicefilter.go
+libcontainer/cgroups/devices/devicefilter_test.go
+libcontainer/cgroups/devices/devices.go
+libcontainer/cgroups/devices/devices_emulator.go
+libcontainer/cgroups/devices/devices_emulator_test.go
+libcontainer/cgroups/devices/ebpf_linux.go
+libcontainer/cgroups/devices/systemd.go
+libcontainer/cgroups/devices/systemd_test.go
+libcontainer/cgroups/devices/v1.go
+libcontainer/cgroups/devices/v1_test.go
+libcontainer/cgroups/devices/v2.go
+libcontainer/cgroups/file.go
+libcontainer/cgroups/file_test.go
+libcontainer/cgroups/fs/blkio.go
+libcontainer/cgroups/fs/blkio_test.go
+libcontainer/cgroups/fs/cpu.go
+libcontainer/cgroups/fs/cpu_test.go
+libcontainer/cgroups/fs/cpuacct.go
+libcontainer/cgroups/fs/cpuacct_test.go
+libcontainer/cgroups/fs/cpuset.go
+libcontainer/cgroups/fs/cpuset_test.go
+libcontainer/cgroups/fs/devices.go
+libcontainer/cgroups/fs/error.go
+libcontainer/cgroups/fs/freezer.go
+libcontainer/cgroups/fs/freezer_test.go
+libcontainer/cgroups/fs/fs.go
+libcontainer/cgroups/fs/fs_test.go
+libcontainer/cgroups/fs/hugetlb.go
+libcontainer/cgroups/fs/hugetlb_test.go
+libcontainer/cgroups/fs/memory.go
+libcontainer/cgroups/fs/memory_test.go
+libcontainer/cgroups/fs/name.go
+libcontainer/cgroups/fs/net_cls.go
+libcontainer/cgroups/fs/net_cls_test.go
+libcontainer/cgroups/fs/net_prio.go
+libcontainer/cgroups/fs/net_prio_test.go
+libcontainer/cgroups/fs/paths.go
+libcontainer/cgroups/fs/paths_test.go
+libcontainer/cgroups/fs/perf_event.go
+libcontainer/cgroups/fs/pids.go
+libcontainer/cgroups/fs/pids_test.go
+libcontainer/cgroups/fs/rdma.go
+libcontainer/cgroups/fs/stats_util_test.go
+libcontainer/cgroups/fs/util_test.go
+libcontainer/cgroups/fs2/cpu.go
+libcontainer/cgroups/fs2/cpuset.go
+libcontainer/cgroups/fs2/create.go
+libcontainer/cgroups/fs2/defaultpath.go
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/freezer.go
+libcontainer/cgroups/fs2/fs2.go
+libcontainer/cgroups/fs2/hugetlb.go
+libcontainer/cgroups/fs2/io.go
+libcontainer/cgroups/fs2/io_test.go
+libcontainer/cgroups/fs2/memory.go
+libcontainer/cgroups/fs2/memory_test.go
+libcontainer/cgroups/fs2/pids.go
+libcontainer/cgroups/fs2/psi.go
+libcontainer/cgroups/fs2/psi_test.go
+libcontainer/cgroups/fscommon/rdma.go
+libcontainer/cgroups/fscommon/rdma_test.go
+libcontainer/cgroups/fscommon/utils.go
+libcontainer/cgroups/fscommon/utils_test.go
+libcontainer/cgroups/getallpids.go
+libcontainer/cgroups/getallpids_test.go
+libcontainer/cgroups/manager/manager_test.go
+libcontainer/cgroups/manager/new.go
+libcontainer/cgroups/stats.go
+libcontainer/cgroups/systemd/common.go
+libcontainer/cgroups/systemd/cpuset.go
+libcontainer/cgroups/systemd/cpuset_test.go
+libcontainer/cgroups/systemd/dbus.go
+libcontainer/cgroups/systemd/devices.go
+libcontainer/cgroups/systemd/freeze_test.go
+libcontainer/cgroups/systemd/systemd_test.go
+libcontainer/cgroups/systemd/user.go
+libcontainer/cgroups/systemd/v1.go
+libcontainer/cgroups/systemd/v2.go
+libcontainer/cgroups/utils.go
+libcontainer/cgroups/utils_test.go
+libcontainer/cgroups/v1_utils.go
+libcontainer/configs/blkio_device.go
+libcontainer/configs/cgroup_linux.go
+libcontainer/configs/cgroup_unsupported.go
+libcontainer/configs/config.go
+libcontainer/configs/config_linux.go
+libcontainer/configs/config_linux_test.go
+libcontainer/configs/config_test.go
+libcontainer/configs/configs_fuzzer.go
+libcontainer/configs/hugepage_limit.go
+libcontainer/configs/intelrdt.go
+libcontainer/configs/interface_priority_map.go
+libcontainer/configs/mount.go
+libcontainer/configs/mount_linux.go
+libcontainer/configs/mount_unsupported.go
+libcontainer/configs/namespaces.go
+libcontainer/configs/namespaces_linux.go
+libcontainer/configs/namespaces_syscall.go
+libcontainer/configs/namespaces_syscall_unsupported.go
+libcontainer/configs/namespaces_unsupported.go
+libcontainer/configs/network.go
+libcontainer/configs/rdma.go
+libcontainer/configs/validate/rootless.go
+libcontainer/configs/validate/rootless_test.go
+libcontainer/configs/validate/validator.go
+libcontainer/configs/validate/validator_test.go
+libcontainer/console_linux.go
+libcontainer/container.go
+libcontainer/container_linux.go
+libcontainer/container_linux_test.go
+libcontainer/criu_linux.go
+libcontainer/criu_opts_linux.go
+libcontainer/devices/device.go
+libcontainer/devices/device_unix.go
+libcontainer/devices/device_unix_test.go
+libcontainer/eaccess_go119.go
+libcontainer/eaccess_stub.go
+libcontainer/error.go
+libcontainer/factory_linux.go
+libcontainer/factory_linux_test.go
+libcontainer/init_linux.go
+libcontainer/integration/checkpoint_test.go
+libcontainer/integration/doc.go
+libcontainer/integration/exec_test.go
+libcontainer/integration/execin_test.go
+libcontainer/integration/init_test.go
+libcontainer/integration/seccomp_test.go
+libcontainer/integration/template_test.go
+libcontainer/integration/update_test.go
+libcontainer/integration/utils_test.go
+libcontainer/intelrdt/cmt.go
+libcontainer/intelrdt/cmt_test.go
+libcontainer/intelrdt/intelrdt.go
+libcontainer/intelrdt/intelrdt_test.go
+libcontainer/intelrdt/mbm.go
+libcontainer/intelrdt/mbm_test.go
+libcontainer/intelrdt/monitoring.go
+libcontainer/intelrdt/monitoring_test.go
+libcontainer/intelrdt/stats.go
+libcontainer/intelrdt/util_test.go
+libcontainer/keys/keyctl.go
+libcontainer/logs/logs.go
+libcontainer/logs/logs_linux_test.go
+libcontainer/message_linux.go
+libcontainer/mount_linux.go
+libcontainer/network_linux.go
+libcontainer/notify_linux.go
+libcontainer/notify_linux_test.go
+libcontainer/notify_v2_linux.go
+libcontainer/nsenter/nsenter.go
+libcontainer/nsenter/nsenter_gccgo.go
+libcontainer/nsenter/nsenter_test.go
+libcontainer/nsenter/test/escape.go
+libcontainer/nsenter/test/escape_test.go
+libcontainer/process.go
+libcontainer/process_linux.go
+libcontainer/restored_process.go
+libcontainer/rootfs_linux.go
+libcontainer/rootfs_linux_test.go
+libcontainer/seccomp/config.go
+libcontainer/seccomp/patchbpf/enosys_linux.go
+libcontainer/seccomp/patchbpf/enosys_linux_test.go
+libcontainer/seccomp/patchbpf/enosys_unsupported.go
+libcontainer/seccomp/seccomp_linux.go
+libcontainer/seccomp/seccomp_unsupported.go
+libcontainer/setns_init_linux.go
+libcontainer/specconv/example.go
+libcontainer/specconv/spec_linux.go
+libcontainer/specconv/spec_linux_test.go
+libcontainer/standard_init_linux.go
+libcontainer/state_linux.go
+libcontainer/state_linux_test.go
+libcontainer/stats_linux.go
+libcontainer/sync.go
+libcontainer/system/linux.go
+libcontainer/system/proc.go
+libcontainer/system/proc_test.go
+libcontainer/system/syscall_linux_32.go
+libcontainer/system/syscall_linux_64.go
+... 33 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+2 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 1 to 200 from file: libcontainer/cgroups/fs2/pids.go
+Command read_range returned: Line 1: package fs2
+Line 2: 
+Line 3: import (
+Line 4: 	"errors"
+Line 5: 	"math"
+Line 6: 	"os"
+Line 7: 	"strings"
+Line 8: 
+Line 9: 	"golang.org/x/sys/unix"
+Line 10: 
+Line 11: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 12: 	"github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
+Line 13: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 14: )
+Line 15: 
+Line 16: func isPidsSet(r *configs.Resources) bool {
+Line 17: 	return r.PidsLimit != 0
+Line 18: }
+Line 19: 
+Line 20: func setPids(dirPath string, r *configs.Resources) error {
+Line 21: 	if !isPidsSet(r) {
+Line 22: 		return nil
+Line 23: 	}
+Line 24: 	if val := numToStr(r.PidsLimit); val != "" {
+Line 25: 		if err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil {
+Line 26: 			return err
+Line 27: 		}
+Line 28: 	}
+Line 29: 
+Line 30: 	return nil
+Line 31: }
+Line 32: 
+Line 33: func statPidsFromCgroupProcs(dirPath string, stats *cgroups.Stats) error {
+Line 34: 	// if the controller is not enabled, let's read PIDS from cgroups.procs
+Line 35: 	// (or threads if cgroup.threads is enabled)
+Line 36: 	contents, err := cgroups.ReadFile(dirPath, "cgroup.procs")
+Line 37: 	if errors.Is(err, unix.ENOTSUP) {
+Line 38: 		contents, err = cgroups.ReadFile(dirPath, "cgroup.threads")
+Line 39:
+[older content truncated]
+
+Lines 1 to 220 from file: libcontainer/configs/cgroup_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: package configs
+Line 2: 
+Line 3: import (
+Line 4: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 5: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 6: )
+Line 7: 
+Line 8: type FreezerState string
+Line 9: 
+Line 10: const (
+Line 11: 	Undefined FreezerState = ""
+Line 12: 	Frozen    FreezerState = "FROZEN"
+Line 13: 	Thawed    FreezerState = "THAWED"
+Line 14: )
+Line 15: 
+Line 16: // Cgroup holds properties of a cgroup on Linux.
+Line 17: type Cgroup struct {
+Line 18: 	// Name specifies the name of the cgroup
+Line 19: 	Name string `json:"name,omitempty"`
+Line 20: 
+Line 21: 	// Parent specifies the name of parent of cgroup or slice
+Line 22: 	Parent string `json:"parent,omitempty"`
+Line 23: 
+Line 24: 	// Path specifies the path to cgroups that are created and/or joined by the container.
+Line 25: 	// The path is assumed to be relative to the host system cgroup mountpoint.
+Line 26: 	Path string `json:"path"`
+Line 27: 
+Line 28: 	// ScopePrefix describes prefix for the scope name
+Line 29: 	ScopePrefix string `json:"scope_prefix"`
+Line 30: 
+Line 31: 	// Resources contains various cgroups settings to apply
+Line 32: 	*Resources
+Line 33: 
+Line 34: 	// Systemd tells if systemd should be used to manage cgroups.
+Line 35: 	Systemd bool
+Line 36: 
+Line 37: 	// SystemdProps are any additional properties for systemd,
+Line 38: 	// derived from org.systemd.property.xxx annotations.
+Line 39: 	// Ignored unless systemd is used for managing cgroups.
+Line 40: 	SystemdProps []systemdDbus.Property `json:"-"`
+Line 41: 
+Line 42: 	// Rootless tells if rootless cgroups should be used.
+Line 43: 	Rootless bool
+Line 44: 
+Line 45: 	// The host UID that should own the cgroup, or nil to accept
+Line 46: 	// the default ownership.  This should only be set when the
+Line 47: 	// cgroupfs is to be mounted read/write.
+Line 48: 	// Not all cgroup manager implementations support changing
+Line 49: 	// the ownership.
+Line 50: 	OwnerUID *int `json:"owner_uid,omitempty"`
+Line 51: }
+Line 52: 
+Line 53: type Resources struct {
+Line 54: 	// Devices is the set of access rules for devices in the container.
+Line 55: 	Devices []*devices.Rule `json:"devices"`
+Line 56: 
+Line 57: 	// Memory limit (in bytes)
+Line 58: 	Memory int64 `json:"memory"`
+Line 59: 
+Line 60: 	// Memory reservation or soft_limit (in bytes)
+Line 61: 	MemoryReservation int64 `json:"memory_reservation"`
+Line 62: 
+Line 63: 	// Total memory usage (memory + swap); set `-1` to enable unlimited swap
+Line 64: 	MemorySwap int64 `json:"memory_swap"`
+Line 65: 
+Line 66: 	// CPU shares (relative weight vs. other containers)
+Line 67: 	CpuShares uint64 `json:"cpu_shares"`
+Line 68: 
+Line 69: 	// CPU hardcap limit (in usecs). Allowed cpu time in a given period.
+Line 70: 	CpuQuota int64 `json:"cpu_quota"`
+Line 71: 
+Line 72: 	// CPU hardcap burst limit (in usecs). Allowed accumulated cpu time additionally for burst in a given period.
+Line 73: 	CpuBurst *uint64 `json:"cpu_burst"` //nolint:revive
+Line 74: 
+Line 75: 	// CPU period to be used for hardcapping (in usecs). 0 to use system default.
+Line 76: 	CpuPeriod uint64 `json:"cpu_period"`
+Line 77: 
+Line 78: 	// How many time CPU will use in realtime scheduling (in usecs).
+Line 79: 	CpuRtRuntime int64 `json:"cpu_rt_quota"`
+Line 80: 
+Line 81: 	// CPU period to be used for realtime scheduling (in usecs).
+Line 82: 	CpuRtPeriod uint64 `json:"cpu_rt_period"`
+Line 83: 
+Line 84: 	// CPU to use
+Line 85: 	CpusetCpus string `json:"cpuset_cpus"`
+Line 86: 
+Line 87: 	// MEM to use
+Line 88: 	CpusetMems string `json:"cpuset_mems"`
+Line 89: 
+Line 90: 	// cgroup SCHED_IDLE
+Line 91: 	CPUIdle *int64 `json:"cpu_idle,omitempty"`
+Line 92: 
+Line 93: 	// Process limit; set <= `0' to disable limit.
+Line 94: 	PidsLimit int64 `json:"pids_limit"`
+Line 95: 
+Line 96: 	// Specifies per cgroup weight, range is from 10 to 1000.
+Line 97: 	BlkioWeight uint16 `json:"blkio_weight"`
+Line 98: 
+Line 99: 	// Specifies tasks' weight in the given cgroup while competing with the cgroup's child cgroups, ran
+
+Lines 1 to 220 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: // Package specconv implements conversion of specifications to libcontainer
+Line 2: // configurations
+Line 3: package specconv
+Line 4: 
+Line 5: import (
+Line 6: 	"errors"
+Line 7: 	"fmt"
+Line 8: 	"os"
+Line 9: 	"path/filepath"
+Line 10: 	"sort"
+Line 11: 	"strings"
+Line 12: 	"sync"
+Line 13: 	"time"
+Line 14: 
+Line 15: 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+Line 16: 	dbus "github.com/godbus/dbus/v5"
+Line 17: 	"github.com/opencontainers/runc/libcontainer/cgroups"
+Line 18: 	"github.com/opencontainers/runc/libcontainer/configs"
+Line 19: 	"github.com/opencontainers/runc/libcontainer/devices"
+Line 20: 	"github.com/opencontainers/runc/libcontainer/seccomp"
+Line 21: 	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+Line 22: 	"github.com/opencontainers/runtime-spec/specs-go"
+Line 23: 	"github.com/sirupsen/logrus"
+Line 24: 
+Line 25: 	"golang.org/x/sys/unix"
+Line 26: )
+Line 27: 
+Line 28: var (
+Line 29: 	initMapsOnce            sync.Once
+Line 30: 	namespaceMapping        map[specs.LinuxNamespaceType]configs.NamespaceType
+Line 31: 	mountPropagationMapping map[string]int
+Line 32: 	recAttrFlags            map[string]struct {
+Line 33: 		clear bool
+Line 34: 		flag  uint64
+Line 35: 	}
+Line 36: 	mountFlags, extensionFlags map[string]struct {
+Line 37: 		clear bool
+Line 38: 		flag  int
+Line 39: 	}
+Line 40: )
+Line 41: 
+Line 42: func initMaps() {
+Line 43: 	initMapsOnce.Do(func() {
+Line 44: 		namespaceMapping = map[specs.LinuxNamespaceType]configs.NamespaceType{
+Line 45: 			specs.PIDNamespace:     configs.NEWPID,
+Line 46: 			specs.NetworkNamespace: configs.NEWNET,
+Line 47: 			specs.MountNamespace:   configs.NEWNS,
+Line 48: 			specs.UserNamespace:    configs.NEWUSER,
+Line 49: 			specs.IPCNamespace:     configs.NEWIPC,
+Line 50: 			specs.UTSNamespace:     configs.NEWUTS,
+Line 51: 			specs.CgroupNamespace:  configs.NEWCGROUP,
+Line 52: 			specs.TimeNamespace:    configs.NEWTIME,
+Line 53: 		}
+Line 54: 
+Line 55: 		mountPropagationMapping = map[string]int{
+Line 56: 			"rprivate":    unix.MS_PRIVATE | unix.MS_REC,
+Line 57: 			"private":     unix.MS_PRIVATE,
+Line 58: 			"rslave":      unix.MS_SLAVE | unix.MS_REC,
+Line 59: 			"slave":       unix.MS_SLAVE,
+Line 60: 			"rshared":     unix.MS_SHARED | unix.MS_REC,
+Line 61: 			"shared":      unix.MS_SHARED,
+Line 62: 			"runbindable": unix.MS_UNBINDABLE | unix.MS_REC,
+Line 63: 			"unbindable":  unix.MS_UNBINDABLE,
+Line 64: 		}
+Line 65: 
+Line 66: 		mountFlags = map[string]struct {
+Line 67: 			clear bool
+Line 68: 			flag  int
+Line 69: 		}{
+Line 70: 			// "acl" cannot be mapped to MS_POSIXACL: https://github.com/opencontainers/runc/issues/3738
+Line 71: 			"async":         {true, unix.MS_SYNCHRONOUS},
+Line 72: 			"atime":         {true, unix.MS_NOATIME},
+Line 73: 			"bind":          {false, unix.MS_BIND},
+Line 74: 			"defaults":      {false, 0},
+Line 75: 			"dev":           {true, unix.MS_NODEV},
+Line 76: 			"diratime":      {true, unix.MS_NODIRATIME},
+Line 77: 			"dirsync":       {false, unix.MS_DIRSYNC},
+Line 78: 			"exec":          {true, unix.MS_NOEXEC},
+Line 79: 			"iversion":      {false, unix.MS_I_VERSION},
+Line 80: 			"lazytime":      {false, unix.MS_LAZYTIME},
+Line 81: 			"loud":          {true, unix.MS_SILENT},
+Line 82: 			"mand":          {false, unix.MS_MANDLOCK},
+Line 83: 			"noatime":       {false, unix.MS_NOATIME},
+Line 84: 			"nodev":         {false, unix.MS_NODEV},
+Line 85: 			"nodiratime":    {false, unix.MS_NODIRATIME},
+Line 86: 			"noexec":        {false, unix.MS_NOEXEC},
+Line 87: 			"noiversion":    {true, unix.MS_I_VERSION},
+Line 88: 			"nolazytime":    {true, unix.MS_LAZYTIME},
+Line 89: 			"nomand":        {true, unix.MS_MANDLOCK},
+Line 90: 			"norelatime":    {true, unix.MS_RELATIME},
+Line 91: 			"nostrictatime": {true, unix.MS_STRICTATIME},
+Line 92: 			"nosuid":        {false, unix.MS_NOSUID},
+Line 93: 			"nosymfollow":   {false, unix.MS_NOSYMFOLLOW}, // since kernel 5.10
+Line 94: 			"rbind":         {false, unix.MS_BIND | unix.MS_REC},
+Line 95: 			"relatime
+
+Lines 636 to 760 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 636: func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*configs.Cgroup, error) {
+Line 637: 	var (
+Line 638: 		myCgroupPath string
+Line 639: 
+Line 640: 		spec             = opts.Spec
+Line 641: 		useSystemdCgroup = opts.UseSystemdCgroup
+Line 642: 		name             = opts.CgroupName
+Line 643: 	)
+Line 644: 
+Line 645: 	c := &configs.Cgroup{
+Line 646: 		Systemd:   useSystemdCgroup,
+Line 647: 		Rootless:  opts.RootlessCgroups,
+Line 648: 		Resources: &configs.Resources{},
+Line 649: 	}
+Line 650: 
+Line 651: 	if useSystemdCgroup {
+Line 652: 		sp, err := initSystemdProps(spec)
+Line 653: 		if err != nil {
+Line 654: 			return nil, err
+Line 655: 		}
+Line 656: 		c.SystemdProps = sp
+Line 657: 	}
+Line 658: 
+Line 659: 	if spec.Linux != nil && spec.Linux.CgroupsPath != "" {
+Line 660: 		if useSystemdCgroup {
+Line 661: 			myCgroupPath = spec.Linux.CgroupsPath
+Line 662: 		} else {
+Line 663: 			myCgroupPath = libcontainerUtils.CleanPath(spec.Linux.CgroupsPath)
+Line 664: 		}
+Line 665: 	}
+Line 666: 
+Line 667: 	if useSystemdCgroup {
+Line 668: 		if myCgroupPath == "" {
+Line 669: 			// Default for c.Parent is set by systemd cgroup drivers.
+Line 670: 			c.ScopePrefix = "runc"
+Line 671: 			c.Name = name
+Line 672: 		} else {
+Line 673: 			// Parse the path from expected "slice:prefix:name"
+Line 674: 			// for e.g. "system.slice:docker:1234"
+Line 675: 			parts := strings.Split(myCgroupPath, ":")
+Line 676: 			if len(parts) != 3 {
+Line 677: 				return nil, fmt.Errorf("expected cgroupsPath to be of format \"slice:prefix:name\" for systemd cgroups, got %q instead", myCgroupPath)
+Line 678: 			}
+Line 679: 			c.Parent = parts[0]
+Line 680: 			c.ScopePrefix = parts[1]
+Line 681: 			c.Name = parts[2]
+Line 682: 		}
+Line 683: 	} else {
+Line 684: 		if myCgroupPath == "" {
+Line 685: 			c.Name = name
+Line 686: 		}
+Line 687: 		c.Path = myCgroupPath
+Line 688: 	}
+Line 689: 
+Line 690: 	// In rootless containers, any attempt to make cgroup changes is likely to fail.
+Line 691: 	// libcontainer will validate this but ignores the error.
+Line 692: 	if spec.Linux != nil {
+Line 693: 		r := spec.Linux.Resources
+Line 694: 		if r != nil {
+Line 695: 			for i, d := range r.Devices {
+Line 696: 				var (
+Line 697: 					t     = "a"
+Line 698: 					major = int64(-1)
+Line 699: 					minor = int64(-1)
+Line 700: 				)
+Line 701: 				if d.Type != "" {
+Line 702: 					t = d.Type
+Line 703: 				}
+Line 704: 				if d.Major != nil {
+Line 705: 					major = *d.Major
+Line 706: 				}
+Line 707: 				if d.Minor != nil {
+Line 708: 					minor = *d.Minor
+Line 709: 				}
+Line 710: 				if d.Access == "" {
+Line 711: 					return nil, fmt.Errorf("device access at %d field cannot be empty", i)
+Line 712: 				}
+Line 713: 				dt, err := stringToCgroupDeviceRune(t)
+Line 714: 				if err != nil {
+Line 715: 					return nil, err
+Line 716: 				}
+Line 717: 				c.Resources.Devices = append(c.Resources.Devices, &devices.Rule{
+Line 718: 					Type:        dt,
+Line 719: 					Major:       major,
+Line 720: 					Minor:       minor,
+Line 721: 					Permissions: devices.Permissions(d.Access),
+Line 722: 					Allow:       d.Allow,
+Line 723: 				})
+Line 724: 			}
+Line 725: 			if r.Memory != nil {
+Line 726: 				if r.Memory.Limit != nil {
+Line 727: 					c.Resources.Memory = *r.Memory.Limit
+Line 728: 				}
+Line 729: 				if r.Memory.Reservation != nil {
+Line 730: 					c.Resources.MemoryReservation = *r.Memory.Reservation
+Line 731: 				}
+Line 732: 				if r.Memory.Swap != nil {
+Line 733: 					c.Resources.MemorySwap = *r.Memory.Swap
+Line 734: 				}
+Line 735: 				if r.Memory.Kernel != nil || r.Memory.KernelTCP != nil {
+Line 736: 					logrus.Warn("Kernel memory settings are ignored and will be removed")
+Line 737: 				}
+Line 738: 				if r.Memory.Swappiness != nil {
+Line 739: 					c.Resources.MemorySwappiness = r.Memory.Swappiness
+Line 740: 				}
+Line 741: 				if r.Memory.DisableOOMKiller != nil {
+Line 742: 					c.Resources.OomKillDisable = *r.Memory.DisableOOMKiller
+Line 743: 				}
+Line 744: 				if r.Memory.CheckBeforeUpdate != 
+
+Lines 744 to 860 from file: libcontainer/specconv/spec_linux.go
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 744: 				if r.Memory.CheckBeforeUpdate != nil {
+Line 745: 					c.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+Line 746: 				}
+Line 747: 			}
+Line 748: 			if r.CPU != nil {
+Line 749: 				if r.CPU.Shares != nil {
+Line 750: 					c.Resources.CpuShares = *r.CPU.Shares
+Line 751: 
+Line 752: 					// CpuWeight is used for cgroupv2 and should be converted
+Line 753: 					c.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
+Line 754: 				}
+Line 755: 				if r.CPU.Quota != nil {
+Line 756: 					c.Resources.CpuQuota = *r.CPU.Quota
+Line 757: 				}
+Line 758: 				if r.CPU.Burst != nil {
+Line 759: 					c.Resources.CpuBurst = r.CPU.Burst
+Line 760: 				}
+Line 761: 				if r.CPU.Period != nil {
+Line 762: 					c.Resources.CpuPeriod = *r.CPU.Period
+Line 763: 				}
+Line 764: 				if r.CPU.RealtimeRuntime != nil {
+Line 765: 					c.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+Line 766: 				}
+Line 767: 				if r.CPU.RealtimePeriod != nil {
+Line 768: 					c.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+Line 769: 				}
+Line 770: 				c.Resources.CpusetCpus = r.CPU.Cpus
+Line 771: 				c.Resources.CpusetMems = r.CPU.Mems
+Line 772: 				c.Resources.CPUIdle = r.CPU.Idle
+Line 773: 			}
+Line 774: 			if r.Pids != nil {
+Line 775: 				c.Resources.PidsLimit = r.Pids.Limit
+Line 776: 			}
+Line 777: 			if r.BlockIO != nil {
+Line 778: 				if r.BlockIO.Weight != nil {
+Line 779: 					c.Resources.BlkioWeight = *r.BlockIO.Weight
+Line 780: 				}
+Line 781: 				if r.BlockIO.LeafWeight != nil {
+Line 782: 					c.Resources.BlkioLeafWeight = *r.BlockIO.LeafWeight
+Line 783: 				}
+Line 784: 				for _, wd := range r.BlockIO.WeightDevice {
+Line 785: 					var weight, leafWeight uint16
+Line 786: 					if wd.Weight != nil {
+Line 787: 						weight = *wd.Weight
+Line 788: 					}
+Line 789: 					if wd.LeafWeight != nil {
+Line 790: 						leafWeight = *wd.LeafWeight
+Line 791: 					}
+Line 792: 					weightDevice := configs.NewWeightDevice(wd.Major, wd.Minor, weight, leafWeight)
+Line 793: 					c.Resources.BlkioWeightDevice = append(c.Resources.BlkioWeightDevice, weightDevice)
+Line 794: 				}
+Line 795: 				for _, td := range r.BlockIO.ThrottleReadBpsDevice {
+Line 796: 					rate := td.Rate
+Line 797: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 798: 					c.Resources.BlkioThrottleReadBpsDevice = append(c.Resources.BlkioThrottleReadBpsDevice, throttleDevice)
+Line 799: 				}
+Line 800: 				for _, td := range r.BlockIO.ThrottleWriteBpsDevice {
+Line 801: 					rate := td.Rate
+Line 802: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 803: 					c.Resources.BlkioThrottleWriteBpsDevice = append(c.Resources.BlkioThrottleWriteBpsDevice, throttleDevice)
+Line 804: 				}
+Line 805: 				for _, td := range r.BlockIO.ThrottleReadIOPSDevice {
+Line 806: 					rate := td.Rate
+Line 807: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 808: 					c.Resources.BlkioThrottleReadIOPSDevice = append(c.Resources.BlkioThrottleReadIOPSDevice, throttleDevice)
+Line 809: 				}
+Line 810: 				for _, td := range r.BlockIO.ThrottleWriteIOPSDevice {
+Line 811: 					rate := td.Rate
+Line 812: 					throttleDevice := configs.NewThrottleDevice(td.Major, td.Minor, rate)
+Line 813: 					c.Resources.BlkioThrottleWriteIOPSDevice = append(c.Resources.BlkioThrottleWriteIOPSDevice, throttleDevice)
+Line 814: 				}
+Line 815: 			}
+Line 816: 			for _, l := range r.HugepageLimits {
+Line 817: 				c.Resources.HugetlbLimit = append(c.Resources.HugetlbLimit, &configs.HugepageLimit{
+Line 818: 					Pagesize: l.Pagesize,
+Line 819: 					Limit:    l.Limit,
+Line 820: 				})
+Line 821: 			}
+Line 822: 			if len(r.Rdma) > 0 {
+Line 823: 				c.Resources.Rdma = make(map[string]configs.LinuxRdma, len(r.Rdma))
+Line 824: 				for k, v := range r.Rdma {
+Line 825: 					c.Resources.Rdma[k] = configs.LinuxRdma{
+Line 826: 						HcaHandles: v.HcaHandles,
+Line 827: 						HcaObjects: v.HcaObjects,
+Line 828: 					}
+Line 829: 				}
+Line 830: 	
+
+
+## Suggested fixes:
+This is the list of suggested fixes so far but none of them worked:
+###Fix:
+[{'file_name': 'libcontainer/configs/cgroup_linux.go', 'insertions': [{'line_number': 95, 'new_lines': ['\t// PidsLimitSet records whether the pids limit was explicitly configured, so a zero value means unlimited rather than unspecified.', '\tPidsLimitSet bool `json:"pids_limit_set,omitempty"`']}], 'deletions': [], 'modifications': []}, {'file_name': 'libcontainer/specconv/spec_linux.go', 'insertions': [{'line_number': 775, 'new_lines': ['\t\t\t\t// Mark the pids limit as explicitly configured so limit=0 is applied as unlimited instead of being treated as absent.', '\t\t\t\tc.Resources.PidsLimitSet = true']}], 'deletions': [], 'modifications': []}, {'file_name': 'libcontainer/cgroups/fs/pids.go', 'insertions': [{'line_number': 23, 'new_lines': ['\t// Apply an explicitly configured zero pids limit as unlimited ("max") rather than leaving the inherited value unchanged.']}], 'deletions': [], 'modifications': [{'line_number': 23, 'modified_line': '\tif r.PidsLimit != 0 || r.PidsLimitSet {'}]}, {'file_name': 'libcontainer/cgroups/fs2/pids.go', 'insertions': [{'line_number': 17, 'new_lines': ['\t// Treat an explicitly configured zero pids limit as set, so it is written as unlimited instead of inherited.']}], 'deletions': [24, 28], 'modifications': [{'line_number': 17, 'modified_line': '\treturn r.PidsLimit != 0 || r.PidsLimitSet'}, {'line_number': 24, 'modified_line': '\tlimit := "max"'}, {'line_number': 25, 'modified_line': '\tif r.PidsLimit > 0 {'}, {'line_number': 26, 'modified_line': '\t\tlimit = numToStr(r.PidsLimit)'}, {'line_number': 27, 'modified_line': '\t}'}, {'line_number': 28, 'modified_line': '\tif err := cgroups.WriteFile(dirPath, "pids.max", limit); err != nil {'}]}]
+
+
+## The list of implementations of some methods in the code base:
+Command extract_method_code returned: Line 373: 	defaultDevs, err := createDevices(spec, config)
+Line 374: 	if err != nil {
+Line 375: 		return nil, err
+Line 376: 	}
+Line 377: 
+Line 378: 	c, err := CreateCgroupConfig(opts, defaultDevs)
+Line 379: 	if err != nil {
+Line 380: 		return nil, err
+Line 381: 	}
+Line 382: 
+Line 383: 	config.Cgroups = c
+Line 384: 	// set linux-specific config
+Line 385: 	if spec.Linux != nil {
+Line 386: 		initMaps()
+Line 387: 
+Line 388: 		if spec.Linux.RootfsPropagation != "" {
+Line 389: 			var exists bool
+Line 390: 			if config.RootPropagation, exists = mountPropagationMapping[spec.Linux.RootfsPropagation]; !exists {
+Line 391: 				return nil, fmt.Errorf("rootfsPropagation=%v is not supported", spec.Linux.RootfsPropagation)
+Line 392: 			}
+Line 393: 			if config.NoPivotRoot && (config.RootPropagation&unix.MS_PRIVATE != 0) {
+Line 394: 				return nil, errors.New("rootfsPropagation of [r]private is not safe without pivot_root")
+Line 395: 			}
+Line 396: 		}
+Line 397: 
+Line 398: 		for _, ns := range spec.Linux.Namespaces {
+Line 399: 			t, exists := namespaceMapping[ns.Type]
+Line 400: 			if !exists {
+Line 401: 				return nil, fmt.Errorf("namespace %q does not exist", ns)
+Line 402: 			}
+Line 403: 			if config.Namespaces.Contains(t) {
+Line 404: 				return nil, fmt.Errorf("malformed spec file: duplicated ns %q", ns)
+Line 405: 			}
+Line 406: 			config.Namespaces.Add(t, ns.Path)
+Line 407: 		}
+Line 408: 		if config.Namespaces.Contains(configs.NEWNET) && config.Namespaces.PathOf(configs.NEWNET) == "" {
+Line 409: 			config.Networks = []*configs.Network{
+Line 410: 				{
+Line 411: 					Type: "loopback",
+Line 412: 				},
+Line 413: 			}
+Line 414: 		}
+Line 415: 		if config.Namespaces.Contains(configs.NEWUSER) {
+Line 416: 			if err := setupUserNamespace(spec, config); err != nil {
+Line 417: 				return nil, err
+Line 418: 			}
+Line 419: 		}
+Line 420: 		config.MaskPaths = spec.Linux.MaskedPaths
+Line 421: 		config.ReadonlyPaths = spec.Linux.ReadonlyPaths
+Line 422: 		config.MountLabel = spec.Linux.MountLabel
+Line 423: 		config.Sysctl = spec.Linux.Sysctl
+Line 424: 		config.TimeOffsets = spec.Linux.TimeOffsets
+Line 425: 		if spec.Linux.Seccomp != nil {
+Line 426: 			seccomp, err := SetupSeccomp(spec.Linux.Seccomp)
+Line 427: 			if err != nil {
+Line 428: 				return nil, err
+Line 429: 			}
+Line 430: 			config.Seccomp = seccomp
+Line 431: 		}
+Line 432: 		if spec.Linux.IntelRdt != nil {
+Line 433: 			config.IntelRdt = &configs.IntelRdt{
+Line 434: 				ClosID:        spec.Linux.IntelRdt.ClosID,
+Line 435: 				L3CacheSchema: spec.Linux.IntelRdt.L3CacheSchema,
+Line 436: 				MemBwSchema:   spec.Linux.IntelRdt.MemBwSchema,
+Line 437: 			}
+Line 438: 		}
+Line 439: 	}
+Line 440: 
+Line 441: 	// Set the host UID that should own the container's cgroup.
+Line 442: 	// This must be performed after setupUserNamespace, so that
+Line 443: 	// config.HostRootUID() returns the correct result.
+Line 444: 	//
+Line 445: 	// Only set it if the container will have its own cgroup
+Line 446: 	// namespace and the cgroupfs will be mounted read/write.
+Line 447: 	//
+Line 448: 	hasCgroupNS := config.Namespaces.Contains(configs.NEWCGROUP) && config.Namespaces.PathOf(configs.NEWCGROUP) == ""
+Line 449: 	hasRwCgroupfs := false
+Line 450: 	if hasCgroupNS {
+Line 451: 		for _, m := range config.Mounts {
+Line 452: 			if m.Source == "cgroup" && filepath.Clean(m.Destination) == "/sys/fs/cgroup" && (m.Flags&unix.MS_RDONLY) == 0 {
+Line 453: 				hasRwCgroupfs = true
+Line 454: 				break
+Line 455: 			}
+Line 456: 		}
+Line 457: 	}
+Command extract_method_code returned: Line 17: 
+Line 18: func (s *PidsGroup) Apply(path string, _ *configs.Resources, pid int) error {
+Line 19: 	return apply(path, pid)
+Line 20: }
+Line 21: 
+Line 22: func (s *PidsGroup) Set(path string, r *configs.Resources) error {
+Line 23: 	if r.PidsLimit != 0 {
+Line 24: 		// "max" is the fallback value.
+Line 25: 		limit := "max"
+Line 26: 
+Line 27: 		if r.PidsLimit > 0 {
+Line 28: 			limit = strconv.FormatInt(r.PidsLimit, 10)
+Line 29: 		}
+Line 30: 
+Line 31: 		if err := cgroups.WriteFile(path, "pids.max", limit); err != nil {
+Line 32: 			return err
+Line 33: 		}
+Line 34: 	}
+Line 35: 
+Line 36: 	return nil
+Line 37: }
+Line 38: 
+Line 39: func (s *PidsGroup) GetStats(path string, stats *cgroups.Stats) error {
+Line 40: 	if !cgroups.PathExists(path) {
+Line 41: 		return nil
+Line 42: 	}
+Line 43: 	current, err := fscommon.GetCgroupParamUint(path, "pids.current")
+Line 44: 	if err != nil {
+Line 45: 		return err
+Line 46: 	}
+Line 47: 
+Line 48: 	max, err := fscommon.GetCgroupParamUint(path, "pids.max")
+Line 49: 	if err != nil {
+Line 50: 		return err
+Line 51: 	}
+Line 52: 	// If no limit is set, read from pids.max returns "max", which is
+Line 53: 	// converted to MaxUint64 by GetCgroupParamUint. Historically, we
+Line 54: 	// represent "no limit" for pids as 0, thus this conversion.
+Line 55: 	if max == math.MaxUint64 {
+Line 56: 		max = 0
+Line 57: 	}
+Line 58: 
+Line 59: 	stats.PidsStats.Current = current
+Line 60: 	stats.PidsStats.Limit = max
+Line 61: 	return nil
+Line 62: }
+
+## Executed search queries within the code base:
+Searching keywords: PidsLimit, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, i, i, m, i] package main
+spec.go:3: [p, i, i, m, i, t] import (
+spec.go:4: [i, d, s, i, i] "encoding/json"
+spec.go:5: [s] "errors"
+spec.go:6: [m, t] "fmt"
+spec.go:7: [s] "os"
+spec.go:9: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [p, i, s, i, m, i, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [i, l, i, m, i, t] "github.com/urfave/cli"
+spec.go:15: [p, i, d, s, l, i, m, i] var specCommand = cli.Command{
+spec.go:16: [p, s, m] Name:      "spec",
+spec.go:17: [p, i, s, l, i, i, t] Usage:     "create a new specification file",
+spec.go:18: [s] ArgsUsage: "",
+spec.go:19: [p, i, d, s, l, i, m, i, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, l, t] the bundle.
+spec.go:22: [p, i, d, s, l, i, i, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [p, i, d, s, l, i, m, i, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [p, i, d, s, l, i, m, i, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [i, d, s, l, i, m, i, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [p, i, d, s, l, i, m, i, t] work for containers that do not include the "sh" program.
+spec.go:28: [p, l, m] EXAMPLE:
+spec.go:29: [p, i, d, s, l, i, m, i, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [p, i, d, s, l, i, m, i, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [i, d, s, l, i, m, i, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [p, i, d, s, l, i, m, i, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [i, d, l, i, m, i, t] command in a new hello-world container named container1:
+spec.go:35: [i, d, l, i, m, i] mkdir hello
+spec.go:36: [d, l] cd hello
+spec.go:37: [p, d, l] docker pull hello-world
+spec.go:38: [p, d, l, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [i, d, s, i, m, i, t] mkdir rootfs
+spec.go:40: [d, s, l, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, s] runc spec
+spec.go:42: [p, i, d, s, l, i, i] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [i, i, i, t] runc run container1
+spec.go:45: [i, d, s, i, m, i, t] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [p, i, d, s, i, m, i, t] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, s, i, m, i, t] must be unique on your host.
+spec.go:49: [p, i, d, s, l, i, m, i, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [p, i, d, s, l, i, m, i, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [p, i, s, l, i, m, i, t] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [i, i, m, i, t] to get more information.
+spec.go:54: [p, i, d, s, l, i, i, t] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [p, i, d, s, l, i, i, t] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [p, i, d, s, l, i, m, i, t] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [i, s, i, i, t] container on your host.
+spec.go:59: [i, s, l, i, i, t] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [p, i, d, s, l, i, i, t] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [p, i, d, s, l, i, m, i, t] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [p, 
+
+Searching keywords: type Resources struct, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, e, e, c, e, c] package main
+spec.go:3: [t, p, r, o, r, t, r, t] import (
+spec.go:4: [e, e, s, o, c, e, s, s, c] "encoding/json"
+spec.go:5: [e, r, e, s, o, r, e, s, s, r] "errors"
+spec.go:6: [t, t, t] "fmt"
+spec.go:7: [s, o, s, s] "os"
+spec.go:9: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [t, e, r, e, o, u, r, c, e, t, r, u, c, t] "github.com/urfave/cli"
+spec.go:15: [p, e, r, e, s, o, r, c, e, s, s, r, c] var specCommand = cli.Command{
+spec.go:16: [p, e, e, s, c, e, s, s, c] Name:      "spec",
+spec.go:17: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] Usage:     "create a new specification file",
+spec.go:18: [e, r, e, s, u, r, e, s, s, r, u] ArgsUsage: "",
+spec.go:19: [t, p, e, r, e, s, o, r, c, e, s, s, t, r, c, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [t, e, e, u, e, t, u, t] the bundle.
+spec.go:22: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [t, y, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [t, y, p, e, r, e, s, o, r, c, e, s, s, t, r, c, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [t, y, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] work for containers that do not include the "sh" program.
+spec.go:28: [p, e, e, e] EXAMPLE:
+spec.go:29: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [t, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [t, e, r, e, o, r, c, e, t, r, c, t] command in a new hello-world container named container1:
+spec.go:35: [e, r, e, o, r, e, r] mkdir hello
+spec.go:36: [e, e, o, c, e, c] cd hello
+spec.go:37: [p, e, r, e, o, u, r, c, e, r, u, c] docker pull hello-world
+spec.go:38: [t, p, e, r, e, o, r, c, e, t, r, c, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [t, r, s, o, r, s, s, t, r, t] mkdir rootfs
+spec.go:40: [t, e, r, e, s, o, r, c, e, s, s, t, r, c, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, e, r, e, s, u, r, c, e, s, s, r, u, c] runc spec
+spec.go:42: [p, e, e, s, o, c, e, s, s, c] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [t, e, r, e, o, u, r, c, e, t, r, u, c, t] runc run container1
+spec.go:45: [t, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [t, y, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] container that you are starting. The name you provide for the container instance
+spec.go:47: [t, y, e, r, e, s, o, u, r, e, s, s, t, r, u, t] must be unique on your host.
+spec.go:49: [t, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [t, y, p, e, r, e, s, o, u, r, c, e, s, s, t, r, u, c, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [t, y, p, e, r, e, 
+
+Searching keywords: PidsLimit =, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [p, i, i, m, i] package main
+spec.go:3: [p, i, i, m, i, t] import (
+spec.go:4: [i, d, s, i, i] "encoding/json"
+spec.go:5: [s] "errors"
+spec.go:6: [m, t] "fmt"
+spec.go:7: [s] "os"
+spec.go:9: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [p, i, s, i, m, i, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [i, l, i, m, i, t] "github.com/urfave/cli"
+spec.go:15: [p, i, d, s, l, i, m, i, =] var specCommand = cli.Command{
+spec.go:16: [p, s, m] Name:      "spec",
+spec.go:17: [p, i, s, l, i, i, t] Usage:     "create a new specification file",
+spec.go:18: [s] ArgsUsage: "",
+spec.go:19: [p, i, d, s, l, i, m, i, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [d, l, t] the bundle.
+spec.go:22: [p, i, d, s, l, i, i, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [p, i, d, s, l, i, m, i, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [p, i, d, s, l, i, m, i, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [i, d, s, l, i, m, i, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [p, i, d, s, l, i, m, i, t] work for containers that do not include the "sh" program.
+spec.go:28: [p, l, m] EXAMPLE:
+spec.go:29: [p, i, d, s, l, i, m, i, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [p, i, d, s, l, i, m, i, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [i, d, s, l, i, m, i, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [p, i, d, s, l, i, m, i, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [i, d, l, i, m, i, t] command in a new hello-world container named container1:
+spec.go:35: [i, d, l, i, m, i] mkdir hello
+spec.go:36: [d, l] cd hello
+spec.go:37: [p, d, l] docker pull hello-world
+spec.go:38: [p, d, l, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [i, d, s, i, m, i, t] mkdir rootfs
+spec.go:40: [d, s, l, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [p, s] runc spec
+spec.go:42: [p, i, d, s, l, i, i] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [i, i, i, t] runc run container1
+spec.go:45: [i, d, s, i, m, i, t] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [p, i, d, s, i, m, i, t] container that you are starting. The name you provide for the container instance
+spec.go:47: [i, s, i, m, i, t] must be unique on your host.
+spec.go:49: [p, i, d, s, l, i, m, i, t] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [p, i, d, s, l, i, m, i, t] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [p, i, s, l, i, m, i, t] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [i, i, m, i, t] to get more information.
+spec.go:54: [p, i, d, s, l, i, i, t] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [p, i, d, s, l, i, i, t] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [p, i, d, s, l, i, m, i, t] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [i, s, i, i, t] container on your host.
+spec.go:59: [i, s, l, i, i, t] Alternatively, you can start a rootless container, which has the ability to run
+spec.go:60: [p, i, d, s, l, i, i, t] without root privileges. For this to work, the specification file needs to be
+spec.go:61: [p, i, d, s, l, i, m, i, t] adjusted accordingly. You can pass the parameter --rootless to this command to
+spec.go:62: [
+
+Searching keywords: func CreateCgroupConfig Pids Limit, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [n, c, c, e, a, e, c, g, p, c, n, i, g, p, i, i, m, i] package main
+spec.go:3: [r, t, r, o, p, o, i, p, i, i, m, i, t] import (
+spec.go:4: [n, c, c, e, e, c, g, o, c, o, n, i, g, i, d, s, i, i] "encoding/json"
+spec.go:5: [r, e, e, r, o, o, s] "errors"
+spec.go:6: [f, t, f, m, t] "fmt"
+spec.go:7: [o, o, s] "os"
+spec.go:9: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, s, l, i, m, i, t] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, s, i, m, i, t] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [f, u, c, c, r, e, a, t, e, c, g, r, o, u, c, o, f, i, g, i, l, i, m, i, t] "github.com/urfave/cli"
+spec.go:15: [n, c, c, r, e, a, e, c, r, o, p, c, o, n, i, p, i, d, s, l, i, m, i] var specCommand = cli.Command{
+spec.go:16: [n, c, c, e, a, e, c, p, c, n, p, s, m] Name:      "spec",
+spec.go:17: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, s, l, i, i, t] Usage:     "create a new specification file",
+spec.go:18: [u, r, e, a, e, g, r, u, g, s] ArgsUsage: "",
+spec.go:19: [f, n, c, c, r, e, a, t, e, c, g, r, o, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [u, n, e, t, e, u, n, d, l, t] the bundle.
+spec.go:22: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, i, t] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [n, c, c, r, e, a, t, e, c, r, o, p, c, o, n, i, p, i, d, s, l, i, m, i, t] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, c, o, n, f, i, g, i, d, s, l, i, m, i, t] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] work for containers that do not include the "sh" program.
+spec.go:28: [e, a, e, p, p, l, m] EXAMPLE:
+spec.go:29: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, d, s, l, i, m, i, t] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, i, g, p, i, d, s, l, i, m, i, t] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, c, o, n, f, i, g, i, d, s, l, i, m, i, t] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [f, u, n, c, c, r, e, a, t, e, c, g, r, o, u, p, c, o, n, f, i, g, p, i, d, s, l, i, m, i, t] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [n, c, c, r, e, a, t, e, c, r, o, c, o, n, i, i, d, l, i, m, i, t] command in a new hello-world container named container1:
+spec.go:35: [r, e, e, r, o, o, i, i, d, l, i, m, i] mkdir hello
+spec.go:36: [c, c, e, e, c, o, c, o, d, l] cd hello
+spec.go:37: [u, c, c, r, e, e, c, r, o, u, p, c, o, p, d, l] docker pull hello-world
+spec.go:38: [c, c, r, e, a, t, e, c, r, o, p, c, o, p, d, l, t] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [f, r, t, r, o, o, f, i, i, d, s, i, m, i, t] mkdir rootfs
+spec.go:40: [f, c, c, r, e, a, t, e, c, r, o, c, o, f, d, s, l, t] tar -C rootfs -xf hello-world.tar
+spec.go:41: [u, n, c, c, r, e, e, c, r, u, p, c, n, p, s] runc spec
+spec.go:42: [f, n, c, c, e, e, c, g, o, p, c, o, n, f, i, g, p, i, d, s, l, i, i] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [u, 
+
+Searching keywords: func numToStr, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: spec.go:1: [n, c, n, m] package main
+spec.go:3: [m, t, o, t, r] import (
+spec.go:4: [n, c, n, o, s] "encoding/json"
+spec.go:5: [o, s, r] "errors"
+spec.go:6: [f, m, t, t] "fmt"
+spec.go:7: [o, s] "os"
+spec.go:9: [f, u, n, c, n, u, m, t, o, s, t, r] "github.com/opencontainers/runc/libcontainer/configs"
+spec.go:10: [u, n, c, n, u, m, t, o, s, t, r] "github.com/opencontainers/runc/libcontainer/specconv"
+spec.go:11: [u, n, c, n, u, m, t, o, s, t, r] "github.com/opencontainers/runtime-spec/specs-go"
+spec.go:12: [f, u, c, u, m, t, o, t, r] "github.com/urfave/cli"
+spec.go:15: [n, c, n, m, o, s, r] var specCommand = cli.Command{
+spec.go:16: [n, c, n, m, s] Name:      "spec",
+spec.go:17: [f, u, n, c, n, u, t, o, s, t, r] Usage:     "create a new specification file",
+spec.go:18: [u, u, s, r] ArgsUsage: "",
+spec.go:19: [f, n, c, n, m, t, o, s, t, r] Description: `The spec command creates the new specification file named "` + specConfig + `" for
+spec.go:20: [u, n, n, u, t, t] the bundle.
+spec.go:22: [f, u, n, c, n, u, t, o, s, t, r] The spec generated is just a starter file. Editing of the spec is required to
+spec.go:23: [f, u, n, c, n, u, m, t, o, s, t, r] achieve desired results. For example, the newly generated spec includes an args
+spec.go:24: [n, c, n, m, t, o, s, t, r] parameter that is initially set to call the "sh" command when the container is
+spec.go:25: [f, u, n, c, n, u, m, t, o, s, t, r] started. Calling "sh" may work for an ubuntu container or busybox, but will not
+spec.go:26: [f, u, n, c, n, u, m, t, o, s, t, r] work for containers that do not include the "sh" program.
+spec.go:28: [m] EXAMPLE:
+spec.go:29: [u, n, c, n, u, m, t, o, s, t, r] To run docker's hello-world container one needs to set the args parameter
+spec.go:30: [u, n, c, n, u, m, t, o, s, t, r] in the spec to call hello. This can be done using the sed command or a text
+spec.go:31: [f, u, n, c, n, u, m, t, o, s, t, r] editor. The following commands create a bundle for hello-world, change the
+spec.go:32: [f, u, n, c, n, u, m, t, o, s, t, r] default args parameter in the spec from "sh" to "/hello", then run the hello
+spec.go:33: [n, c, n, m, t, o, t, r] command in a new hello-world container named container1:
+spec.go:35: [m, o, r] mkdir hello
+spec.go:36: [c, o] cd hello
+spec.go:37: [u, c, u, o, r] docker pull hello-world
+spec.go:38: [c, t, o, t, r] docker export $(docker create hello-world) > hello-world.tar
+spec.go:39: [f, m, t, o, s, t, r] mkdir rootfs
+spec.go:40: [f, c, t, o, s, t, r] tar -C rootfs -xf hello-world.tar
+spec.go:41: [u, n, c, n, u, s, r] runc spec
+spec.go:42: [f, n, c, n, o, s] sed -i 's;"sh";"/hello";' ` + specConfig + `
+spec.go:43: [u, n, c, n, u, t, o, t, r] runc run container1
+spec.go:45: [f, u, n, c, n, u, m, t, o, s, t, r] In the run command above, "container1" is the name for the instance of the
+spec.go:46: [f, u, n, c, n, u, m, t, o, s, t, r] container that you are starting. The name you provide for the container instance
+spec.go:47: [u, n, n, u, m, t, o, s, t, r] must be unique on your host.
+spec.go:49: [f, u, n, c, n, u, m, t, o, s, t, r] An alternative for generating a customized spec config is to use "oci-runtime-tool", the
+spec.go:50: [f, u, n, c, n, u, m, t, o, s, t, r] sub-command "oci-runtime-tool generate" has lots of options that can be used to do any
+spec.go:51: [u, n, c, n, u, m, t, o, s, t, r] customizations as you want, see runtime-tools (https://github.com/opencontainers/runtime-tools)
+spec.go:52: [f, n, n, m, t, o, t, r] to get more information.
+spec.go:54: [f, u, n, c, n, u, t, o, s, t, r] When starting a container through runc, runc needs root privilege. If not
+spec.go:55: [f, u, n, c, n, u, t, o, s, t, r] already running as root, you can use sudo to give runc root privilege. For
+spec.go:56: [u, n, c, n, u, m, t, o, s, t, r] example: "sudo runc start container1" will give runc root privilege to start the
+spec.go:57: [u, n, c, n, u, t, o, s, t, r] container on your host.
+spec.go:59: [u, n, c, n, u, t, o, s, t, r] Alternativel
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case runc-4014.
+
+Target runtime: runc
+Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+Upstream issue: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/runc-4014
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4014
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4014
+Upstream URL: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4014
+
+## Upstream Issue Summary
+- Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+- URL: https://github.com/opencontainers/runc/issues/4014
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched the pids.limit fix series, including `3b75374cc797` (`runtime-spec: update pids.limit handling to match new guidance`); use parent `eec1f7e34b33` as the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4014`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, no divergent or obviously incorrect `pids.limit=0` behavior was reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes printed `max` for `pids.max`. Reproducing the historical ambiguity appears to require an affected runtime revision or a host cgroup configuration where `pids.limit=0` is interpreted differently.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

@@ -1,0 +1,176 @@
+{
+  "thoughts": "The issue concerns repeated `youki exec` causing additional `/proc` mounts, so the first focused source area is the exec command path. I will inspect the CLI exec implementation to see how it reconstructs process/container state and whether it triggers rootfs or namespace setup that should only happen during initial container creation.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/youki/src/commands/exec.rs",
+      "startline": 1,
+      "endline": 240
+    }
+  }
+}{
+  "thoughts": "The exec CLI routes through `ContainerBuilder::as_tenant().build()`, so the likely bug is not in CLI argument parsing but in the tenant/exec build path re-running container initialization or rootfs mount setup. I will inspect the container builder implementation around the tenant builder entry point and build logic.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/builder.rs",
+      "startline": 1,
+      "endline": 260
+    }
+  }
+} 
+{
+  "thoughts": "The available builder excerpt confirms exec enters the tenant-container path, but the relevant mount behavior is likely implemented in `tenant_builder.rs`, where an exec process is joined to an existing container. I will inspect that file to see whether it incorrectly applies rootfs or proc mount setup on every exec.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 1,
+      "endline": 320
+    }
+  }
+}{
+  "thoughts": "The beginning of `tenant_builder.rs` confirms this is the exec/tenant path and imports namespace and spec-building machinery. The mount duplication likely occurs later in the tenant build logic when constructing a spec/process for the exec process. I need the lower portion of this file where `build()` assembles the tenant container and decides which namespaces/spec fields are reused.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 320,
+      "endline": 760
+    }
+  }
+}
+{
+  "thoughts": "The requested range was truncated in the validation helper and did not expose the tenant `build()` logic. The root cause is still likely in `TenantContainerBuilder`, but I need the middle section before `load_init_spec`, where builder setters and `build()` are probably implemented, to confirm whether exec reuses the full init spec including mounts.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 180,
+      "endline": 330
+    }
+  }
+}{
+  "thoughts": "The exec path constructs a TenantContainerBuilder, loads the original bundle config.json, adapts process fields, then passes the full spec into ContainerBuilderImpl as a TenantContainer. Because the tenant exec joins an already-running container, reapplying the original mount list from the init spec is unsafe: once it has joined the container mount namespace, another proc mount at /proc stacks on top of the existing proc mount. Repeated exec calls therefore grow the proc mount count. The focused repair should prevent tenant exec from replaying OCI rootfs mounts, likely by clearing/removing mounts from the tenant spec or otherwise skipping rootfs mount setup for ContainerType::TenantContainer while preserving process/user/cgroup settings.",
+  "command": {
+    "name": "express_hypothesis",
+    "args": {
+      "hypothesis": "Each `youki exec` loads the init container's full OCI spec, including its `mounts`, and passes it into the tenant process creation path. The tenant process joins the existing container mount namespace, but the common rootfs setup still applies the spec mounts; this remounts `/proc` inside the already-mounted container namespace on every exec. The fix is to make the tenant/exec path avoid replaying the init spec's rootfs mounts, e.g. by clearing the mount list after adapting the spec for tenant exec or by skipping rootfs mount setup specifically for `ContainerType::TenantContainer`."
+    }
+  }
+}{
+  "thoughts": "The hypothesis points to the tenant exec path carrying the init spec's mounts into common container setup. To apply a minimal fix cleanly, I need to confirm how this codebase mutates `Spec` mounts or how rootfs setup consumes them, so the next focused step is to search for existing mount setter/removal patterns and `mounts_mut`/`set_mounts` usage.",
+  "command": {
+    "name": "search_code_base",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "key_words": "set_mounts mounts_mut mounts()"
+    }
+  }
+}{
+  "thoughts": "The broad search output was noisy and did not clarify the `Spec` mount mutator, but the tenant builder is already the focused location: `build` loads the init spec and calls `adapt_spec_for_tenant` before passing it into the shared process builder. I need to inspect `adapt_spec_for_tenant` fully to place the fix where tenant-specific spec adjustments already happen.",
+  "command": {
+    "name": "extract_method_code",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "method_name": "adapt_spec_for_tenant"
+    }
+  }
+}{
+  "thoughts": "The method extraction did not find `adapt_spec_for_tenant` and instead returned `build`, so the symbol name may be absent from the symbol index or defined in an impl range not recognized. I need a focused range immediately after the truncated area in `tenant_builder.rs` to inspect the tenant adaptation code and identify the safest line-oriented fix.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 300,
+      "endline": 520
+    }
+  }
+}{
+  "thoughts": "The focused range still only reached validation code and did not include `adapt_spec_for_tenant`; I need the next contiguous portion of `tenant_builder.rs` to locate that function. This is still a focused read in the relevant file, not broad exploration.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 520,
+      "endline": 760
+    }
+  }
+}{
+  "thoughts": "The range after line 520 contains helper methods but not `adapt_spec_for_tenant`. Since `build` calls it before constructing the tenant container, I need the omitted focused range between validation and the later helpers to confirm whether mounts can be cleared there with the available Spec API.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 400,
+      "endline": 520
+    }
+  }
+}{
+  "thoughts": "The focused range confirms `adapt_spec_for_tenant` is the right place, but the output was truncated immediately after the process builder setup. I need the rest of this function to identify its final mutations and insert a targeted mount-clearing change without disrupting other tenant adaptations.",
+  "command": {
+    "name": "read_range",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "filepath": "crates/libcontainer/src/container/tenant_builder.rs",
+      "startline": 479,
+      "endline": 520
+    }
+  }
+}{
+  "thoughts": "The tenant exec adaptation keeps the original init spec mounts intact while replacing process and linux namespace data. Since the tenant joins the existing mount namespace, replaying those mounts can add another proc mount on every exec. The direct repair is to clear the copied mount list during tenant spec adaptation before the spec is handed to the common container creation path. I need confirm the OCI Spec API exposes a mount setter name so the candidate patch compiles.",
+  "command": {
+    "name": "search_code_base",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "key_words": "set_mounts("
+    }
+  }
+}{
+  "thoughts": "The relevant evidence is sufficient: tenant exec loads the init config and only swaps process/linux fields, leaving init mounts in the copied spec. The common create/init path can therefore replay rootfs mounts after joining the existing mount namespace. The focused fix is to clear mounts from the tenant spec in adapt_spec_for_tenant before it is passed onward, with a comment explaining that exec must not replay initial rootfs mounts. I will apply and build this candidate now.",
+  "command": {
+    "name": "write_fix",
+    "args": {
+      "project_name": "oci",
+      "bug_index": 1,
+      "changes_dicts": [
+        {
+          "file_name": "crates/libcontainer/src/container/tenant_builder.rs",
+          "insertions": [
+            {
+              "line_number": 518,
+              "new_lines": [
+                "        // Tenant exec joins the container's existing mount namespace, so replaying",
+                "        // the init spec's rootfs mounts would stack mounts such as /proc on every exec.",
+                "        spec.set_mounts(None);"
+              ]
+            }
+          ],
+          "deletions": [],
+          "modifications": []
+        }
+      ]
+    }
+  }
+}

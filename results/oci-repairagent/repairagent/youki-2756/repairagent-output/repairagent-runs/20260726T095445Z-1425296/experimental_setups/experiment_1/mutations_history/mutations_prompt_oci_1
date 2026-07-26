@@ -1,0 +1,896 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case youki-2756.
+
+Target runtime: youki
+Title: `runc` differences given the same `config.json`
+Upstream issue: https://github.com/youki-dev/youki/issues/2756
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-2756
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-2756
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-2756
+Upstream URL: https://github.com/youki-dev/youki/issues/2756
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["sleep", "100000"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-2756
+
+## Upstream Issue Summary
+- Title: `runc` differences given the same `config.json`
+- URL: https://github.com/youki-dev/youki/issues/2756
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue text does not provide a release tag, but it reproduces an `exec` behavior difference against runc with a debug-built youki from the developer checkout. The issue page is closed and links PR #2749 and PR #3131. Local git history did not expose an unambiguous `#2749` merge subject, while PR #3131 maps directly to `30d0b9babce3b160f0690964c478c53ebd8ab64f` (`use additional gids,user,group in exec, inject path iif not given (#3131)`, 2025-04-23). Use its parent `ec1d2ae5c316ce2e8f4a2bba13853c08a0ce157d` as the pre-fix buggy baseline for the exec compatibility part of this case. `git describe` identifies the parent as `v0.5.3-32-gec1d2ae5c316` and the fix as contained before `v0.5.4` (`v0.5.4~38`).
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-2756`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["sleep", "100000"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+
+Source files:
+crates/libcgroups/examples/bpf.rs
+crates/libcgroups/src/common.rs
+crates/libcgroups/src/lib.rs
+crates/libcgroups/src/stats.rs
+crates/libcgroups/src/stub/systemd/manager.rs
+crates/libcgroups/src/stub/systemd/mod.rs
+crates/libcgroups/src/stub/v1/manager.rs
+crates/libcgroups/src/stub/v1/mod.rs
+crates/libcgroups/src/stub/v2/manager.rs
+crates/libcgroups/src/stub/v2/mod.rs
+crates/libcgroups/src/systemd/controller.rs
+crates/libcgroups/src/systemd/controller_type.rs
+crates/libcgroups/src/systemd/cpu.rs
+crates/libcgroups/src/systemd/cpuset.rs
+crates/libcgroups/src/systemd/dbus_native/client.rs
+crates/libcgroups/src/systemd/dbus_native/dbus.rs
+crates/libcgroups/src/systemd/dbus_native/message.rs
+crates/libcgroups/src/systemd/dbus_native/mod.rs
+crates/libcgroups/src/systemd/dbus_native/proxy.rs
+crates/libcgroups/src/systemd/dbus_native/serialize.rs
+crates/libcgroups/src/systemd/dbus_native/utils.rs
+crates/libcgroups/src/systemd/manager.rs
+crates/libcgroups/src/systemd/memory.rs
+crates/libcgroups/src/systemd/mod.rs
+crates/libcgroups/src/systemd/pids.rs
+crates/libcgroups/src/systemd/unified.rs
+crates/libcgroups/src/test.rs
+crates/libcgroups/src/test_manager.rs
+crates/libcgroups/src/v1/blkio.rs
+crates/libcgroups/src/v1/controller.rs
+crates/libcgroups/src/v1/controller_type.rs
+crates/libcgroups/src/v1/cpu.rs
+crates/libcgroups/src/v1/cpuacct.rs
+crates/libcgroups/src/v1/cpuset.rs
+crates/libcgroups/src/v1/devices.rs
+crates/libcgroups/src/v1/freezer.rs
+crates/libcgroups/src/v1/hugetlb.rs
+crates/libcgroups/src/v1/manager.rs
+crates/libcgroups/src/v1/memory.rs
+crates/libcgroups/src/v1/mod.rs
+crates/libcgroups/src/v1/network_classifier.rs
+crates/libcgroups/src/v1/network_priority.rs
+crates/libcgroups/src/v1/perf_event.rs
+crates/libcgroups/src/v1/pids.rs
+crates/libcgroups/src/v1/util.rs
+crates/libcgroups/src/v2/controller.rs
+crates/libcgroups/src/v2/controller_type.rs
+crates/libcgroups/src/v2/cpu.rs
+crates/libcgroups/src/v2/cpuset.rs
+crates/libcgroups/src/v2/devices/bpf.rs
+crates/libcgroups/src/v2/devices/controller.rs
+crates/libcgroups/src/v2/devices/emulator.rs
+crates/libcgroups/src/v2/devices/mocks.rs
+crates/libcgroups/src/v2/devices/mod.rs
+crates/libcgroups/src/v2/devices/program.rs
+crates/libcgroups/src/v2/freezer.rs
+crates/libcgroups/src/v2/hugetlb.rs
+crates/libcgroups/src/v2/io.rs
+crates/libcgroups/src/v2/manager.rs
+crates/libcgroups/src/v2/memory.rs
+crates/libcgroups/src/v2/mod.rs
+crates/libcgroups/src/v2/pids.rs
+crates/libcgroups/src/v2/unified.rs
+crates/libcgroups/src/v2/util.rs
+crates/libcontainer/src/apparmor.rs
+crates/libcontainer/src/capabilities.rs
+crates/libcontainer/src/channel.rs
+crates/libcontainer/src/config.rs
+crates/libcontainer/src/container/builder.rs
+crates/libcontainer/src/container/builder_impl.rs
+crates/libcontainer/src/container/container.rs
+crates/libcontainer/src/container/container_checkpoint.rs
+crates/libcontainer/src/container/container_delete.rs
+crates/libcontainer/src/container/container_events.rs
+crates/libcontainer/src/container/container_kill.rs
+crates/libcontainer/src/container/container_pause.rs
+crates/libcontainer/src/container/container_resume.rs
+crates/libcontainer/src/container/container_start.rs
+crates/libcontainer/src/container/init_builder.rs
+crates/libcontainer/src/container/mod.rs
+crates/libcontainer/src/container/state.rs
+crates/libcontainer/src/container/tenant_builder.rs
+crates/libcontainer/src/error.rs
+crates/libcontainer/src/hooks.rs
+crates/libcontainer/src/lib.rs
+crates/libcontainer/src/namespaces.rs
+crates/libcontainer/src/notify_socket.rs
+crates/libcontainer/src/process/args.rs
+crates/libcontainer/src/process/channel.rs
+crates/libcontainer/src/process/container_init_process.rs
+crates/libcontainer/src/process/container_intermediate_process.rs
+crates/libcontainer/src/process/container_main_process.rs
+crates/libcontainer/src/process/fork.rs
+crates/libcontainer/src/process/intel_rdt.rs
+crates/libcontainer/src/process/message.rs
+crates/libcontainer/src/process/mod.rs
+crates/libcontainer/src/process/seccomp_listener.rs
+crates/libcontainer/src/rootfs/device.rs
+crates/libcontainer/src/rootfs/mod.rs
+crates/libcontainer/src/rootfs/mount.rs
+crates/libcontainer/src/rootfs/rootfs.rs
+crates/libcontainer/src/rootfs/symlink.rs
+crates/libcontainer/src/rootfs/utils.rs
+crates/libcontainer/src/seccomp/mod.rs
+crates/libcontainer/src/signal.rs
+crates/libcontainer/src/syscall/linux.rs
+crates/libcontainer/src/syscall/mod.rs
+crates/libcontainer/src/syscall/syscall.rs
+crates/libcontainer/src/syscall/test.rs
+crates/libcontainer/src/test_utils.rs
+crates/libcontainer/src/tty.rs
+crates/libcontainer/src/user_ns.rs
+crates/libcontainer/src/utils.rs
+crates/libcontainer/src/workload/default.rs
+crates/libcontainer/src/workload/mod.rs
+crates/libcontainer/tests/as_sibling.rs
+crates/liboci-cli/src/checkpoint.rs
+crates/liboci-cli/src/create.rs
+crates/liboci-cli/src/delete.rs
+crates/liboci-cli/src/events.rs
+crates/liboci-cli/src/exec.rs
+crates/liboci-cli/src/features.rs
+crates/liboci-cli/src/info.rs
+crates/liboci-cli/src/kill.rs
+crates/liboci-cli/src/lib.rs
+crates/liboci-cli/src/list.rs
+crates/liboci-cli/src/pause.rs
+crates/liboci-cli/src/ps.rs
+crates/liboci-cli/src/resume.rs
+crates/liboci-cli/src/run.rs
+crates/liboci-cli/src/spec.rs
+crates/liboci-cli/src/start.rs
+crates/liboci-cli/src/state.rs
+crates/liboci-cli/src/update.rs
+crates/youki/build.rs
+crates/youki/src/commands/checkpoint.rs
+crates/youki/src/commands/completion.rs
+crates/youki/src/commands/create.rs
+crates/youki/src/commands/delete.rs
+crates/youki/src/commands/events.rs
+crates/youki/src/commands/exec.rs
+crates/youki/src/commands/features.rs
+crates/youki/src/commands/info.rs
+crates/youki/src/commands/kill.rs
+crates/youki/src/commands/list.rs
+crates/youki/src/commands/mod.rs
+crates/youki/src/commands/pause.rs
+crates/youki/src/commands/ps.rs
+crates/youki/src/commands/resume.rs
+crates/youki/src/commands/run.rs
+crates/youki/src/commands/spec_json.rs
+crates/youki/src/commands/start.rs
+crates/youki/src/commands/state.rs
+crates/youki/src/commands/update.rs
+crates/youki/src/main.rs
+crates/youki/src/observability.rs
+crates/youki/src/rootpath.rs
+crates/youki/src/workload/executor.rs
+crates/youki/src/workload/mod.rs
+crates/youki/src/workload/wasmedge.rs
+crates/youki/src/workload/wasmer.rs
+crates/youki/src/workload/wasmtime.rs
+experiment/seccomp/src/instruction/arch.rs
+experiment/seccomp/src/instruction/consts.rs
+experiment/seccomp/src/instruction/inst.rs
+experiment/seccomp/src/instruction/mod.rs
+experiment/seccomp/src/lib.rs
+experiment/seccomp/src/main.rs
+experiment/seccomp/src/seccomp.rs
+experiment/selinux/src/lib.rs
+experiment/selinux/src/main.rs
+experiment/selinux/src/selinux.rs
+experiment/selinux/src/selinux_label.rs
+experiment/selinux/src/tools/mod.rs
+experiment/selinux/src/tools/sockopt.rs
+experiment/selinux/src/tools/xattr.rs
+tests/contest/contest/src/lib.rs
+tests/contest/contest/src/logger.rs
+tests/contest/contest/src/main.rs
+tests/contest/contest/src/tests/cgroups/blkio.rs
+tests/contest/contest/src/tests/cgroups/cpu/mod.rs
+tests/contest/contest/src/tests/cgroups/cpu/v1.rs
+tests/contest/contest/src/tests/cgroups/cpu/v2.rs
+tests/contest/contest/src/tests/cgroups/memory.rs
+tests/contest/contest/src/tests/cgroups/mod.rs
+tests/contest/contest/src/tests/cgroups/network/absolute_network.rs
+tests/contest/contest/src/tests/cgroups/network/mod.rs
+tests/contest/contest/src/tests/cgroups/network/relative_network.rs
+tests/contest/contest/src/tests/cgroups/pids.rs
+tests/contest/contest/src/tests/delete/delete_test.rs
+tests/contest/contest/src/tests/delete/mod.rs
+tests/contest/contest/src/tests/devices/devices_test.rs
+tests/contest/contest/src/tests/devices/mod.rs
+tests/contest/contest/src/tests/domainname/mod.rs
+tests/contest/contest/src/tests/example/hello_world.rs
+tests/contest/contest/src/tests/example/mod.rs
+tests/contest/contest/src/tests/fd_control/mod.rs
+tests/contest/contest/src/tests/hooks/invoke.rs
+tests/contest/contest/src/tests/hooks/mod.rs
+tests/contest/contest/src/tests/hostname/mod.rs
+... 61 additional source files omitted
+### Test cases results:
+0 failing tests.
+Build validation passed.
+### The code of the failing test cases:
+Extracting test code from file expected_diff.txt returned: Command extract_test_code returned a lengthy response, we truncated it to the first 4000 characters: The requested file is outside the runtime source tree; use this OCI task instead:
+Fix OCI runtime bug case youki-2756.
+
+Target runtime: youki
+Title: `runc` differences given the same `config.json`
+Upstream issue: https://github.com/youki-dev/youki/issues/2756
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-2756
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-2756
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-2756
+Upstream URL: https://github.com/youki-dev/youki/issues/2756
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["sleep", "100000"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-2756
+
+## Upstream Issue Summary
+- Title: `runc` differences given the same `config.json`
+- URL: https://github.com/youki-dev/youki/issues/2756
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue text does not provide a release tag, but it reproduces an `exec` behavior difference against runc with a debug-built youki from the developer checkout. The issue page is closed and links PR #2749 and PR #3131. Local git history did not expose an unambiguous `#2749` merge subject, while PR #3131 maps directly to `30d0b9babce3b160f0690964c478c53ebd8ab64f` (`use additional gids,user,group in exec, inject path iif not given (#3131)`, 2025-04-23). Use its parent `ec1d2ae5c316ce2e8f4a2bba13853c08a0ce157d` as the pre-fix buggy baseline for the exec compatibility part of this case. `git describe` identifies the parent as `v0.5.3-32-gec1d2ae5c316` and the fix as contained before `v0.5.4` (`v0.5.4~38`).
+
+## Local R
+
+
+## Read lines:
+Lines 1 to 260 from file: crates/libcgroups/src/v2/devices/emulator.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: use oci_spec::runtime::{LinuxDeviceCgroup, LinuxDeviceType};
+Line 2: 
+Line 3: // For cgroup v1 compatibility, runc implements a device emulator to calculate the final rules given
+Line 4: // a list of user-defined rules.
+Line 5: // https://github.com/opencontainers/runc/commit/2353ffec2bb670a200009dc7a54a56b93145f141
+Line 6: //
+Line 7: // I chose to implement a very simple algorithm, which will just work in most cases, but with
+Line 8: // diversion from cgroupv1 in some cases:
+Line 9: //  1. just add used-defined rules one by one
+Line 10: //  2. discard existing rules when encountering a rule with type='a', and change to deny/allow all
+Line 11: //     list according the 'allow' of the rule
+Line 12: //  3. bpf program will check rule one by one in *reversed* order, return action of first rule
+Line 13: //     which matches device access operation
+Line 14: //
+Line 15: 
+Line 16: // FIXME: should we use runc's implementation?
+Line 17: pub struct Emulator {
+Line 18:     pub default_allow: bool,
+Line 19:     pub rules: Vec<LinuxDeviceCgroup>,
+Line 20: }
+Line 21: 
+Line 22: impl Emulator {
+Line 23:     pub fn with_default_allow(default_allow: bool) -> Self {
+Line 24:         Emulator {
+Line 25:             default_allow,
+Line 26:             rules: Vec::new(),
+Line 27:         }
+Line 28:     }
+Line 29: 
+Line 30:     pub fn add_rules(&mut self, rules: &[LinuxDeviceCgroup]) {
+Line 31:         for rule in rules {
+Line 32:             self.add_rule(rule);
+Line 33:         }
+Line 34:     }
+Line 35: 
+Line 36:     pub fn add_rule(&mut self, rule: &LinuxDeviceCgroup) {
+Line 37:         // special case, switch to blacklist or whitelist and clear all existing rules
+Line 38:         // NOTE: we ignore other fields when type='a', this is same as cgroup v1 and runc
+Line 39:         if rule.typ().unwrap_or_default() == LinuxDeviceType::A {
+Line 40:             self.default_allow = rule.allow();
+Line 41:             self.rules.clear();
+Line 42:             return;
+Line 43:         }
+Line 44: 
+Line 45:         // empty access match nothing, just discard this rule
+Line 46:         if rule.access().is_none() {
+Line 47:             return;
+Line 48:         }
+Line 49: 
+Line 50:         self.rules.push(rule.clone());
+Line 51:     }
+Line 52: }
+Line 53: 
+Line 54: #[cfg(test)]
+Line 55: mod tests {
+Line 56:     use oci_spec::runtime::LinuxDeviceCgroupBuilder;
+Line 57: 
+Line 58:     use super::*;
+Line 59: 
+Line 60:     #[test]
+Line 61:     fn test_with_default_allow() {
+Line 62:         // act
+Line 63:         let emulator = Emulator::with_default_allow(true);
+Line 64: 
+Line 65:         // assert
+Line 66:         assert_eq!(emulator.rules.len(), 0);
+Line 67:         assert!(emulator.default_allow);
+Line 68:     }
+Line 69: 
+Line 70:     #[test]
+Line 71:     fn test_type_a_rule() {
+Line 72:         // arrange
+Line 73:         let mut emulator = Emulator::with_default_allow(false);
+Line 74:         let cgroup = LinuxDeviceCgroupBuilder::default()
+Line 75:             .typ(LinuxDeviceType::A)
+Line 76:             .build()
+Line 77:             .unwrap();
+Line 78: 
+Line 79:         // act
+Line 80:         emulator.add_rule(&cgroup);
+Line 81: 
+Line 82:         // assert
+Line 83:         assert_eq!(emulator.rules.len(), 0);
+Line 84:         assert!(!emulator.default_allow);
+Line 85:     }
+Line 86: 
+Line 87:     #[test]
+Line 88:     fn test_add_empty_rule() {
+Line 89:         // arrange
+Line 90:         let mut emulator = Emulator::with_default_allow(false);
+Line 91:         let cgroup = LinuxDeviceCgroupBuilder::default().build().unwrap();
+Line 92: 
+Line 93:         // act
+Line 94:         emulator.add_rule(&cgroup);
+Line 95: 
+Line 96:         // assert
+Line 97:         assert_eq!(emulator.rules.len(), 0);
+Line 98:         assert!(!emulator.default_allow);
+Line 99:     }
+Line 100: 
+Line 101:     #[test]
+Line 102:     fn test_add_some_rule() {
+Line 103:         // arrange
+Line 104:         let mut emulator = Emulator::with_default_allow(false);
+Line 105:         
+
+Lines 1 to 260 from file: crates/libcgroups/src/v2/devices/controller.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: use std::os::unix::io::AsRawFd;
+Line 2: use std::path::Path;
+Line 3: 
+Line 4: #[cfg(test)]
+Line 5: use bpf::mock_prog as bpf_prog;
+Line 6: #[cfg(not(test))]
+Line 7: use bpf::prog as bpf_prog;
+Line 8: use nix::fcntl::OFlag;
+Line 9: use nix::sys::stat::Mode;
+Line 10: use oci_spec::runtime::LinuxDeviceCgroup;
+Line 11: 
+Line 12: use super::bpf::BpfError;
+Line 13: use super::program::ProgramError;
+Line 14: use super::*;
+Line 15: use crate::common::{default_allow_devices, default_devices, ControllerOpt};
+Line 16: use crate::v2::controller::Controller;
+Line 17: 
+Line 18: const LICENSE: &str = "Apache";
+Line 19: 
+Line 20: pub struct Devices {}
+Line 21: 
+Line 22: #[derive(thiserror::Error, Debug)]
+Line 23: pub enum DevicesControllerError {
+Line 24:     #[error("bpf error: {0}")]
+Line 25:     Bpf(#[from] BpfError),
+Line 26:     #[error("nix error: {0}")]
+Line 27:     Nix(#[from] nix::Error),
+Line 28:     #[error("program error: {0}")]
+Line 29:     Program(#[from] ProgramError),
+Line 30: }
+Line 31: 
+Line 32: impl Controller for Devices {
+Line 33:     type Error = DevicesControllerError;
+Line 34: 
+Line 35:     fn apply(
+Line 36:         controller_opt: &ControllerOpt,
+Line 37:         cgroup_root: &Path,
+Line 38:     ) -> Result<(), DevicesControllerError> {
+Line 39:         #[cfg(not(feature = "cgroupsv2_devices"))]
+Line 40:         return Ok(());
+Line 41: 
+Line 42:         #[cfg(feature = "cgroupsv2_devices")]
+Line 43:         return Self::apply_devices(cgroup_root, controller_opt.resources.devices());
+Line 44:     }
+Line 45: }
+Line 46: 
+Line 47: impl Devices {
+Line 48:     pub fn apply_devices(
+Line 49:         cgroup_root: &Path,
+Line 50:         linux_devices: &Option<Vec<LinuxDeviceCgroup>>,
+Line 51:     ) -> Result<(), DevicesControllerError> {
+Line 52:         tracing::debug!("Apply Devices cgroup config");
+Line 53: 
+Line 54:         // FIXME: should we start as "deny all"?
+Line 55:         let mut emulator = emulator::Emulator::with_default_allow(false);
+Line 56: 
+Line 57:         // FIXME: apply user-defined and default rules in which order?
+Line 58:         if let Some(devices) = linux_devices {
+Line 59:             for d in devices {
+Line 60:                 tracing::debug!("apply user defined rule: {:?}", d);
+Line 61:                 emulator.add_rule(d);
+Line 62:             }
+Line 63:         }
+Line 64: 
+Line 65:         for d in [
+Line 66:             default_devices().iter().map(|d| d.into()).collect(),
+Line 67:             default_allow_devices(),
+Line 68:         ]
+Line 69:         .concat()
+Line 70:         {
+Line 71:             tracing::debug!("apply default rule: {:?}", d);
+Line 72:             emulator.add_rule(&d);
+Line 73:         }
+Line 74: 
+Line 75:         let prog = program::Program::from_rules(&emulator.rules, emulator.default_allow)?;
+Line 76: 
+Line 77:         // Increase `ulimit -l` limit to avoid BPF_PROG_LOAD error (#2167).
+Line 78:         // This limit is not inherited into the container.
+Line 79:         bpf_prog::bump_memlock_rlimit()?;
+Line 80:         let prog_fd = bpf_prog::load(LICENSE, prog.bytecodes())?;
+Line 81: 
+Line 82:         // FIXME: simple way to attach BPF program
+Line 83:         //  1. get list of existing attached programs
+Line 84:         //  2. attach this program (not use BPF_F_REPLACE, see below)
+Line 85:         //  3. detach all programs of 1
+Line 86:         //
+Line 87:         // runc will use BPF_F_REPLACE to replace currently attached program if:
+Line 88:         //   1. BPF_F_REPLACE is supported by kernel
+Line 89:         //   2. there is exactly one attached program
+Line 90:         // https://github.com/opencontainers/runc/blob/8e6871a3b14bb74e0ef358aca3b9f8f9cb80f041/libcontainer/cgroups/ebpf/ebpf_linux.go#L165
+Line 91:         //
+Line 92:         // IMHO, this is too complicated, and in most cases, we just attach program once without
+Line 93:         // already attached programs.
+Line 94: 
+Line 95:         // get the fd of the cgroup root
+Line 96:         le
+
+Lines 47 to 220 from file: crates/libcgroups/src/v2/devices/controller.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 47: impl Devices {
+Line 48:     pub fn apply_devices(
+Line 49:         cgroup_root: &Path,
+Line 50:         linux_devices: &Option<Vec<LinuxDeviceCgroup>>,
+Line 51:     ) -> Result<(), DevicesControllerError> {
+Line 52:         tracing::debug!("Apply Devices cgroup config");
+Line 53: 
+Line 54:         // FIXME: should we start as "deny all"?
+Line 55:         let mut emulator = emulator::Emulator::with_default_allow(false);
+Line 56: 
+Line 57:         // FIXME: apply user-defined and default rules in which order?
+Line 58:         if let Some(devices) = linux_devices {
+Line 59:             for d in devices {
+Line 60:                 tracing::debug!("apply user defined rule: {:?}", d);
+Line 61:                 emulator.add_rule(d);
+Line 62:             }
+Line 63:         }
+Line 64: 
+Line 65:         for d in [
+Line 66:             default_devices().iter().map(|d| d.into()).collect(),
+Line 67:             default_allow_devices(),
+Line 68:         ]
+Line 69:         .concat()
+Line 70:         {
+Line 71:             tracing::debug!("apply default rule: {:?}", d);
+Line 72:             emulator.add_rule(&d);
+Line 73:         }
+Line 74: 
+Line 75:         let prog = program::Program::from_rules(&emulator.rules, emulator.default_allow)?;
+Line 76: 
+Line 77:         // Increase `ulimit -l` limit to avoid BPF_PROG_LOAD error (#2167).
+Line 78:         // This limit is not inherited into the container.
+Line 79:         bpf_prog::bump_memlock_rlimit()?;
+Line 80:         let prog_fd = bpf_prog::load(LICENSE, prog.bytecodes())?;
+Line 81: 
+Line 82:         // FIXME: simple way to attach BPF program
+Line 83:         //  1. get list of existing attached programs
+Line 84:         //  2. attach this program (not use BPF_F_REPLACE, see below)
+Line 85:         //  3. detach all programs of 1
+Line 86:         //
+Line 87:         // runc will use BPF_F_REPLACE to replace currently attached program if:
+Line 88:         //   1. BPF_F_REPLACE is supported by kernel
+Line 89:         //   2. there is exactly one attached program
+Line 90:         // https://github.com/opencontainers/runc/blob/8e6871a3b14bb74e0ef358aca3b9f8f9cb80f041/libcontainer/cgroups/ebpf/ebpf_linux.go#L165
+Line 91:         //
+Line 92:         // IMHO, this is too complicated, and in most cases, we just attach program once without
+Line 93:         // already attached programs.
+Line 94: 
+Line 95:         // get the fd of the cgroup root
+Line 96:         let fd = nix::dir::Dir::open(
+Line 97:             cgroup_root.as_os_str(),
+Line 98:             OFlag::O_RDONLY | OFlag::O_DIRECTORY,
+Line 99:             Mode::from_bits(0o600).unwrap(),
+Line 100:         )?;
+Line 101: 
+Line 102:         // collect the programs attached to this cgroup
+Line 103:         let old_progs = bpf_prog::query(fd.as_raw_fd())?;
+Line 104:         // attach our new program
+Line 105:         bpf_prog::attach(prog_fd, fd.as_raw_fd())?;
+Line 106:         // detach all previous programs
+Line 107:         for old_prog in old_progs {
+Line 108:             bpf_prog::detach2(old_prog.fd, fd.as_raw_fd())?;
+Line 109:         }
+Line 110: 
+Line 111:         Ok(())
+Line 112:     }
+Line 113: }
+Line 114: 
+Line 115: #[cfg(test)]
+Line 116: mod tests {
+Line 117:     use std::os::unix::io::RawFd;
+Line 118: 
+Line 119:     use bpf::mock_prog;
+Line 120:     use oci_spec::runtime::{LinuxDeviceCgroupBuilder, LinuxDeviceType};
+Line 121:     use serial_test::serial;
+Line 122: 
+Line 123:     use super::*;
+Line 124:     use crate::test::setup;
+Line 125: 
+Line 126:     #[test]
+Line 127:     #[serial(bpf)] // mock contexts are shared
+Line 128:     fn test_apply_devices() {
+Line 129:         // arrange
+Line 130:         let (tmp, _) = setup("some.value");
+Line 131:         let a_type = LinuxDeviceCgroupBuilder::default()
+Line 132:             .typ(LinuxDeviceType::A)
+Line 133:             .build()
+Line 134:             .unwrap();
+Line 135:         let file_descriptor: RawFd = 6;
+Line 136: 
+Line 137:         // expect
+Line 138:         let bump_m
+
+Lines 1 to 260 from file: crates/libcgroups/src/v2/devices/program.rs
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: use oci_spec::runtime::*;
+Line 2: use rbpf::disassembler::disassemble;
+Line 3: use rbpf::insn_builder::{Arch as RbpfArch, *};
+Line 4: 
+Line 5: pub struct Program {
+Line 6:     prog: BpfCode,
+Line 7: }
+Line 8: 
+Line 9: #[derive(thiserror::Error, Debug)]
+Line 10: pub enum ProgramError {
+Line 11:     #[error("io error: {0}")]
+Line 12:     Io(#[from] std::io::Error),
+Line 13:     #[error("invalid access: {0}")]
+Line 14:     InvalidAccess(char),
+Line 15:     #[error("{0} device not supported")]
+Line 16:     DeviceNotSupported(&'static str),
+Line 17:     #[error("wildcard device type should be removed when cleaning rules")]
+Line 18:     WildcardDevice,
+Line 19: }
+Line 20: 
+Line 21: impl Program {
+Line 22:     pub fn from_rules(
+Line 23:         rules: &[LinuxDeviceCgroup],
+Line 24:         default_allow: bool,
+Line 25:     ) -> Result<Self, ProgramError> {
+Line 26:         let mut prog = Program {
+Line 27:             prog: BpfCode::new(),
+Line 28:         };
+Line 29:         prog.init();
+Line 30: 
+Line 31:         for rule in rules.iter().rev() {
+Line 32:             prog.add_rule(rule)?;
+Line 33:         }
+Line 34:         prog.finalize(default_allow);
+Line 35:         Ok(prog)
+Line 36:     }
+Line 37: 
+Line 38:     pub fn bytecodes(&self) -> &[u8] {
+Line 39:         self.prog.into_bytes()
+Line 40:     }
+Line 41: 
+Line 42:     fn finalize(&mut self, default_allow: bool) {
+Line 43:         self.prog
+Line 44:             .mov(Source::Imm, RbpfArch::X32)
+Line 45:             .set_dst(0)
+Line 46:             .set_imm(default_allow as i32)
+Line 47:             .push();
+Line 48: 
+Line 49:         self.prog.exit().push();
+Line 50:     }
+Line 51: 
+Line 52:     // struct bpf_cgroup_dev_ctx: https://elixir.bootlin.com/linux/v5.3.6/source/include/uapi/linux/bpf.h#L3423
+Line 53:     /*
+Line 54:     u32 access_type
+Line 55:     u32 major
+Line 56:     u32 minor
+Line 57:     */
+Line 58:     // R2 <- type (lower 16 bit of u32 access_type at R1[0])
+Line 59:     // R3 <- access (upper 16 bit of u32 access_type at R1[0])
+Line 60:     // R4 <- major (u32 major at R1[4])
+Line 61:     // R5 <- minor (u32 minor at R1[8])
+Line 62:     fn init(&mut self) {
+Line 63:         self.prog
+Line 64:             .load_x(MemSize::Word)
+Line 65:             .set_src(1)
+Line 66:             .set_off(0)
+Line 67:             .set_dst(2)
+Line 68:             .push();
+Line 69: 
+Line 70:         self.prog
+Line 71:             .bit_and(Source::Imm, RbpfArch::X32)
+Line 72:             .set_dst(2)
+Line 73:             .set_imm(0xFFFF)
+Line 74:             .push();
+Line 75: 
+Line 76:         self.prog
+Line 77:             .load_x(MemSize::Word)
+Line 78:             .set_src(1)
+Line 79:             .set_off(0)
+Line 80:             .set_dst(3)
+Line 81:             .push();
+Line 82: 
+Line 83:         self.prog
+Line 84:             .right_shift(Source::Imm, RbpfArch::X32)
+Line 85:             .set_imm(16)
+Line 86:             .set_dst(3)
+Line 87:             .push();
+Line 88: 
+Line 89:         self.prog
+Line 90:             .load_x(MemSize::Word)
+Line 91:             .set_src(1)
+Line 92:             .set_off(4)
+Line 93:             .set_dst(4)
+Line 94:             .push();
+Line 95: 
+Line 96:         self.prog
+Line 97:             .load_x(MemSize::Word)
+Line 98:             .set_src(1)
+Line 99:             .set_off(8)
+Line 100:             .set_dst(5)
+Line 101:             .push();
+Line 102:     }
+Line 103: 
+Line 104:     fn add_rule(&mut self, rule: &LinuxDeviceCgroup) -> Result<(), ProgramError> {
+Line 105:         let dev_type = bpf_dev_type(rule.typ().unwrap_or_default())?;
+Line 106:         let access = bpf_access(rule.access().clone().unwrap_or_default())?;
+Line 107:         let has_access = access
+Line 108:             != (libbpf_sys::BPF_DEVCG_ACC_READ
+Line 109:                 | libbpf_sys::BPF_DEVCG_ACC_WRITE
+Line 110:                 | libbpf_sys::BPF_DEVCG_ACC_MKNOD);
+Line 111: 
+Line 112:         let has_major = rule.major().is_some() && rule.major().unwrap() >=
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case youki-2756.
+
+Target runtime: youki
+Title: `runc` differences given the same `config.json`
+Upstream issue: https://github.com/youki-dev/youki/issues/2756
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/youki-2756
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-2756
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+cargo build --release
+
+Candidate runtime path after build:
+target/release/youki
+
+Expected differential behavior and validation notes:
+Issue ID: youki-2756
+Upstream URL: https://github.com/youki-dev/youki/issues/2756
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["sleep", "100000"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# youki-2756
+
+## Upstream Issue Summary
+- Title: `runc` differences given the same `config.json`
+- URL: https://github.com/youki-dev/youki/issues/2756
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+The issue text does not provide a release tag, but it reproduces an `exec` behavior difference against runc with a debug-built youki from the developer checkout. The issue page is closed and links PR #2749 and PR #3131. Local git history did not expose an unambiguous `#2749` merge subject, while PR #3131 maps directly to `30d0b9babce3b160f0690964c478c53ebd8ab64f` (`use additional gids,user,group in exec, inject path iif not given (#3131)`, 2025-04-23). Use its parent `ec1d2ae5c316ce2e8f4a2bba13853c08a0ce157d` as the pre-fix buggy baseline for the exec compatibility part of this case. `git describe` identifies the parent as `v0.5.3-32-gec1d2ae5c316` and the fix as contained before `v0.5.4` (`v0.5.4~38`).
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/youki-2756`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["sleep", "100000"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]

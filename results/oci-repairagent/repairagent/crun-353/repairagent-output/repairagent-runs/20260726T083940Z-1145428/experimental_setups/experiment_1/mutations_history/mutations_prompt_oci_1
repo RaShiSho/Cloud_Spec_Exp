@@ -1,0 +1,1293 @@
+What follows are sections of the most important information that we have gathered so far about the bug.        Make usage of the following information to suggest mutations of fixes:
+## Info about the bug (bug report summary):
+### Bug info:
+Fix OCI runtime bug case crun-353.
+
+Target runtime: crun
+Title: return stderr of hooks in case of an error
+Upstream issue: https://github.com/containers/crun/issues/353
+Category: POSIX-platform Hooks
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-353
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-353
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-353
+Upstream URL: https://github.com/containers/crun/issues/353
+Category: POSIX-platform Hooks
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo hook-stderr-353-main"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Expected differential behavior:
+A correct runtime includes the failing hook stderr in its error output. The affected behavior drops that diagnostic.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-353
+
+## Upstream Issue Summary
+- Title: return stderr of hooks in case of an error
+- URL: https://github.com/containers/crun/issues/353
+- Category: POSIX-platform Hooks
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched PR #355 (`b04df1c5317b`, hook output redirection); use parent `83367338c433` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-353`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo hook-stderr-353-main"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Oracle: A correct runtime includes the failing hook stderr in its error output. The affected behavior drops that diagnostic.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original dropped-hook-stderr behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes surfaced `hook-stderr-353` in their error output. Reproducing the issue appears to require the affected pre-fix crun build.
+
+
+Source files:
+contrib/terminal-receiver/terminal-receiver.c
+python/crun_python.c
+src/checkpoint.c
+src/checkpoint.h
+src/create.c
+src/create.h
+src/crun.c
+src/crun.h
+src/delete.c
+src/delete.h
+src/exec.c
+src/exec.h
+src/kill.c
+src/kill.h
+src/libcrun/cgroup.c
+src/libcrun/cgroup.h
+src/libcrun/chroot_realpath.c
+src/libcrun/cloned_binary.c
+src/libcrun/container.c
+src/libcrun/container.h
+src/libcrun/criu.c
+src/libcrun/criu.h
+src/libcrun/ebpf.c
+src/libcrun/ebpf.h
+src/libcrun/error.c
+src/libcrun/error.h
+src/libcrun/intprops.h
+src/libcrun/linux.c
+src/libcrun/linux.h
+src/libcrun/seccomp.c
+src/libcrun/seccomp.h
+src/libcrun/signals.c
+src/libcrun/status.c
+src/libcrun/status.h
+src/libcrun/terminal.c
+src/libcrun/terminal.h
+src/libcrun/utils.c
+src/libcrun/utils.h
+src/list.c
+src/list.h
+src/pause.c
+src/pause.h
+src/ps.c
+src/ps.h
+src/restore.c
+src/restore.h
+src/run.c
+src/run.h
+src/spec.c
+src/spec.h
+src/start.c
+src/start.h
+src/state.c
+src/state.h
+src/unpause.c
+src/unpause.h
+src/update.c
+src/update.h
+tests/init.c
+tests/tests_libcrun_errors.c
+tests/tests_libcrun_utils.c
+### Test cases results:
+0 failing tests.
+Build validation passed.
+
+
+## Read lines:
+5 older read result(s) were omitted to keep the repair prompt bounded.
+Lines 1500 to 2100 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1500:     return cgroup_mode;
+Line 1501: 
+Line 1502:   pid = libcrun_run_linux_container (container, context->detach,
+Line 1503:                                      container_init, &container_args,
+Line 1504:                                      &sync_socket, err);
+Line 1505:   if (UNLIKELY (pid < 0))
+Line 1506:     return pid;
+Line 1507: 
+Line 1508:   if (context->fifo_exec_wait_fd < 0 && context->notify_socket)
+Line 1509:     {
+Line 1510:       /* Do not open the notify socket here on "create".  "start" will take care of it.  */
+Line 1511:       ret = get_notify_fd (context, container, &notify_socket, err);
+Line 1512:       if (UNLIKELY (ret < 0))
+Line 1513:         return ret;
+Line 1514:     }
+Line 1515: 
+Line 1516:   if (container_args.terminal_socketpair[1] >= 0)
+Line 1517:     close_and_reset (&socket_pair_1);
+Line 1518: 
+Line 1519:   cgroup_manager = CGROUP_MANAGER_CGROUPFS;
+Line 1520:   if (context->systemd_cgroup)
+Line 1521:     cgroup_manager = CGROUP_MANAGER_SYSTEMD;
+Line 1522:   else if (context->force_no_cgroup)
+Line 1523:     cgroup_manager = CGROUP_MANAGER_DISABLED;
+Line 1524: 
+Line 1525:   /* If we are root (either on the host or in a namespace), then chown the cgroup to root in the container user namespace.  */
+Line 1526:   ge
+[older content truncated]
+
+Lines 1580 to 1750 from file: src/libcrun/container.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1580:       close_and_reset (&seccomp_fd);
+Line 1581:     }
+Line 1582: 
+Line 1583:   ret = sync_socket_send_sync (sync_socket, true, err);
+Line 1584:   if (UNLIKELY (ret < 0))
+Line 1585:     {
+Line 1586:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1587:       return ret;
+Line 1588:     }
+Line 1589: 
+Line 1590:   ret = sync_socket_wait_sync (context, sync_socket, false, err);
+Line 1591:   if (UNLIKELY (ret < 0))
+Line 1592:     {
+Line 1593:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1594:       return ret;
+Line 1595:     }
+Line 1596: 
+Line 1597:   /* The container is waiting that we write back.  In this phase we can launch the
+Line 1598:      prestart hooks.  */
+Line 1599:   if (def->hooks && def->hooks->prestart_len)
+Line 1600:     {
+Line 1601:       ret = do_hooks (def, pid, context->id, false, NULL, "created",
+Line 1602:                       (hook **) def->hooks->prestart,
+Line 1603:                       def->hooks->prestart_len, err);
+Line 1604:       if (UNLIKELY (ret != 0))
+Line 1605:         {
+Line 1606:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1607:           return ret;
+Line 1608:         }
+Line 1609:     }
+Line 1610:   if (def->hooks && def->hooks->create_runtime_len)
+Line 1611:     {
+Line 1612:       ret = do_hooks (def, pid, context->id, false, NULL, "created",
+Line 1613:                       (hook **) def->hooks->create_runtime,
+Line 1614:                       def->hooks->create_runtime_len, err);
+Line 1615:       if (UNLIKELY (ret != 0))
+Line 1616:         {
+Line 1617:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1618:           return ret;
+Line 1619:         }
+Line 1620:     }
+Line 1621: 
+Line 1622:   ret = sync_socket_send_sync (sync_socket, true, err);
+Line 1623:   if (UNLIKELY (ret < 0))
+Line 1624:     {
+Line 1625:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1626:       return ret;
+Line 1627:     }
+Line 1628: 
+Line 1629:   ret = sync_socket_wait_sync (context, sync_socket, false, err);
+Line 1630:   if (UNLIKELY (ret < 0))
+Line 1631:     {
+Line 1632:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1633:       return ret;
+Line 1634:     }
+Line 1635: 
+Line 1636:   if (def->process && def->process->terminal && !detach && context->console_socket == NULL)
+Line 1637:     {
+Line 1638:       terminal_fd = receive_fd_from_socket (socket_pair_0, err);
+Line 1639:       if (UNLIKELY (terminal_fd < 0))
+Line 1640:         {
+Line 1641:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1642:           return terminal_fd;
+Line 1643:         }
+Line 1644: 
+Line 1645:       close_and_reset (&socket_pair_0);
+Line 1646: 
+Line 1647:       ret = libcrun_setup_terminal_master (terminal_fd, &orig_terminal, err);
+Line 1648:       if (UNLIKELY (ret < 0))
+Line 1649:         {
+Line 1650:           cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1651:           return terminal_fd;
+Line 1652:         }
+Line 1653:     }
+Line 1654: 
+Line 1655:   ret = close_and_reset (&sync_socket);
+Line 1656:   if (UNLIKELY (ret < 0))
+Line 1657:     {
+Line 1658:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1659:       return ret;
+Line 1660:     }
+Line 1661: 
+Line 1662:   get_current_timestamp (created);
+Line 1663:   ret = write_container_status (container, context, pid, cgroup_path, scope, created, err);
+Line 1664:   if (UNLIKELY (ret < 0))
+Line 1665:     {
+Line 1666:       cleanup_watch (context, pid, def, context->id, sync_socket, terminal_fd);
+Line 1667:       return ret;
+Line 1668:     }
+Line 1669: 
+Line 1670:   if (def->hooks && def->hooks->poststart_len)
+Line 1671:     {
+Line 1672:       ret = do_hooks (def, pid, context->id, true, NULL, "running",
+Line 1673:                       (hook **)
+
+Lines 1 to 360 from file: src/libcrun/utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 1: /*
+Line 2:  * crun - OCI runtime written in C
+Line 3:  *
+Line 4:  * Copyright (C) 2017, 2018, 2019 Giuseppe Scrivano <giuseppe@scrivano.org>
+Line 5:  * crun is free software; you can redistribute it and/or modify
+Line 6:  * it under the terms of the GNU Lesser General Public License as published by
+Line 7:  * the Free Software Foundation; either version 2.1 of the License, or
+Line 8:  * (at your option) any later version.
+Line 9:  *
+Line 10:  * crun is distributed in the hope that it will be useful,
+Line 11:  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+Line 12:  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+Line 13:  * GNU Lesser General Public License for more details.
+Line 14:  *
+Line 15:  * You should have received a copy of the GNU Lesser General Public License
+Line 16:  * along with crun.  If not, see <http://www.gnu.org/licenses/>.
+Line 17:  */
+Line 18: 
+Line 19: #define _GNU_SOURCE
+Line 20: #include <config.h>
+Line 21: #include "utils.h"
+Line 22: #include <stdarg.h>
+Line 23: #include <unistd.h>
+Line 24: #include <string.h>
+Line 25: #include <fcntl.h>
+Line 26: #include <sys/stat.h>
+Line 27: #include <sys/types.h>
+Line 28: #include <sys/un.h>
+Line 29: #include <sys/socket.h>
+Line 30: #include <sys/signalfd.h>
+Line 31: #include <sys/epoll.h>
+Line 32: #include <sys/syscall.h>
+Line 33: #include <sys/wait.h>
+Line 34: #include <pwd.h>
+Line 35: #include <grp.h>
+Line 36: #include <time.h>
+Line 37: #include <sys/time.h>
+Line 38: #include <sys/xattr.h>
+Line 39: #include <sys/sysmacros.h>
+Line 40: #include <sys/vfs.h>
+Line 41: #include <linux/magic.h>
+Line 42: #include <limits.h>
+Line 43: 
+Line 44: #ifndef RESOLVE_IN_ROOT
+Line 45: # define RESOLVE_IN_ROOT		0x10
+Line 46: #endif
+Line 47: #ifndef __NR_openat2
+Line 48: # define __NR_openat2 437
+Line 49: #endif
+Line 50: 
+Line 51: static int
+Line 52: syscall_openat2 (int dirfd, const char *path, uint64_t flags, uint64_t mode, uint64_t resolve)
+Line 53: {
+Line 54:   struct openat2_open_how
+Line 55:     {
+Line 56:       uint64_t flags;
+Line 57:       uint64_t mode;
+Line 58:       uint64_t resolve;
+Line 59:     }
+Line 60:   how =
+Line 61:     {
+Line 62:      .flags = flags,
+Line 63:      .mode = mode,
+Line 64:      .resolve = resolve,
+Line 65:     };
+Line 66: 
+Line 67:   return (int) syscall (__NR_openat2, dirfd, path, &how, sizeof (how), 0);
+Line 68: }
+Line 69: 
+Line 70: int
+Line 71: close_and_reset (int *fd)
+Line 72: {
+Line 73:   int ret = 0;
+Line 74:   if (*fd >= 0)
+Line 75:     {
+Line 76:       ret = TEMP_FAILURE_RETRY (close (*fd));
+Line 77:       if (LIKELY (ret == 0))
+Line 78:         *fd = -1;
+Line 79:     }
+Line 80:   return ret;
+Line 81: }
+Line 82: 
+Line 83: void
+Line 84: cleanup_freep (void *p)
+Line 85: {
+Line 86:   void **pp = (void **) p;
+Line 87:   free (*pp);
+Line 88: }
+Line 89: 
+Line 90: void
+Line 91: cleanup_filep (FILE **f)
+Line 92: {
+Line 93:   FILE *file = *f;
+Line 94:   if (file)
+Line 95:     (void) fclose (file);
+Line 96: }
+Line 97: 
+Line 98: void
+Line 99: cleanup_closep (void *p)
+Line 100: {
+Line 101:   int *pp = p;
+Line 102:   if (*pp >= 0)
+Line 103:     TEMP_FAILURE_RETRY (close (*pp));
+Line 104: }
+Line 105: 
+Line 106: void
+Line 107: cleanup_close_vecp (int **p)
+Line 108: {
+Line 109:   int *pp = *p;
+Line 110:   int i;
+Line 111: 
+Line 112:   for (i = 0; pp[i] >= 0; i++)
+Line 113:     TEMP_FAILURE_RETRY (close (pp[i]));
+Line 114: }
+Line 115: 
+Line 116: void
+Line 117: cleanup_dirp (DIR **p)
+Line 118: {
+Line 119:   DIR *dir = *p;
+Line 120:   if (dir)
+Line 121:     closedir (dir);
+Line 122: }
+Line 123: 
+Line 124: void *
+Line 125: xmalloc (size_t size)
+Line 126: {
+Line 127:   void *res = malloc (size);
+Line 128:   if (UNLIKELY (res == NULL))
+Line 129:     OOM ();
+Line 130:   return res;
+Line 131: }
+Line 132: 
+Line 133: void *
+Line 134: xmalloc0 (size_t size)
+Line 135: {
+Line 136:   void *res = calloc (1, size);
+Line 137:   if (UNLIKELY (res == NULL))
+Line 138:     OOM ();
+Line 139:   return res;
+Line 140: }
+Line 141: 
+Line 14
+
+Lines 360 to 760 from file: src/libcrun/utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 360:             {
+Line 361:               ret = 0;
+Line 362:               break;
+Line 363:             }
+Line 364: 
+Line 365:           *it = '\0';
+Line 366:           ret = ensure_directory_internal_at (dirfd, path, len - 1, mode, err);
+Line 367:           *it = '/';
+Line 368:           if (UNLIKELY (ret < 0))
+Line 369:             break;
+Line 370:         }
+Line 371:     }
+Line 372:   return ret;
+Line 373: }
+Line 374: 
+Line 375: int
+Line 376: crun_ensure_directory_at (int dirfd, const char *path, int mode, bool nofollow, libcrun_error_t *err)
+Line 377: {
+Line 378:   int ret;
+Line 379:   cleanup_free char *tmp = xstrdup (path);
+Line 380:   ret = ensure_directory_internal_at (dirfd, tmp, strlen (tmp), mode, err);
+Line 381:   if (UNLIKELY (ret < 0))
+Line 382:     return ret;
+Line 383: 
+Line 384:   ret = crun_dir_p_at (dirfd, path, nofollow, err);
+Line 385:   if (UNLIKELY (ret < 0))
+Line 386:     return ret;
+Line 387: 
+Line 388:   if (ret == 0)
+Line 389:     return crun_make_error (err, ENOTDIR, "The path `%s` is not a directory", path);
+Line 390: 
+Line 391:   return 0;
+Line 392: }
+Line 393: 
+Line 394: static int
+Line 395: check_fd_under_path (const char *rootfs, size_t rootfslen, int fd, const char *fdname, libcrun_error_t *err)
+Line 396: {
+Line 397:   int ret;
+Line 398:   char link[PATH_MAX];
+Line 399:   char fdpath[64];
+Line 400: 
+Line 401:   sprintf (fdpath, "/proc/self/fd/%d", fd);
+Line 402:   ret = TEMP_FAILURE_RETRY (readlink (fdpath, link, sizeof (link)));
+Line 403:   if (UNLIKELY (ret < 0))
+Line 404:     return crun_make_error (err, errno, "readlink `%s`", fdname);
+Line 405: 
+Line 406:   if (((size_t) ret) <= rootfslen || memcmp (link, rootfs, rootfslen) != 0)
+Line 407:     return crun_make_error (err, 0, "target `%s` not under the directory `%s`", fdname, rootfs);
+Line 408: 
+Line 409:   return 0;
+Line 410: }
+Line 411: 
+Line 412: /* Check if *oldfd is a valid fd and close it.  Then store newfd into *oldfd.  */
+Line 413: static void
+Line 414: close_and_replace (int *oldfd, int newfd)
+Line 415: {
+Line 416:   if (*oldfd >= 0)
+Line 417:     TEMP_FAILURE_RETRY (close (*oldfd));
+Line 418: 
+Line 419:   *oldfd = newfd;
+Line 420: }
+Line 421: 
+Line 422: /* Defined in chroot_realpath.c  */
+Line 423: char *chroot_realpath (const char *chroot, const char *path, char resolved_path[]);
+Line 424: 
+Line 425: int
+Line 426: safe_openat (int dirfd, const char *rootfs, size_t rootfs_len, const char *path, int flags,
+Line 427:              int mode, libcrun_error_t *err)
+Line 428: {
+Line 429:   int ret;
+Line 430:   cleanup_close int fd = -1;
+Line 431:   static bool openat2_supported = true;
+Line 432:   char buffer[PATH_MAX], *path_in_chroot;
+Line 433: 
+Line 434:   if (openat2_supported)
+Line 435:     {
+Line 436:       ret = syscall_openat2 (dirfd, path, flags, mode, RESOLVE_IN_ROOT);
+Line 437:       if (ret < 0)
+Line 438:         {
+Line 439:           if (errno == ENOSYS)
+Line 440:             openat2_supported = false;
+Line 441:           if (errno == ENOSYS || errno == EINVAL)
+Line 442:             goto fallback;
+Line 443:           return crun_make_error (err, errno, "openat2 `%s`", path);
+Line 444:         }
+Line 445: 
+Line 446:       return ret;
+Line 447:     }
+Line 448: 
+Line 449:  fallback:
+Line 450:   path_in_chroot = chroot_realpath (rootfs, path, buffer);
+Line 451:   if (path_in_chroot == NULL)
+Line 452:     return crun_make_error (err, errno, "cannot resolve `%s` under rootfs", path);
+Line 453: 
+Line 454:   path_in_chroot += rootfs_len;
+Line 455:   while (*path_in_chroot == '/')
+Line 456:     path_in_chroot++;
+Line 457: 
+Line 458:   ret = openat (dirfd, path_in_chroot, flags, mode);
+Line 459:   if (UNLIKELY (ret < 0))
+Line 460:     return crun_make_error (err, errno, "open `%s`", path);
+Line 461: 
+Line 462:   fd = ret;
+Line 463: 
+Line 464:   ret = check_fd_under_path (rootfs, rootfs_len, fd, path, err);
+Line 465:   if (UNLIKELY (ret < 0))
+Line 466:     return ret;
+Line 467: 
+Line 468:   ret = fd;
+Line 469:   fd = - 1;
+Line 
+
+Lines 760 to 1200 from file: src/libcrun/utils.c
+Command read_range returned a lengthy response, we truncated it to the first 4000 characters: Line 760:   return 0;
+Line 761: }
+Line 762: 
+Line 763: int
+Line 764: set_selinux_exec_label (const char *label, libcrun_error_t *err)
+Line 765: {
+Line 766:   int ret;
+Line 767: 
+Line 768:   ret = libcrun_is_selinux_enabled (err);
+Line 769:   if (UNLIKELY (ret < 0))
+Line 770:     return ret;
+Line 771: 
+Line 772:   if (ret)
+Line 773:     {
+Line 774:       ret = write_file_and_check_fs_type ("/proc/thread-self/attr/exec", label, strlen (label), PROC_SUPER_MAGIC, "procfs", err);
+Line 775:       if (UNLIKELY (ret < 0))
+Line 776:         return ret;
+Line 777:     }
+Line 778:   return 0;
+Line 779: }
+Line 780: 
+Line 781: static int
+Line 782: libcrun_is_apparmor_enabled (libcrun_error_t *err)
+Line 783: {
+Line 784:   if (apparmor_enabled < 0)
+Line 785:     return crun_make_error (err, 0, "AppArmor not initialized correctly");
+Line 786:   return apparmor_enabled;
+Line 787: }
+Line 788: 
+Line 789: int
+Line 790: set_apparmor_profile (const char *profile, libcrun_error_t *err)
+Line 791: {
+Line 792:   int ret;
+Line 793: 
+Line 794:   ret = libcrun_is_apparmor_enabled (err);
+Line 795:   if (UNLIKELY (ret < 0))
+Line 796:     return ret;
+Line 797:   if (ret)
+Line 798:     {
+Line 799:       cleanup_free char *buf = NULL;
+Line 800: 
+Line 801:       xasprintf (&buf, "exec %s", profile);
+Line 802: 
+Line 803:       ret = write_file_and_check_fs_type ("/proc/thread-self/attr/exec", buf, strlen (buf), PROC_SUPER_MAGIC, "procfs", err);
+Line 804:       if (UNLIKELY (ret < 0))
+Line 805:         return ret;
+Line 806:     }
+Line 807:   return 0;
+Line 808: }
+Line 809: 
+Line 810: int
+Line 811: read_all_fd (int fd, const char *description, char **out, size_t *len, libcrun_error_t *err)
+Line 812: {
+Line 813:   int ret;
+Line 814:   size_t nread, allocated;
+Line 815:   off_t size = 0;
+Line 816:   cleanup_free char *buf = NULL;
+Line 817: 
+Line 818:   ret = get_file_size (fd, &size);
+Line 819:   if (UNLIKELY (ret < 0))
+Line 820:     return crun_make_error (err, errno, "error stat'ing file `%s`", description);
+Line 821: 
+Line 822:   /* NUL terminate the buffer.  */
+Line 823:   allocated = size;
+Line 824:   if (size == 0)
+Line 825:     allocated = 256;
+Line 826:   buf = xmalloc (allocated + 1);
+Line 827:   nread = 0;
+Line 828:   while ((size && nread < (size_t) size) || size == 0)
+Line 829:     {
+Line 830:       ret = TEMP_FAILURE_RETRY (read (fd, buf + nread, allocated - nread));
+Line 831:       if (UNLIKELY (ret < 0))
+Line 832:         return crun_make_error (err, errno, "error reading from file `%s`", description);
+Line 833: 
+Line 834:       if (ret == 0)
+Line 835:         break;
+Line 836: 
+Line 837:       nread += ret;
+Line 838: 
+Line 839:       allocated += 256;
+Line 840:       buf = xrealloc (buf, allocated + 1);
+Line 841:     }
+Line 842:   buf[nread] = '\0';
+Line 843:   *out = buf;
+Line 844:   buf = NULL;
+Line 845:   if (len)
+Line 846:     *len = nread;
+Line 847:   return 0;
+Line 848: }
+Line 849: 
+Line 850: int
+Line 851: read_all_file (const char *path, char **out, size_t *len, libcrun_error_t *err)
+Line 852: {
+Line 853:   cleanup_close int fd;
+Line 854: 
+Line 855:   if (strcmp (path, "-") == 0)
+Line 856:     path = "/dev/stdin";
+Line 857: 
+Line 858:   fd = TEMP_FAILURE_RETRY (open (path, O_RDONLY));
+Line 859:   if (UNLIKELY (fd < 0))
+Line 860:     return crun_make_error (err, errno, "error opening file `%s`", path);
+Line 861: 
+Line 862:   return read_all_fd (fd, path, out, len, err);
+Line 863: }
+Line 864: 
+Line 865: int
+Line 866: open_unix_domain_client_socket (const char *path, int dgram, libcrun_error_t *err)
+Line 867: {
+Line 868:   struct sockaddr_un addr = {};
+Line 869:   int ret;
+Line 870:   cleanup_close int fd = socket (AF_UNIX, dgram ? SOCK_DGRAM : SOCK_STREAM, 0);
+Line 871:   if (UNLIKELY (fd < 0))
+Line 872:     return crun_make_error (err, errno, "error creating UNIX socket");
+Line 873: 
+Line 874:   if (strlen (path) >= sizeof (addr.sun_path))
+Line 875:     return crun_make_error (err, 0, "invalid path %s specified", path);
+Line 876:   strcpy (addr.s
+
+
+## The list of implementations of some methods in the code base:
+Command extract_method_code returned: Line 479: 
+Line 480:   return 0;
+Line 481: }
+Line 482: 
+Line 483: static int
+Line 484: do_hooks (runtime_spec_schema_config_schema *def,
+Line 485:           pid_t pid,
+Line 486:           const char *id,
+Line 487:           bool keep_going,
+Line 488:           const char *cwd,
+Line 489:           const char *status,
+Line 490:           hook **hooks,
+Line 491:           size_t hooks_len,
+Line 492:           libcrun_error_t *err)
+Line 493: {
+Line 494:   size_t i, stdin_len;
+Line 495:   int ret;
+Line 496:   cleanup_free char *stdin = NULL;
+Line 497:   const unsigned char *annotations = (const unsigned char *) "{}";
+Line 498:   cleanup_free char *cwd_allocated = NULL;
+Line 499:   const char *rootfs = def->root ? def->root->path : "";
+Line 500:   yajl_gen gen = NULL;
+Line 501: 
+Line 502:   if (cwd == NULL)
+Line 503:     {
+Line 504:       cwd = cwd_allocated = get_current_dir_name ();
+Line 505:       if (cwd == NULL)
+Line 506:         OOM ();
+Line 507:     }
+Line 508: 
+Line 509:   if (def && def->annotations && def->annotations->len)
+Line 510:     {
+Line 511:       size_t len;
+Line 512: 
+Line 513:       gen = yajl_gen_alloc (NULL);
+Line 514:       if (gen == NULL)
+Line 515:         return crun_make_error (err, 0, "yajl_gen_alloc failed");
+Line 516: 
+Line 517:       yajl_gen_map_open (gen);
+Line 518:       for (i = 0; i < def->annotations->len; i++)
+Line 519:         {
+Line 520:           const char *key = def->annotations->keys[i];
+Line 521:           const char *val = def->annotations->values[i];
+Line 522: 
+Line 523:           yajl_gen_string (gen, YAJL_STR (key), strlen (key));
+Line 524:           yajl_gen_string (gen, YAJL_STR (val), strlen (val));
+Line 525:         }
+Line 526:       yajl_gen_map_close (gen);
+Line 527: 
+Line 528:       yajl_gen_get_buf (gen, &annotations, &len);
+Line 529:     }
+Line 530: 
+Line 531:   stdin_len = xasprintf (&stdin, "{\"ociVersion\":\"1.0\", \"id\":\"%s\", \"pid\":%i, \"root\":\"%s\", \"bundle\":\"%s\", \"status\":\"%s\", \"annotations\":%s}", id, pid, rootfs, cwd, status, annotations);
+Line 532: 
+Line 533:   for (i = 0; i < hooks_len; i++)
+Line 534:     {
+Line 535:       ret = run_process_with_stdin_timeout_envp (hooks[i]->path, hooks[i]->args, cwd, hooks[i]->timeout, hooks[i]->env, stdin, stdin_len, err);
+Line 536:       if (UNLIKELY (ret != 0))
+Line 537:         {
+Line 538:           if (keep_going)
+Line 539:             libcrun_warning ("error executing hook `%s` (exit code: %d)", hooks[i]->path, ret);
+Line 540:           else
+Line 541:             {
+Line 542:               libcrun_error (0, "error executing hook `%s` (exit code: %d)", hooks[i]->path, ret);
+Line 543:               goto exit;
+Line 544:             }
+Line 545:         }
+Line 546:     }
+Line 547: 
+Line 548:   ret = 0;
+Line 549: 
+Line 550:  exit:
+Line 551:   if (gen)
+Line 552:     yajl_gen_free (gen);
+Line 553: 
+Line 554:   return ret;
+Line 555: }
+Line 556: 
+Line 557: /* Initialize the environment where the container process runs.
+Line 558:    It is used by the container init process.  */
+Line 559: static int
+Line 560: container_init_setup (void *args, const char *notify_socket,
+Line 561:                       int sync_socket, const char **exec_path,
+Line 562:                       libcrun_error_t *err)
+Line 563: {
+
+## Executed search queries within the code base:
+Searching keywords: run_hooks hook stderr, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [r, u, n, o, o, o, o, t, d, e, r, r] /* autogenerated.  */
+git-version.h:2: [r, n, _, o, o, s, o, o, s, t, d, e, r, r] #ifndef GIT_VERSION
+git-version.h:3: [r, n, _, o, o, s, o, o, s, t, d, e, r, r] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [n, d, e] #endif
+config.h:1: [r, u, n, h, o, o, h, o, o, t, d, e, r, r] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, u, n, h, o, o, h, o, o, t, d, e, r, r] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [n, s, s, d, e] /* Define if libcap is available */
+config.h:5: [n, _, h, h, d, e] #define HAVE_CAP 1
+config.h:7: [r, u, n, _, h, o, o, h, o, o, t, d, e, r, r] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [r, n, _, h, o, o, h, o, o, d, e, r, r] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [r, u, n, s, s, d, e, r, r] /* Define if CRIU is available */
+config.h:11: [r, u, n, _, h, h, d, e, r, r] /* #undef HAVE_CRIU */
+config.h:13: [r, u, n, h, o, o, h, o, o, t, d, e, r, r] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [n, _, h, h, d, e] #define HAVE_DLFCN_H 1
+config.h:16: [n, s, s, d, e] /* Define if eBPF is available */
+config.h:17: [n, _, h, h, d, e] #define HAVE_EBPF 1
+config.h:19: [r, u, n, h, o, o, h, o, o, t, d, e, r, r] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [r, n, _, h, o, o, h, o, o, d, e, r, r] #define HAVE_ERROR_H 1
+config.h:22: [r, u, n, _, h, o, o, h, o, o, t, d, e, r, r] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [r, n, _, h, h, t, d, e, r, r] #define HAVE_FGETPWENT_R 1
+config.h:25: [r, u, n, h, o, o, h, o, o, t, d, e, r, r] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [r, n, _, h, h, t, d, e, r, r] #define HAVE_FGETXATTR 1
+config.h:28: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [n, _, h, s, h, s, t, d, e] #define HAVE_INTTYPES_H 1
+config.h:31: [u, n, h, o, o, s, h, o, o, s, t, d, e] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [u, n, _, h, s, h, s, t, d, e] /* #undef HAVE_ISSETUGID */
+config.h:34: [r, u, n, h, o, o, h, o, o, t, d, e, r, r] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [u, n, _, h, h, d, e] #define HAVE_LINUX_BPF_H 1
+config.h:37: [n, o, o, s, o, o, s, d, e] /* Define if seccomp is available */
+config.h:38: [n, _, h, o, o, s, h, o, o, s, d, e] #define HAVE_SECCOMP 1
+config.h:40: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [n, _, h, o, o, s, h, o, o, s, d, e] #define HAVE_SECCOMP_H 1
+config.h:43: [u, n, h, o, o, s, h, o, o, s, t, d, e] /* Define to 1 if you have the `statx' function. */
+config.h:44: [n, _, h, s, h, s, t, d, e] #define HAVE_STATX 1
+config.h:46: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [n, _, h, s, h, s, t, d, e] #define HAVE_STDINT_H 1
+config.h:49: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [n, _, h, o, o, s, h, o, o, s, t, d, e] #define HAVE_STDIO_H 1
+config.h:52: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [n, _, h, s, h, s, t, d, e] #define HAVE_STDLIB_H 1
+config.h:55: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [r, n, _, h, s, h, s, t, d, e, r, r] #define HAVE_STRINGS_H 1
+config.h:58: [r, u, n, h, o, o, s, h, o, o, s, t, d, e, r, r] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [r, n, _, h, s, h, s, t, d, e, r, r] #define HAVE_STRING_H 1
+config.h:61: [n, s, s, t, d, e] /* Define if libsystemd is available */
+config.h:62: [n, _, h, s, h, s, t, d, e] #define HAVE_SYSTEMD 1
+
+Searching keywords: prestart, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [r, e, t, a, r, t] /* autogenerated.  */
+git-version.h:2: [r, e, s, t, r, t] #ifndef GIT_VERSION
+git-version.h:3: [r, e, s, t, a, r, t] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [e] #endif
+config.h:1: [r, e, t, a, r, t] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, e, t, a, r, t] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [p, e, s, a] /* Define if libcap is available */
+config.h:5: [p, e, a] #define HAVE_CAP 1
+config.h:7: [p, r, e, t, a, r, t] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [p, r, e, a, r] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [r, e, s, a, r] /* Define if CRIU is available */
+config.h:11: [r, e, a, r] /* #undef HAVE_CRIU */
+config.h:13: [r, e, t, a, r, t] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [e, a] #define HAVE_DLFCN_H 1
+config.h:16: [p, e, s, a] /* Define if eBPF is available */
+config.h:17: [p, e, a] #define HAVE_EBPF 1
+config.h:19: [r, e, t, a, r, t] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [r, e, a, r] #define HAVE_ERROR_H 1
+config.h:22: [p, r, e, t, a, r, t] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [p, r, e, t, a, r, t] #define HAVE_FGETPWENT_R 1
+config.h:25: [r, e, t, a, r, t] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [r, e, t, a, r, t] #define HAVE_FGETXATTR 1
+config.h:28: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [p, e, s, t, a, t] #define HAVE_INTTYPES_H 1
+config.h:31: [e, s, t, a, t] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [e, s, t, a, t] /* #undef HAVE_ISSETUGID */
+config.h:34: [p, r, e, t, a, r, t] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [p, e, a] #define HAVE_LINUX_BPF_H 1
+config.h:37: [p, e, s, a] /* Define if seccomp is available */
+config.h:38: [p, e, s, a] #define HAVE_SECCOMP 1
+config.h:40: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [p, e, s, a] #define HAVE_SECCOMP_H 1
+config.h:43: [e, s, t, a, t] /* Define to 1 if you have the `statx' function. */
+config.h:44: [e, s, t, a, t] #define HAVE_STATX 1
+config.h:46: [r, e, s, t, a, r, t] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [e, s, t, a, t] #define HAVE_STDINT_H 1
+config.h:49: [r, e, s, t, a, r, t] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [e, s, t, a, t] #define HAVE_STDIO_H 1
+config.h:52: [r, e, s, t, a, r, t] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [e, s, t, a, t] #define HAVE_STDLIB_H 1
+config.h:55: [r, e, s, t, a, r, t] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [r, e, s, t, a, r, t] #define HAVE_STRINGS_H 1
+config.h:58: [r, e, s, t, a, r, t] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [r, e, s, t, a, r, t] #define HAVE_STRING_H 1
+config.h:61: [e, s, t, a, t] /* Define if libsystemd is available */
+config.h:62: [e, s, t, a, t] #define HAVE_SYSTEMD 1
+config.h:64: [r, e, s, t, a, r, t] /* Define to 1 if you have the <systemd/sd-bus.h> header file. */
+config.h:65: [e, s, t, a, t] #define HAVE_SYSTEMD_SD_BUS_H 1
+config.h:67: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:68: [p, e, s, t, a, t] #define HAVE_SYS_CAPABILITY_H 1
+config.h:70: [r, e, s, t, a, r, t] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:71: [e, s, t, a, t] #define HAVE_SYS_STAT_H 1
+config.h:73: [p, r, e, s, t, a, r, t] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:74: [p, e, s, t, a, t] #define HAVE_SYS_TYPES_H 1
+config.h:76: [r, e, s, t, a, r, t] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:77: [e, s, t, a, t] #define HAVE_UNISTD_H 1
+config.h:79: [e, s, a] /* Define if libyajl is
+
+Searching keywords: run_poststop_hooks, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [r, u, n, o, t, t, o, o, o] /* autogenerated.  */
+git-version.h:2: [r, n, _, o, s, t, s, t, o, _, o, o, s] #ifndef GIT_VERSION
+git-version.h:3: [r, n, _, o, s, t, s, t, o, _, o, o, s] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [n] #endif
+config.h:1: [r, u, n, o, t, t, o, h, o, o] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, u, n, o, t, t, o, h, o, o] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [n, p, s, s, p, s] /* Define if libcap is available */
+config.h:5: [n, _, p, p, _, h] #define HAVE_CAP 1
+config.h:7: [r, u, n, _, p, o, t, t, o, p, _, h, o, o] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [r, n, _, p, o, o, p, _, h, o, o] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [r, u, n, s, s, s] /* Define if CRIU is available */
+config.h:11: [r, u, n, _, _, h] /* #undef HAVE_CRIU */
+config.h:13: [r, u, n, o, t, t, o, h, o, o] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [n, _, _, h] #define HAVE_DLFCN_H 1
+config.h:16: [n, p, s, s, p, s] /* Define if eBPF is available */
+config.h:17: [n, _, p, p, _, h] #define HAVE_EBPF 1
+config.h:19: [r, u, n, o, t, t, o, h, o, o] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [r, n, _, o, o, _, h, o, o] #define HAVE_ERROR_H 1
+config.h:22: [r, u, n, _, p, o, t, t, o, p, _, h, o, o] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [r, n, _, p, t, t, p, _, h] #define HAVE_FGETPWENT_R 1
+config.h:25: [r, u, n, o, t, t, o, h, o, o] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [r, n, _, t, t, _, h] #define HAVE_FGETXATTR 1
+config.h:28: [r, u, n, p, o, s, t, s, t, o, p, h, o, o, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [n, _, p, s, t, s, t, p, _, h, s] #define HAVE_INTTYPES_H 1
+config.h:31: [u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [u, n, _, s, t, s, t, _, h, s] /* #undef HAVE_ISSETUGID */
+config.h:34: [r, u, n, p, o, t, t, o, p, h, o, o] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [u, n, _, p, p, _, h] #define HAVE_LINUX_BPF_H 1
+config.h:37: [n, p, o, s, s, o, p, o, o, s] /* Define if seccomp is available */
+config.h:38: [n, _, p, o, s, s, o, p, _, h, o, o, s] #define HAVE_SECCOMP 1
+config.h:40: [r, u, n, p, o, s, t, s, t, o, p, h, o, o, s] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [n, _, p, o, s, s, o, p, _, h, o, o, s] #define HAVE_SECCOMP_H 1
+config.h:43: [u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the `statx' function. */
+config.h:44: [n, _, s, t, s, t, _, h, s] #define HAVE_STATX 1
+config.h:46: [r, u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [n, _, s, t, s, t, _, h, s] #define HAVE_STDINT_H 1
+config.h:49: [r, u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [n, _, o, s, t, s, t, o, _, h, o, o, s] #define HAVE_STDIO_H 1
+config.h:52: [r, u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [n, _, s, t, s, t, _, h, s] #define HAVE_STDLIB_H 1
+config.h:55: [r, u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [r, n, _, s, t, s, t, _, h, s] #define HAVE_STRINGS_H 1
+config.h:58: [r, u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [r, n, _, s, t, s, t, _, h, s] #define HAVE_STRING_H 1
+config.h:61: [n, s, t, s, t, s] /* Define if libsystemd is available */
+config.h:62: [n, _, s, t, s, t, _, h, s] #define HAVE_SYSTEMD 1
+config.h:64: [r, u, n, o, s, t, s, t, o, h, o, o, s] /* Define to 1 if you have the <systemd/sd-bus.h> header file. */
+config.h:65: [u, n, _, s, t, s, t, _, h, s] #define HAVE_SYSTEMD_SD_BUS_H 1
+co
+
+Searching keywords: run_prestart_hooks, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [r, u, n, r, e, t, a, r, t, o, o] /* autogenerated.  */
+git-version.h:2: [r, n, _, r, e, s, t, r, t, _, o, o, s] #ifndef GIT_VERSION
+git-version.h:3: [r, n, _, r, e, s, t, a, r, t, _, o, o, s] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [n, e] #endif
+config.h:1: [r, u, n, r, e, t, a, r, t, h, o, o] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, u, n, r, e, t, a, r, t, h, o, o] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [n, p, e, s, a, s] /* Define if libcap is available */
+config.h:5: [n, _, p, e, a, _, h] #define HAVE_CAP 1
+config.h:7: [r, u, n, _, p, r, e, t, a, r, t, _, h, o, o] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [r, n, _, p, r, e, a, r, _, h, o, o] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [r, u, n, r, e, s, a, r, s] /* Define if CRIU is available */
+config.h:11: [r, u, n, _, r, e, a, r, _, h] /* #undef HAVE_CRIU */
+config.h:13: [r, u, n, r, e, t, a, r, t, h, o, o] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [n, _, e, a, _, h] #define HAVE_DLFCN_H 1
+config.h:16: [n, p, e, s, a, s] /* Define if eBPF is available */
+config.h:17: [n, _, p, e, a, _, h] #define HAVE_EBPF 1
+config.h:19: [r, u, n, r, e, t, a, r, t, h, o, o] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [r, n, _, r, e, a, r, _, h, o, o] #define HAVE_ERROR_H 1
+config.h:22: [r, u, n, _, p, r, e, t, a, r, t, _, h, o, o] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [r, n, _, p, r, e, t, a, r, t, _, h] #define HAVE_FGETPWENT_R 1
+config.h:25: [r, u, n, r, e, t, a, r, t, h, o, o] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [r, n, _, r, e, t, a, r, t, _, h] #define HAVE_FGETXATTR 1
+config.h:28: [r, u, n, p, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [n, _, p, e, s, t, a, t, _, h, s] #define HAVE_INTTYPES_H 1
+config.h:31: [u, n, e, s, t, a, t, h, o, o, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [u, n, _, e, s, t, a, t, _, h, s] /* #undef HAVE_ISSETUGID */
+config.h:34: [r, u, n, p, r, e, t, a, r, t, h, o, o] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [u, n, _, p, e, a, _, h] #define HAVE_LINUX_BPF_H 1
+config.h:37: [n, p, e, s, a, o, o, s] /* Define if seccomp is available */
+config.h:38: [n, _, p, e, s, a, _, h, o, o, s] #define HAVE_SECCOMP 1
+config.h:40: [r, u, n, p, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [n, _, p, e, s, a, _, h, o, o, s] #define HAVE_SECCOMP_H 1
+config.h:43: [u, n, e, s, t, a, t, h, o, o, s] /* Define to 1 if you have the `statx' function. */
+config.h:44: [n, _, e, s, t, a, t, _, h, s] #define HAVE_STATX 1
+config.h:46: [r, u, n, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [n, _, e, s, t, a, t, _, h, s] #define HAVE_STDINT_H 1
+config.h:49: [r, u, n, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [n, _, e, s, t, a, t, _, h, o, o, s] #define HAVE_STDIO_H 1
+config.h:52: [r, u, n, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [n, _, e, s, t, a, t, _, h, s] #define HAVE_STDLIB_H 1
+config.h:55: [r, u, n, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [r, n, _, r, e, s, t, a, r, t, _, h, s] #define HAVE_STRINGS_H 1
+config.h:58: [r, u, n, r, e, s, t, a, r, t, h, o, o, s] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [r, n, _, r, e, s, t, a, r, t, _, h, s] #define HAVE_STRING_H 1
+config.h:61: [n, e, s, t, a, t, s] /* Define if libsystemd is available */
+config.h:62: [n, _, e, s, t, a, t, _, h, s] #define HAVE_SYSTEMD 1
+config.h:64: [r, u, n, r, e, s, t, a, r, t, h, o, o, s] 
+
+Searching keywords: hooks, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [o, o] /* autogenerated.  */
+git-version.h:2: [o, o, s] #ifndef GIT_VERSION
+git-version.h:3: [o, o, s] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+config.h:1: [h, o, o] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [h, o, o] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [s] /* Define if libcap is available */
+config.h:5: [h] #define HAVE_CAP 1
+config.h:7: [h, o, o] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [h, o, o] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [s] /* Define if CRIU is available */
+config.h:11: [h] /* #undef HAVE_CRIU */
+config.h:13: [h, o, o] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [h] #define HAVE_DLFCN_H 1
+config.h:16: [s] /* Define if eBPF is available */
+config.h:17: [h] #define HAVE_EBPF 1
+config.h:19: [h, o, o] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [h, o, o] #define HAVE_ERROR_H 1
+config.h:22: [h, o, o] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [h] #define HAVE_FGETPWENT_R 1
+config.h:25: [h, o, o] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [h] #define HAVE_FGETXATTR 1
+config.h:28: [h, o, o, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [h, s] #define HAVE_INTTYPES_H 1
+config.h:31: [h, o, o, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [h, s] /* #undef HAVE_ISSETUGID */
+config.h:34: [h, o, o] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [h] #define HAVE_LINUX_BPF_H 1
+config.h:37: [o, o, s] /* Define if seccomp is available */
+config.h:38: [h, o, o, s] #define HAVE_SECCOMP 1
+config.h:40: [h, o, o, s] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [h, o, o, s] #define HAVE_SECCOMP_H 1
+config.h:43: [h, o, o, s] /* Define to 1 if you have the `statx' function. */
+config.h:44: [h, s] #define HAVE_STATX 1
+config.h:46: [h, o, o, s] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [h, s] #define HAVE_STDINT_H 1
+config.h:49: [h, o, o, s] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [h, o, o, s] #define HAVE_STDIO_H 1
+config.h:52: [h, o, o, s] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [h, s] #define HAVE_STDLIB_H 1
+config.h:55: [h, o, o, s] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [h, s] #define HAVE_STRINGS_H 1
+config.h:58: [h, o, o, s] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [h, s] #define HAVE_STRING_H 1
+config.h:61: [s] /* Define if libsystemd is available */
+config.h:62: [h, s] #define HAVE_SYSTEMD 1
+config.h:64: [h, o, o, s] /* Define to 1 if you have the <systemd/sd-bus.h> header file. */
+config.h:65: [h, s] #define HAVE_SYSTEMD_SD_BUS_H 1
+config.h:67: [h, o, o, s] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:68: [h, s] #define HAVE_SYS_CAPABILITY_H 1
+config.h:70: [h, o, o, s] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:71: [h, s] #define HAVE_SYS_STAT_H 1
+config.h:73: [h, o, o, s] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:74: [h, s] #define HAVE_SYS_TYPES_H 1
+config.h:76: [h, o, o, s] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:77: [h, s] #define HAVE_UNISTD_H 1
+config.h:79: [s] /* Define if libyajl is available */
+config.h:80: [h] #define HAVE_YAJL 1
+config.h:82: [h, o, o, s] /* Define to the sub-directory where libtool stores uninstalled libraries. */
+config.h:83: [o, o, s] #define LT_OBJDIR ".libs/"
+config.h:85: [o, o, k] /* Name of package */
+config.h:86: [k] #define PACKAGE "crun"
+config.h:88: [h, o, o, k, s] /* Define to the address where bug reports for this package should be sent. */
+config.h:89: [o, o, k, s] #define PACKAGE_BUGREPORT "giuseppe@scrivano.org"
+config.h:91: [h, o, o, k, s] /* Define to the full name of
+
+Searching keywords: prestart_len, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [r, e, t, a, r, t, e, n] /* autogenerated.  */
+git-version.h:2: [r, e, s, t, r, t, _, e, n] #ifndef GIT_VERSION
+git-version.h:3: [r, e, s, t, a, r, t, _, e, n] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [e, e, n] #endif
+config.h:1: [r, e, t, a, r, t, e, n] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, e, t, a, r, t, e, n] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [p, e, s, a, l, e, n] /* Define if libcap is available */
+config.h:5: [p, e, a, _, e, n] #define HAVE_CAP 1
+config.h:7: [p, r, e, t, a, r, t, _, l, e, n] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [p, r, e, a, r, _, l, e, n] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [r, e, s, a, r, l, e, n] /* Define if CRIU is available */
+config.h:11: [r, e, a, r, _, e, n] /* #undef HAVE_CRIU */
+config.h:13: [r, e, t, a, r, t, l, e, n] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [e, a, _, l, e, n] #define HAVE_DLFCN_H 1
+config.h:16: [p, e, s, a, l, e, n] /* Define if eBPF is available */
+config.h:17: [p, e, a, _, e, n] #define HAVE_EBPF 1
+config.h:19: [r, e, t, a, r, t, l, e, n] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [r, e, a, r, _, e, n] #define HAVE_ERROR_H 1
+config.h:22: [p, r, e, t, a, r, t, _, e, n] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [p, r, e, t, a, r, t, _, e, n] #define HAVE_FGETPWENT_R 1
+config.h:25: [r, e, t, a, r, t, e, n] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [r, e, t, a, r, t, _, e, n] #define HAVE_FGETXATTR 1
+config.h:28: [p, r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [p, e, s, t, a, t, _, e, n] #define HAVE_INTTYPES_H 1
+config.h:31: [e, s, t, a, t, e, n] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [e, s, t, a, t, _, e, n] /* #undef HAVE_ISSETUGID */
+config.h:34: [p, r, e, t, a, r, t, l, e, n] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [p, e, a, _, l, e, n] #define HAVE_LINUX_BPF_H 1
+config.h:37: [p, e, s, a, l, e, n] /* Define if seccomp is available */
+config.h:38: [p, e, s, a, _, e, n] #define HAVE_SECCOMP 1
+config.h:40: [p, r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [p, e, s, a, _, e, n] #define HAVE_SECCOMP_H 1
+config.h:43: [e, s, t, a, t, e, n] /* Define to 1 if you have the `statx' function. */
+config.h:44: [e, s, t, a, t, _, e, n] #define HAVE_STATX 1
+config.h:46: [r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [e, s, t, a, t, _, e, n] #define HAVE_STDINT_H 1
+config.h:49: [r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [e, s, t, a, t, _, e, n] #define HAVE_STDIO_H 1
+config.h:52: [r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [e, s, t, a, t, _, l, e, n] #define HAVE_STDLIB_H 1
+config.h:55: [r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [r, e, s, t, a, r, t, _, e, n] #define HAVE_STRINGS_H 1
+config.h:58: [r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [r, e, s, t, a, r, t, _, e, n] #define HAVE_STRING_H 1
+config.h:61: [e, s, t, a, t, l, e, n] /* Define if libsystemd is available */
+config.h:62: [e, s, t, a, t, _, e, n] #define HAVE_SYSTEMD 1
+config.h:64: [r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <systemd/sd-bus.h> header file. */
+config.h:65: [e, s, t, a, t, _, e, n] #define HAVE_SYSTEMD_SD_BUS_H 1
+config.h:67: [p, r, e, s, t, a, r, t, l, e, n] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:68: [p, e, s, t, a, t, _, l, e, n] #define HAVE_SYS_CAPABILITY_H 1
+config.h:70: [r, e, s, t, a, r, t, l, e, n] /* Define
+
+Searching keywords: do_hooks, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [d, o, o, o] /* autogenerated.  */
+git-version.h:2: [d, o, _, o, o, s] #ifndef GIT_VERSION
+git-version.h:3: [d, o, _, o, o, s] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [d] #endif
+config.h:1: [d, o, h, o, o] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [d, o, h, o, o] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [d, s] /* Define if libcap is available */
+config.h:5: [d, _, h] #define HAVE_CAP 1
+config.h:7: [d, o, _, h, o, o] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [d, o, _, h, o, o] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [d, s] /* Define if CRIU is available */
+config.h:11: [d, _, h] /* #undef HAVE_CRIU */
+config.h:13: [d, o, h, o, o] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [d, _, h] #define HAVE_DLFCN_H 1
+config.h:16: [d, s] /* Define if eBPF is available */
+config.h:17: [d, _, h] #define HAVE_EBPF 1
+config.h:19: [d, o, h, o, o] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [d, o, _, h, o, o] #define HAVE_ERROR_H 1
+config.h:22: [d, o, _, h, o, o] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [d, _, h] #define HAVE_FGETPWENT_R 1
+config.h:25: [d, o, h, o, o] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [d, _, h] #define HAVE_FGETXATTR 1
+config.h:28: [d, o, h, o, o, s] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [d, _, h, s] #define HAVE_INTTYPES_H 1
+config.h:31: [d, o, h, o, o, s] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [d, _, h, s] /* #undef HAVE_ISSETUGID */
+config.h:34: [d, o, h, o, o] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [d, _, h] #define HAVE_LINUX_BPF_H 1
+config.h:37: [d, o, o, o, s] /* Define if seccomp is available */
+config.h:38: [d, o, _, h, o, o, s] #define HAVE_SECCOMP 1
+config.h:40: [d, o, h, o, o, s] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [d, o, _, h, o, o, s] #define HAVE_SECCOMP_H 1
+config.h:43: [d, o, h, o, o, s] /* Define to 1 if you have the `statx' function. */
+config.h:44: [d, _, h, s] #define HAVE_STATX 1
+config.h:46: [d, o, h, o, o, s] /* Define to 1 if you have the <stdint.h> header file. */
+config.h:47: [d, _, h, s] #define HAVE_STDINT_H 1
+config.h:49: [d, o, h, o, o, s] /* Define to 1 if you have the <stdio.h> header file. */
+config.h:50: [d, o, _, h, o, o, s] #define HAVE_STDIO_H 1
+config.h:52: [d, o, h, o, o, s] /* Define to 1 if you have the <stdlib.h> header file. */
+config.h:53: [d, _, h, s] #define HAVE_STDLIB_H 1
+config.h:55: [d, o, h, o, o, s] /* Define to 1 if you have the <strings.h> header file. */
+config.h:56: [d, _, h, s] #define HAVE_STRINGS_H 1
+config.h:58: [d, o, h, o, o, s] /* Define to 1 if you have the <string.h> header file. */
+config.h:59: [d, _, h, s] #define HAVE_STRING_H 1
+config.h:61: [d, s] /* Define if libsystemd is available */
+config.h:62: [d, _, h, s] #define HAVE_SYSTEMD 1
+config.h:64: [d, o, h, o, o, s] /* Define to 1 if you have the <systemd/sd-bus.h> header file. */
+config.h:65: [d, _, h, s] #define HAVE_SYSTEMD_SD_BUS_H 1
+config.h:67: [d, o, h, o, o, s] /* Define to 1 if you have the <sys/capability.h> header file. */
+config.h:68: [d, _, h, s] #define HAVE_SYS_CAPABILITY_H 1
+config.h:70: [d, o, h, o, o, s] /* Define to 1 if you have the <sys/stat.h> header file. */
+config.h:71: [d, _, h, s] #define HAVE_SYS_STAT_H 1
+config.h:73: [d, o, h, o, o, s] /* Define to 1 if you have the <sys/types.h> header file. */
+config.h:74: [d, _, h, s] #define HAVE_SYS_TYPES_H 1
+config.h:76: [d, o, h, o, o, s] /* Define to 1 if you have the <unistd.h> header file. */
+config.h:77: [d, _, h, s] #define HAVE_UNISTD_H 1
+config.h:79: [d, s] /* Define if libyajl is available */
+config.h:80: [d, _, h] #define HAVE_YAJL 1
+config.h:82: [d, o, h, o, o, s] /* Define to the sub-directory where libtool stores uninstalled lib
+
+Searching keywords: run_process_with_stdin_timeout_envp, returned the following results:
+Command search_code_base returned a lengthy response, we truncated it to the first 4000 characters: git-version.h:1: [r, u, n, r, o, e, t, t, d, n, t, e, o, u, t, e, n] /* autogenerated.  */
+git-version.h:2: [r, n, _, r, o, e, s, s, _, i, t, _, s, t, d, i, n, _, t, i, e, o, t, _, e, n, v] #ifndef GIT_VERSION
+git-version.h:3: [r, n, _, r, o, c, e, s, s, _, i, t, _, s, t, d, i, n, _, t, i, e, o, t, _, e, n, v] # define GIT_VERSION "98bd9d36de5e32933b9ff95a787bdced99500020"
+git-version.h:4: [n, e, i, d, i, n, i, e, e, n] #endif
+config.h:1: [r, u, n, r, o, c, e, i, t, h, t, d, i, n, t, i, m, e, o, u, t, e, n] /* config.h.  Generated from config.h.in by configure.  */
+config.h:2: [r, u, n, r, o, c, e, i, t, h, t, d, i, n, t, i, m, e, o, u, t, e, n] /* config.h.in.  Generated from configure.ac by autoheader.  */
+config.h:4: [n, p, c, e, s, s, i, s, d, i, n, i, e, e, n, v, p] /* Define if libcap is available */
+config.h:5: [n, _, p, c, e, _, i, h, _, d, i, n, _, i, e, _, e, n, v, p] #define HAVE_CAP 1
+config.h:7: [r, u, n, _, p, r, o, c, e, _, i, t, h, _, t, d, i, n, _, t, i, e, o, u, t, _, e, n, v, p] /* Define to 1 if you have the `copy_file_range' function. */
+config.h:8: [r, n, _, p, r, o, c, e, _, i, h, _, d, i, n, _, i, e, o, _, e, n, v, p] #define HAVE_COPY_FILE_RANGE 1
+config.h:10: [r, u, n, r, c, e, s, s, i, s, d, i, n, i, e, u, e, n, v] /* Define if CRIU is available */
+config.h:11: [r, u, n, _, r, c, e, _, i, h, _, d, i, n, _, i, e, u, _, e, n, v] /* #undef HAVE_CRIU */
+config.h:13: [r, u, n, r, o, c, e, i, t, h, t, d, i, n, t, i, e, o, u, t, e, n, v] /* Define to 1 if you have the <dlfcn.h> header file. */
+config.h:14: [n, _, c, e, _, i, h, _, d, i, n, _, i, e, _, e, n, v] #define HAVE_DLFCN_H 1
+config.h:16: [n, p, e, s, s, i, s, d, i, n, i, e, e, n, v, p] /* Define if eBPF is available */
+config.h:17: [n, _, p, e, _, i, h, _, d, i, n, _, i, e, _, e, n, v, p] #define HAVE_EBPF 1
+config.h:19: [r, u, n, r, o, e, i, t, h, t, d, i, n, t, i, e, o, u, t, e, n, v] /* Define to 1 if you have the <error.h> header file. */
+config.h:20: [r, n, _, r, o, e, _, i, h, _, d, i, n, _, i, e, o, _, e, n, v] #define HAVE_ERROR_H 1
+config.h:22: [r, u, n, _, p, r, o, c, e, _, w, i, t, h, _, t, d, i, n, _, t, i, e, o, u, t, _, e, n, v, p] /* Define to 1 if you have the `fgetpwent_r' function. */
+config.h:23: [r, n, _, p, r, e, _, w, i, t, h, _, t, d, i, n, _, t, i, e, t, _, e, n, v, p] #define HAVE_FGETPWENT_R 1
+config.h:25: [r, u, n, r, o, c, e, i, t, h, t, d, i, n, t, i, e, o, u, t, e, n, v] /* Define to 1 if you have the `fgetxattr' function. */
+config.h:26: [r, n, _, r, e, _, i, t, h, _, t, d, i, n, _, t, i, e, t, _, e, n, v] #define HAVE_FGETXATTR 1
+config.h:28: [r, u, n, p, r, o, e, s, s, i, t, h, s, t, d, i, n, t, i, e, o, u, t, e, n, v, p] /* Define to 1 if you have the <inttypes.h> header file. */
+config.h:29: [n, _, p, e, s, s, _, i, t, h, _, s, t, d, i, n, _, t, i, e, t, _, e, n, v, p] #define HAVE_INTTYPES_H 1
+config.h:31: [u, n, o, c, e, s, s, i, t, h, s, t, d, i, n, t, i, e, o, u, t, e, n, v] /* Define to 1 if you have the `issetugid' function. */
+config.h:32: [u, n, _, e, s, s, _, i, t, h, _, s, t, d, i, n, _, t, i, e, u, t, _, e, n, v] /* #undef HAVE_ISSETUGID */
+config.h:34: [r, u, n, p, r, o, e, i, t, h, t, d, i, n, t, i, e, o, u, t, e, n, v, p] /* Define to 1 if you have the <linux/bpf.h> header file. */
+config.h:35: [u, n, _, p, e, _, i, h, _, d, i, n, _, i, e, u, _, e, n, v, p] #define HAVE_LINUX_BPF_H 1
+config.h:37: [n, p, o, c, e, s, s, i, s, d, i, n, i, m, e, o, e, n, v, p] /* Define if seccomp is available */
+config.h:38: [n, _, p, o, c, e, s, s, _, i, h, _, s, d, i, n, _, i, m, e, o, _, e, n, v, p] #define HAVE_SECCOMP 1
+config.h:40: [r, u, n, p, r, o, c, e, s, s, i, t, h, s, t, d, i, n, t, i, m, e, o, u, t, e, n, v, p] /* Define to 1 if you have the <seccomp.h> header file. */
+config.h:41: [n, _, p, o, c, e, s, s, _, i, h, _, s, d, i, n, _, i, m, e, o, _, e, n, v, p] #define HAVE_SECCOMP_H 1
+config.h:43: [u, n, o, c, e, s, s, i, t, h, s, t, d, i, n, t, i, e, o, u, t, e, n, v] /* Define to 1 if you have the `statx' f
+
+
+## The format of the fix
+This is the description of the json format in which you should write your fixes (respect this format when calling the commands write_fix and try_fixes):
+Use a JSON list with one dictionary per source file. Each dictionary has:
+file_name (repository-relative path), insertions (line_number and new_lines),
+deletions (one-based line numbers), and modifications (line_number and modified_line).
+For every insertion, new_lines MUST be a JSON list of strings, with one complete
+source line per list item. Do not return new_lines as one multiline string.
+All line numbers refer to the file content shown by read_range.
+Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
+"new_lines":["first inserted line","second inserted line"]}],"deletions":[],
+"modifications":[{"line_number":10,"modified_line":"new source line"}]}]
+Here are some hints that might help you in suggesting good mutations:
+Prefer minimal changes supported by the issue and inspected source.
+
+
+Fix OCI runtime bug case crun-353.
+
+Target runtime: crun
+Title: return stderr of hooks in case of an error
+Upstream issue: https://github.com/containers/crun/issues/353
+Category: POSIX-platform Hooks
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-repairagent/repairagent/crun-353
+
+Repository revision and cleanliness are verified by the launcher before the agent starts.
+Use only the commands exposed in the current RepairAgent state.
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-353
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+./autogen.sh && ./configure && make -j$(nproc)
+
+Candidate runtime path after build:
+crun
+
+Expected differential behavior and validation notes:
+Issue ID: crun-353
+Upstream URL: https://github.com/containers/crun/issues/353
+Category: POSIX-platform Hooks
+
+Payload under test:
+process args: ["/bin/sh", "-c", "echo hook-stderr-353-main"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Expected differential behavior:
+A correct runtime includes the failing hook stderr in its error output. The affected behavior drops that diagnostic.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# crun-353
+
+## Upstream Issue Summary
+- Title: return stderr of hooks in case of an error
+- URL: https://github.com/containers/crun/issues/353
+- Category: POSIX-platform Hooks
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched PR #355 (`b04df1c5317b`, hook output redirection); use parent `83367338c433` as the pre-fix buggy baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/crun-353`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "echo hook-stderr-353-main"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
+
+Oracle: A correct runtime includes the failing hook stderr in its error output. The affected behavior drops that diagnostic.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original dropped-hook-stderr behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes surfaced `hook-stderr-353` in their error output. Reproducing the issue appears to require the affected pre-fix crun build.
+Task for assistant:  generate 30 mutants of the target buggy lines. Respect the fix format, only change values (never touch keys). For every mutant generate a full fix dictionary. Put the 30 mutants in a main list.To generate the list of your mutations, fillout the following template multiple time with different variants:
+[{"file_name":"path/to/source","insertions":[],"deletions":[],"modifications":[]}]
