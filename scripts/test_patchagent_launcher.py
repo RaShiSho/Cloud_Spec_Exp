@@ -54,6 +54,39 @@ class PatchAgentLauncherTests(unittest.TestCase):
                 [],
             )
 
+    def test_remove_nested_git_metadata_preserves_submodule_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / ".git").write_text(
+                "gitdir: /tmp/superproject/worktrees/case\n", encoding="utf-8"
+            )
+            submodule = root / "libocispec"
+            submodule.mkdir()
+            (submodule / ".git").write_text(
+                "gitdir: ../../.git/modules/libocispec\n", encoding="utf-8"
+            )
+            (submodule / "runtime_spec_schema_config.c").write_text(
+                "int parse_spec(void) { return 0; }\n", encoding="utf-8"
+            )
+            nested = submodule / "vendor"
+            (nested / ".git").mkdir(parents=True)
+            (nested / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+            (root / ".github").mkdir()
+
+            removed = MODULE.remove_nested_git_metadata(root)
+
+            self.assertEqual(
+                removed,
+                [".git", "libocispec/.git", "libocispec/vendor/.git"],
+            )
+            self.assertFalse((root / ".git").exists())
+            self.assertFalse((submodule / ".git").exists())
+            self.assertFalse((nested / ".git").exists())
+            self.assertTrue(
+                (submodule / "runtime_spec_schema_config.c").is_file()
+            )
+            self.assertTrue((root / ".github").is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -90,6 +90,30 @@ ADAPTER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 LAUNCHER="$ADAPTER_DIR/launch.py"
 mkdir -p "$OUTPUT_DIR"
 
+initialize_submodules() {
+  if [ ! -f "$REPO/.gitmodules" ]; then
+    echo "Target worktree has no Git submodules." >&2
+    return
+  fi
+
+  echo "Initializing target worktree submodules." >&2
+  git -C "$REPO" submodule sync --recursive
+  git -C "$REPO" submodule update --init --recursive
+
+  local status
+  status="$(git -C "$REPO" submodule status --recursive)"
+  while IFS= read -r line; do
+    case "$line" in
+      -*) echo "Uninitialized submodule after update: $line" >&2; exit 2 ;;
+      +*) echo "Submodule is not at the recorded revision: $line" >&2; exit 2 ;;
+      U*) echo "Submodule has unresolved conflicts: $line" >&2; exit 2 ;;
+    esac
+  done <<< "$status"
+  printf '%s\n' "$status" >&2
+}
+
+initialize_submodules
+
 PYTHON_BIN="${PYTHON:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python"

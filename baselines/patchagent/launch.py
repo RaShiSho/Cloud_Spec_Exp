@@ -169,6 +169,33 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def remove_nested_git_metadata(root: Path) -> list[str]:
+    """Remove copied Git control files while preserving materialized sources."""
+    root = root.resolve()
+    candidates = {path for path in root.rglob(".git")}
+    root_dot_git = root / ".git"
+    if root_dot_git.exists() or root_dot_git.is_symlink():
+        candidates.add(root_dot_git)
+
+    removed: list[str] = []
+    for path in sorted(candidates, key=lambda item: len(item.parts), reverse=True):
+        try:
+            relative = path.resolve(strict=False).relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Refusing to remove Git metadata outside isolated workspace: {path}"
+            ) from exc
+
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        else:
+            continue
+        removed.append(relative.as_posix())
+    return sorted(removed)
+
+
 def configure_openai_environment(base_url: str | None) -> tuple[str, str]:
     key_source = ""
     for name in ("PATCHAGENT_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
@@ -283,6 +310,7 @@ def main() -> int:
 
     class OCIBuilder(Builder):
         def __init__(self) -> None:
+            self.removed_git_metadata: list[str] = []
             super().__init__(
                 project=repo.name,
                 source_path=repo,
@@ -305,11 +333,7 @@ def main() -> int:
             if not target_path.is_dir():
                 shutil.copytree(self.source_path, target_path, symlinks=True)
 
-            dot_git = target_path / ".git"
-            if dot_git.is_dir():
-                shutil.rmtree(dot_git)
-            elif dot_git.exists():
-                dot_git.unlink()
+            self.removed_git_metadata = remove_nested_git_metadata(target_path)
 
             source_repo = Repo.init(target_path)
             if not source_repo.head.is_valid():
@@ -404,6 +428,7 @@ def main() -> int:
         log_file=output_dir / "trajectory.json",
     )
     result, report = patch_task.initialize()
+    metadata["removed_git_metadata"] = patch_task.builder.removed_git_metadata
     if result != ValidationResult.BugDetected:
         metadata.update(
             {
@@ -413,6 +438,10 @@ def main() -> int:
             }
         )
         write_json(metadata_path, metadata)
+        print(
+            f"PatchAgent initialization failed ({result.value}):\n{report}",
+            file=sys.stderr,
+        )
         return 2
 
     try:
