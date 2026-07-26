@@ -17,7 +17,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-353

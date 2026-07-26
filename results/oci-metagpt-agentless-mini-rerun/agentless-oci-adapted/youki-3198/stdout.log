@@ -1,2 +1,177 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/5ccdc04d-cb63-4ab8-8c1a-c728c61a2c30/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/a4428b3c-1c3c-4d5c-99ae-9564cf43df90/.git/
+[master (root-commit) 6652b6e] initial commit
+ 1 file changed, 784 insertions(+)
+ create mode 100644 crates/libcontainer/src/container/tenant_builder.rs
 trying the 1-th sample ...
+--- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,23 +33,18 @@
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+ fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
++    let process = spec.process()?;
++    let env = process.env()?;
++
++    // As per the runtime spec, environment variables should follow
++    // https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
++    // and having multiple variables with the same name is undefined behaviour.
++    // Use the last exact PATH entry, rather than any variable that merely starts
++    // with "PATH" such as "PATHNAME".
+     env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++        .rev()
++        .find(|e| e.split_once('=').is_some_and(|(key, _)| key == "PATH"))
++        .cloned()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -544,26 +539,31 @@
+     }
+ 
+     fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
++        let mut env: Vec<String> = Vec::new();
++        let mut path_index = None;
++
++        for (k, v) in &self.env {
++            if k == "PATH" {
++                path_index = Some(env.len());
++            }
++            env.push(format!("{k}={v}"));
++        }
++
+         // It is not possible in normal flow that path is None. The original container
+         // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
++        // just as a caution, and if neither exec cmd nor original spec has PATH,
++        // the container creation will fail later which is ok.
++        //
++        // Keep PATH handling consistent with create: when exec is given its own
++        // PATH, make that PATH the last PATH entry. This matters because command
++        // lookup uses the last PATH from the process environment.
+         if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++            match path_index {
++                Some(index) => env[index] = p,
++                None => env.push(p),
++            }
++        }
++
+         env
+     }
+ 
+--- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,23 +33,18 @@
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+ fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
++    let process = spec.process()?;
++    let env = process.env()?;
++
++    // As per the runtime spec, environment variables should follow
++    // https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
++    // and having multiple variables with the same name is undefined behaviour.
++    // Use the last exact PATH entry, rather than any variable that merely starts
++    // with "PATH" such as "PATHNAME".
+     env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++        .rev()
++        .find(|e| e.split_once('=').is_some_and(|(key, _)| key == "PATH"))
++        .cloned()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -544,26 +539,31 @@
+     }
+ 
+     fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
++        let mut env: Vec<String> = Vec::new();
++        let mut path_index = None;
++
++        for (k, v) in &self.env {
++            if k == "PATH" {
++                path_index = Some(env.len());
++            }
++            env.push(format!("{k}={v}"));
++        }
++
+         // It is not possible in normal flow that path is None. The original container
+         // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
++        // just as a caution, and if neither exec cmd nor original spec has PATH,
++        // the container creation will fail later which is ok.
++        //
++        // Keep PATH handling consistent with create: when exec is given its own
++        // PATH, make that PATH the last PATH entry. This matters because command
++        // lookup uses the last PATH from the process environment.
+         if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++            match path_index {
++                Some(index) => env[index] = p,
++                None => env.push(p),
++            }
++        }
++
+         env
+     }
+ 

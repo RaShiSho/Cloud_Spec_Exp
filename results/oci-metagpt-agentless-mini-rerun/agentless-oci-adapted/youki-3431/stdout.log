@@ -1,2 +1,173 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/3421290c-4596-4dab-8f61-1d6785aed157/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/57770ced-eb1c-4de7-92d6-8218620c8bfd/.git/
+[master (root-commit) b584fb3] initial commit
+ 1 file changed, 1452 insertions(+)
+ create mode 100644 crates/libcontainer/src/process/init/process.rs
 trying the 1-th sample ...
+--- crates/libcontainer/src/process/init/process.rs
++++ crates/libcontainer/src/process/init/process.rs
+@@ -185,19 +185,43 @@
+         })?;
+     }
+ 
+-    if ctx.rootfs_ro {
+-        ctx.syscall
+-            .mount(
+-                None,
+-                Path::new("/"),
+-                None,
+-                MsFlags::MS_RDONLY | MsFlags::MS_REMOUNT | MsFlags::MS_BIND,
+-                None,
+-            )
+-            .map_err(|err| {
+-                tracing::error!(?err, "failed to remount root `/` as readonly");
+-                InitProcessError::SyscallOther(err)
+-            })?;
++    // Rootfs mount adjustments are part of initial container setup.  Do not
++    // re-apply them for `exec` processes: exec joins the existing mount
++    // namespace, so repeating readonly/masked path setup would stack new mounts
++    // (notably under /proc) on every exec.
++    if matches!(args.container_type, ContainerType::InitContainer) {
++        if ctx.rootfs_ro {
++            ctx.syscall
++                .mount(
++                    None,
++                    Path::new("/"),
++                    None,
++                    MsFlags::MS_RDONLY | MsFlags::MS_REMOUNT | MsFlags::MS_BIND,
++                    None,
++                )
++                .map_err(|err| {
++                    tracing::error!(?err, "failed to remount root `/` as readonly");
++                    InitProcessError::SyscallOther(err)
++                })?;
++        }
++
++        if let Some(paths) = ctx.linux.readonly_paths() {
++            // mount readonly path
++            for path in paths {
++                readonly_path(Path::new(path), ctx.syscall.as_ref()).map_err(|err| {
++                    tracing::error!(?err, ?path, "failed to set readonly path");
++                    err
++                })?;
++            }
++        }
++
++        if let Some(paths) = ctx.linux.masked_paths() {
++            // mount masked paths
++            masked_paths(paths, ctx.linux.mount_label(), ctx.syscall.as_ref()).map_err(|err| {
++                tracing::error!(?err, "failed to set masked paths");
++                err
++            })?;
++        }
+     }
+ 
+     if let Some(umask) = ctx.process.user().umask() {
+@@ -209,24 +233,6 @@
+                 return Err(InitProcessError::InvalidUmask(umask));
+             }
+         }
+-    }
+-
+-    if let Some(paths) = ctx.linux.readonly_paths() {
+-        // mount readonly path
+-        for path in paths {
+-            readonly_path(Path::new(path), ctx.syscall.as_ref()).map_err(|err| {
+-                tracing::error!(?err, ?path, "failed to set readonly path");
+-                err
+-            })?;
+-        }
+-    }
+-
+-    if let Some(paths) = ctx.linux.masked_paths() {
+-        // mount masked paths
+-        masked_paths(paths, ctx.linux.mount_label(), ctx.syscall.as_ref()).map_err(|err| {
+-            tracing::error!(?err, "failed to set masked paths");
+-            err
+-        })?;
+     }
+ 
+     let cwd = format!("{}", ctx.process.cwd().display());
+--- crates/libcontainer/src/process/init/process.rs
++++ crates/libcontainer/src/process/init/process.rs
+@@ -185,19 +185,43 @@
+         })?;
+     }
+ 
+-    if ctx.rootfs_ro {
+-        ctx.syscall
+-            .mount(
+-                None,
+-                Path::new("/"),
+-                None,
+-                MsFlags::MS_RDONLY | MsFlags::MS_REMOUNT | MsFlags::MS_BIND,
+-                None,
+-            )
+-            .map_err(|err| {
+-                tracing::error!(?err, "failed to remount root `/` as readonly");
+-                InitProcessError::SyscallOther(err)
+-            })?;
++    // Rootfs mount adjustments are part of initial container setup.  Do not
++    // re-apply them for `exec` processes: exec joins the existing mount
++    // namespace, so repeating readonly/masked path setup would stack new mounts
++    // (notably under /proc) on every exec.
++    if matches!(args.container_type, ContainerType::InitContainer) {
++        if ctx.rootfs_ro {
++            ctx.syscall
++                .mount(
++                    None,
++                    Path::new("/"),
++                    None,
++                    MsFlags::MS_RDONLY | MsFlags::MS_REMOUNT | MsFlags::MS_BIND,
++                    None,
++                )
++                .map_err(|err| {
++                    tracing::error!(?err, "failed to remount root `/` as readonly");
++                    InitProcessError::SyscallOther(err)
++                })?;
++        }
++
++        if let Some(paths) = ctx.linux.readonly_paths() {
++            // mount readonly path
++            for path in paths {
++                readonly_path(Path::new(path), ctx.syscall.as_ref()).map_err(|err| {
++                    tracing::error!(?err, ?path, "failed to set readonly path");
++                    err
++                })?;
++            }
++        }
++
++        if let Some(paths) = ctx.linux.masked_paths() {
++            // mount masked paths
++            masked_paths(paths, ctx.linux.mount_label(), ctx.syscall.as_ref()).map_err(|err| {
++                tracing::error!(?err, "failed to set masked paths");
++                err
++            })?;
++        }
+     }
+ 
+     if let Some(umask) = ctx.process.user().umask() {
+@@ -209,24 +233,6 @@
+                 return Err(InitProcessError::InvalidUmask(umask));
+             }
+         }
+-    }
+-
+-    if let Some(paths) = ctx.linux.readonly_paths() {
+-        // mount readonly path
+-        for path in paths {
+-            readonly_path(Path::new(path), ctx.syscall.as_ref()).map_err(|err| {
+-                tracing::error!(?err, ?path, "failed to set readonly path");
+-                err
+-            })?;
+-        }
+-    }
+-
+-    if let Some(paths) = ctx.linux.masked_paths() {
+-        // mount masked paths
+-        masked_paths(paths, ctx.linux.mount_label(), ctx.syscall.as_ref()).map_err(|err| {
+-            tracing::error!(?err, "failed to set masked paths");
+-            err
+-        })?;
+     }
+ 
+     let cwd = format!("{}", ctx.process.cwd().display());

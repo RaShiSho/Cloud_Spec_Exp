@@ -1,5 +1,5 @@
-2026-07-25 22:46:27,868 - INFO - ================ repairing crun-1099 ================
-2026-07-25 22:46:27,870 - INFO - prompting with message:
+2026-07-26 13:21:03,943 - INFO - ================ repairing crun-1099 ================
+2026-07-26 13:21:03,945 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case crun-1099.
@@ -21,7 +21,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-1099
@@ -10344,553 +10345,6 @@ out:
 
 
 
-### src/libcrun/cloned_binary.c
-// SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
-/*
- * Copyright (C) 2019 Aleksa Sarai <cyphar@cyphar.com>
- * Copyright (C) 2019 SUSE LLC
- *
- * This work is dual licensed under the following licenses. You may use,
- * redistribute, and/or modify the work under the conditions of either (or
- * both) licenses.
- *
- * === Apache-2.0 ===
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * === LGPL-2.1-or-later ===
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library. If not, see
- * <https://www.gnu.org/licenses/>.
- *
- */
-
-#define _GNU_SOURCE
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <limits.h>
-#include <fcntl.h>
-#include <errno.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/statfs.h>
-#include <sys/vfs.h>
-#include <sys/mman.h>
-#include <sys/mount.h>
-#include <sys/sendfile.h>
-#include <sys/syscall.h>
-
-#include "utils.h"
-
-/* Use our own wrapper for memfd_create. */
-#if !defined(SYS_memfd_create) && defined(__NR_memfd_create)
-#  define SYS_memfd_create __NR_memfd_create
-#endif
-/* memfd_create(2) flags -- copied from <linux/memfd.h>. */
-#ifndef MFD_CLOEXEC
-#  define MFD_CLOEXEC       0x0001U
-#  define MFD_ALLOW_SEALING 0x0002U
-#endif
-int memfd_create(const char *name, unsigned int flags)
-{
-#ifdef SYS_memfd_create
-	return syscall(SYS_memfd_create, name, flags);
-#else
-	errno = ENOSYS;
-	return -1;
-#endif
-}
-
-
-/* This comes directly from <linux/fcntl.h>. */
-#ifndef F_LINUX_SPECIFIC_BASE
-#  define F_LINUX_SPECIFIC_BASE 1024
-#endif
-#ifndef F_ADD_SEALS
-#  define F_ADD_SEALS (F_LINUX_SPECIFIC_BASE + 9)
-#  define F_GET_SEALS (F_LINUX_SPECIFIC_BASE + 10)
-#endif
-#ifndef F_SEAL_SEAL
-#  define F_SEAL_SEAL   0x0001	/* prevent further seals from being set */
-#  define F_SEAL_SHRINK 0x0002	/* prevent file from shrinking */
-#  define F_SEAL_GROW   0x0004	/* prevent file from growing */
-#  define F_SEAL_WRITE  0x0008	/* prevent writes */
-#endif
-
-#define CLONED_BINARY_ENV "_LIBCONTAINER_CLONED_BINARY"
-#define CRUN_MEMFD_COMMENT "crun_cloned:/proc/self/exe"
-#define CRUN_MEMFD_SEALS \
-	(F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE)
-
-/*
- * Verify whether we are currently in a self-cloned program (namely, is
- * /proc/self/exe a memfd). F_GET_SEALS will only succeed for memfds (or rather
- * for shmem files), and we want to be sure it's actually sealed.
- */
-static int is_self_cloned(void)
-{
-	int fd, ret, is_cloned = 0;
-	struct stat statbuf = {};
-	struct statfs fsbuf = {};
-
-	fd = open("/proc/self/exe", O_RDONLY|O_CLOEXEC);
-	if (fd < 0)
-		return -ENOTRECOVERABLE;
-
-	/*
-	 * Is the binary a fully-sealed memfd? We don't need CLONED_BINARY_ENV for
-	 * this, because you cannot write to a sealed memfd no matter what (so
-	 * sharing it isn't a bad thing -- and an admin could bind-mount a sealed
-	 * memfd to /usr/bin/crun to allow re-use).
-	 */
-	ret = fcntl(fd, F_GET_SEALS);
-	if (ret >= 0) {
-		is_cloned = (ret == CRUN_MEMFD_SEALS);
-		goto out;
-	}
-
-	/* Is the binary on a read-only filesystem? We can't detect bind-mounts in
-	 * particular (in-kernel they are identical to regular mounts) but we can
-	 * at least be sure that it's read-only.  This occurs for multiple cases,
-	 * such as truly read-only filesystems like squashfs/erofs as well as
-	 * things like the ostree read-only bind mount.
-	 */
-	if (fstatfs(fd, &fsbuf) >= 0 && (fsbuf.f_flags & MS_RDONLY)) {
-		is_cloned = true;
-		goto out;
-	}
-
-	/*
-	 * All other forms require CLONED_BINARY_ENV, since they are potentially
-	 * writeable (or we can't tell if they're fully safe) and thus we must
-	 * check the environment as an extra layer of defence.
-	 */
-	if (!getenv(CLONED_BINARY_ENV)) {
-		is_cloned = false;
-		goto out;
-	}
-
-	/*
-	 * Okay, we're a tmpfile -- or we're currently running on RHEL <=7.6
-	 * which appears to have a borked backport of F_GET_SEALS. Either way,
-	 * having a file which has no hardlinks indicates that we aren't using
-	 * a host-side "crun" binary and this is something that a container
-	 * cannot fake (because unlinking requires being able to resolve the
-	 * path that you want to unlink).
-	 */
-	if (fstat(fd, &statbuf) >= 0)
-		is_cloned |= (statbuf.st_nlink == 0);
-
-out:
-	close(fd);
-	return is_cloned;
-}
-
-/* Read a given file into a new buffer, and providing the length. */
-static char *read_file(char *path, size_t *length)
-{
-	int fd;
-	char buf[4096], *copy = NULL;
-
-	if (!length)
-		return NULL;
-
-	fd = open(path, O_RDONLY | O_CLOEXEC);
-	if (fd < 0)
-		return NULL;
-
-	*length = 0;
-	for (;;) {
-		ssize_t n;
-
-		n = read(fd, buf, sizeof(buf));
-		if (n < 0)
-			goto error;
-		if (!n)
-			break;
-
-		copy = xrealloc(copy, (*length + n) * sizeof(*copy));
-		memcpy(copy + *length, buf, n);
-		*length += n;
-	}
-	close(fd);
-	return copy;
-
-error:
-	close(fd);
-	free(copy);
-	return NULL;
-}
-
-/*
- * A poor-man's version of "xargs -0". Basically parses a given block of
- * NUL-delimited data, within the given length and adds a pointer to each entry
- * to the array of pointers.
- */
-static int parse_xargs(char *data, int data_length, char ***output)
-{
-	int num = 0;
-	char *cur = data;
-
-	if (!data || *output != NULL)
-		return -1;
-
-	while (cur < data + data_length) {
-		num++;
-		*output = xrealloc(*output, (num + 1) * sizeof(**output));
-		(*output)[num - 1] = cur;
-		cur += strlen(cur) + 1;
-	}
-	(*output)[num] = NULL;
-	return num;
-}
-
-/*
- * "Parse" out argv from /proc/self/cmdline.
- * This is necessary because we are running in a context where we don't have a
- * main() that we can just get the arguments from.
- */
-static int fetchve(char ***argv)
-{
-	char *cmdline = NULL;
-	size_t cmdline_size;
-
-	cmdline = read_file("/proc/self/cmdline", &cmdline_size);
-	if (!cmdline)
-		goto error;
-
-	if (parse_xargs(cmdline, cmdline_size, argv) <= 0)
-		goto error;
-
-	return 0;
-
-error:
-	free(cmdline);
-	return -EINVAL;
-}
-
-enum {
-	EFD_NONE = 0,
-	EFD_MEMFD,
-	EFD_FILE,
-};
-
-/*
- * This comes from <linux/fcntl.h>. We can't hard-code __O_TMPFILE because it
- * changes depending on the architecture. If we don't have O_TMPFILE we always
- * have the mkostemp(3) fallback.
- */
-#ifndef O_TMPFILE
-#  if defined(__O_TMPFILE) && defined(O_DIRECTORY)
-#    define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
-#  endif
-#endif
-
-static int make_execfd(int *fdtype)
-{
-	int fd = -1;
-	char template[PATH_MAX] = {0};
-	char *prefix = getenv("_LIBCONTAINER_STATEDIR");
-
-	if (!prefix || *prefix != '/')
-		prefix = "/tmp";
-	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
-		return -1;
-
-	/*
-	 * Now try memfd, it's much nicer than actually creating a file in STATEDIR
-	 * since it's easily detected thanks to sealing and also doesn't require
-	 * assumptions about STATEDIR.
-	 */
-	*fdtype = EFD_MEMFD;
-	fd = memfd_create(CRUN_MEMFD_COMMENT, MFD_CLOEXEC | MFD_ALLOW_SEALING);
-	if (fd >= 0)
-		return fd;
-	if (errno != ENOSYS && errno != EINVAL)
-		goto error;
-
-#ifdef O_TMPFILE
-	/*
-	 * Try O_TMPFILE to avoid races where someone might snatch our file. Note
-	 * that O_EXCL isn't actually a security measure here (since you can just
-	 * fd re-open it and clear O_EXCL).
-	 */
-	*fdtype = EFD_FILE;
-	fd = open(prefix, O_TMPFILE | O_EXCL | O_RDWR | O_CLOEXEC, 0700);
-	if (fd >= 0) {
-		struct stat statbuf = {};
-		bool working_otmpfile = false;
-
-		/*
-		 * open(2) ignores unknown O_* flags -- yeah, I was surprised when I
-		 * found this out too. As a result we can't check for EINVAL. However,
-		 * if we get nlink != 0 (or EISDIR) then we know that this kernel
-		 * doesn't support O_TMPFILE.
-		 */
-		if (fstat(fd, &statbuf) >= 0)
-			working_otmpfile = (statbuf.st_nlink == 0);
-
-		if (working_otmpfile)
-			return fd;
-
-		/* Pretend that we got EISDIR since O_TMPFILE failed. */
-		close(fd);
-		errno = EISDIR;
-	}
-	if (errno != EISDIR)
-		goto error;
-#endif /* defined(O_TMPFILE) */
-
-	/*
-	 * Our final option is to create a temporary file the old-school way, and
-	 * then unlink it so that nothing else sees it by accident.
-	 */
-	*fdtype = EFD_FILE;
-	fd = mkostemp(template, O_CLOEXEC);
-	if (fd >= 0) {
-		if (unlink(template) >= 0)
-			return fd;
-		close(fd);
-	}
-
-error:
-	*fdtype = EFD_NONE;
-	return -1;
-}
-
-static int seal_execfd(int *fd, int fdtype)
-{
-	switch (fdtype) {
-	case EFD_MEMFD:
-		return fcntl(*fd, F_ADD_SEALS, CRUN_MEMFD_SEALS);
-	case EFD_FILE: {
-		/* Need to re-open our pseudo-memfd as an O_PATH to avoid execve(2) giving -ETXTBSY. */
-		int newfd;
-		char fdpath[PATH_MAX] = {0};
-
-		if (fchmod(*fd, 0100) < 0)
-			return -1;
-
-		if (snprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", *fd) < 0)
-			return -1;
-
-		newfd = open(fdpath, O_PATH | O_CLOEXEC);
-		if (newfd < 0)
-			return -1;
-
-		close(*fd);
-		*fd = newfd;
-		return 0;
-	}
-	default:
-	   break;
-	}
-	return -1;
-}
-
-static int try_bindfd(void)
-{
-	mode_t mask;
-	int fd, ret = -1;
-	char template[PATH_MAX] = {0};
-	char *prefix = getenv("_LIBCONTAINER_STATEDIR");
-
-	if (!prefix || *prefix != '/')
-		prefix = "/tmp";
-	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
-		return ret;
-
-	/*
-	 * We need somewhere to mount it, mounting anything over /proc/self is a
-	 * BAD idea on the host -- even if we do it temporarily.
-	 */
-	mask = umask(0700);
-	fd = mkstemp(template);
-	umask(mask);
-	if (fd < 0)
-		return ret;
-	close(fd);
-
-	/*
-	 * For obvious reasons this won't work in rootless mode because we haven't
-	 * created a userns+mntns -- but getting that to work will be a bit
-	 * complicated and it's only worth doing if someone actually needs it.
-	 */
-	ret = -EPERM;
-	if (mount("/proc/self/exe", template, "", MS_BIND, "") < 0)
-		goto out;
-	if (mount("", template, "", MS_REMOUNT | MS_BIND | MS_RDONLY, "") < 0)
-		goto out_umount;
-
-
-	/* Get read-only handle that we're sure can't be made read-write. */
-	ret = open(template, O_PATH | O_CLOEXEC);
-
-out_umount:
-	/*
-	 * Make sure the MNT_DETACH works, otherwise we could get remounted
-	 * read-write and that would be quite bad (the fd would be made read-write
-	 * too, invalidating the protection).
-	 */
-	if (umount2(template, MNT_DETACH) < 0) {
-		if (ret >= 0)
-			close(ret);
-		ret = -ENOTRECOVERABLE;
-	}
-
-out:
-	/*
-	 * We don't care about unlink errors, the worst that happens is that
-	 * there's an empty file left around in STATEDIR.
-	 */
-	unlink(template);
-	return ret;
-}
-
-static ssize_t fd_to_fd(int outfd, int infd)
-{
-	ssize_t total = 0;
-	char buffer[4096];
-
-	for (;;) {
-		ssize_t nread, nwritten = 0;
-
-		nread = read(infd, buffer, sizeof(buffer));
-		if (nread < 0)
-			return -1;
-		if (!nread)
-			break;
-
-		do {
-			ssize_t n = write(outfd, buffer + nwritten, nread - nwritten);
-			if (n < 0)
-				return -1;
-			nwritten += n;
-		} while(nwritten < nread);
-
-		total += nwritten;
-	}
-
-	return total;
-}
-
-static int clone_binary(void)
-{
-	cleanup_close int binfd = -1;
-	cleanup_close int execfd = -1;
-	struct stat statbuf = {};
-	ssize_t sent = 0;
-	int fdtype = EFD_NONE;
-
-	/*
-	 * Before we resort to copying, let's try creating an ro-binfd in one shot
-	 * by getting a handle for a read-only bind-mount of the execfd.
-	 */
-	execfd = try_bindfd();
-	if (execfd >= 0) {
-		/* Transfer ownership to caller */
-		int ret_execfd = execfd;
-		execfd = -1;
-		return ret_execfd;
-	}
-
-	/*
-	 * Dammit, that didn't work -- time to copy the binary to a safe place we
-	 * can seal the contents.
-	 */
-	execfd = make_execfd(&fdtype);
-	if (execfd < 0 || fdtype == EFD_NONE)
-		return -ENOTRECOVERABLE;
-
-	binfd = open("/proc/self/exe", O_RDONLY | O_CLOEXEC);
-	if (binfd < 0)
-		goto error;
-
-	if (fstat(binfd, &statbuf) < 0)
-		goto error;
-
-	while (sent < statbuf.st_size) {
-		int n = sendfile(execfd, binfd, NULL, statbuf.st_size - sent);
-		if (n < 0) {
-			/* sendfile can fail so we fallback to a dumb user-space copy. */
-			n = fd_to_fd(execfd, binfd);
-			if (n < 0)
-				goto error;
-		}
-		sent += n;
-	}
-	close(binfd);
-	if (sent != statbuf.st_size)
-		goto error;
-
-	if (seal_execfd(&execfd, fdtype) < 0)
-		goto error;
-
-	{
-		/* Transfer ownership to caller */
-		int ret_execfd = execfd;
-		execfd = -1;
-		return ret_execfd;
-	}
-error:
-	return -EIO;
-}
-
-/* Get cheap access to the environment. */
-extern char **environ;
-
-int ensure_cloned_binary(void)
-{
-	cleanup_close int execfd = -1;
-	char **argv = NULL;
-
-	/* Check that we're not self-cloned, and if we are then bail. */
-	int cloned = is_self_cloned();
-	if (cloned > 0 || cloned == -ENOTRECOVERABLE)
-		return cloned;
-
-	if (fetchve(&argv) < 0)
-		return -EINVAL;
-
-	execfd = clone_binary();
-	if (execfd < 0)
-		return -EIO;
-
-	if (putenv(CLONED_BINARY_ENV "=1"))
-		goto error;
-
-	fexecve(execfd, argv, environ);
-error:
-	return -ENOEXEC;
-}
-
-
-
 ### src/libcrun/utils.c
 /*
  * crun - OCI runtime written in C
@@ -13278,6 +12732,553 @@ get_overflow_gid (void)
     }
   return gid;
 }
+
+
+
+### src/libcrun/cloned_binary.c
+// SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
+/*
+ * Copyright (C) 2019 Aleksa Sarai <cyphar@cyphar.com>
+ * Copyright (C) 2019 SUSE LLC
+ *
+ * This work is dual licensed under the following licenses. You may use,
+ * redistribute, and/or modify the work under the conditions of either (or
+ * both) licenses.
+ *
+ * === Apache-2.0 ===
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * === LGPL-2.1-or-later ===
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library. If not, see
+ * <https://www.gnu.org/licenses/>.
+ *
+ */
+
+#define _GNU_SOURCE
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <limits.h>
+#include <fcntl.h>
+#include <errno.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/statfs.h>
+#include <sys/vfs.h>
+#include <sys/mman.h>
+#include <sys/mount.h>
+#include <sys/sendfile.h>
+#include <sys/syscall.h>
+
+#include "utils.h"
+
+/* Use our own wrapper for memfd_create. */
+#if !defined(SYS_memfd_create) && defined(__NR_memfd_create)
+#  define SYS_memfd_create __NR_memfd_create
+#endif
+/* memfd_create(2) flags -- copied from <linux/memfd.h>. */
+#ifndef MFD_CLOEXEC
+#  define MFD_CLOEXEC       0x0001U
+#  define MFD_ALLOW_SEALING 0x0002U
+#endif
+int memfd_create(const char *name, unsigned int flags)
+{
+#ifdef SYS_memfd_create
+	return syscall(SYS_memfd_create, name, flags);
+#else
+	errno = ENOSYS;
+	return -1;
+#endif
+}
+
+
+/* This comes directly from <linux/fcntl.h>. */
+#ifndef F_LINUX_SPECIFIC_BASE
+#  define F_LINUX_SPECIFIC_BASE 1024
+#endif
+#ifndef F_ADD_SEALS
+#  define F_ADD_SEALS (F_LINUX_SPECIFIC_BASE + 9)
+#  define F_GET_SEALS (F_LINUX_SPECIFIC_BASE + 10)
+#endif
+#ifndef F_SEAL_SEAL
+#  define F_SEAL_SEAL   0x0001	/* prevent further seals from being set */
+#  define F_SEAL_SHRINK 0x0002	/* prevent file from shrinking */
+#  define F_SEAL_GROW   0x0004	/* prevent file from growing */
+#  define F_SEAL_WRITE  0x0008	/* prevent writes */
+#endif
+
+#define CLONED_BINARY_ENV "_LIBCONTAINER_CLONED_BINARY"
+#define CRUN_MEMFD_COMMENT "crun_cloned:/proc/self/exe"
+#define CRUN_MEMFD_SEALS \
+	(F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE)
+
+/*
+ * Verify whether we are currently in a self-cloned program (namely, is
+ * /proc/self/exe a memfd). F_GET_SEALS will only succeed for memfds (or rather
+ * for shmem files), and we want to be sure it's actually sealed.
+ */
+static int is_self_cloned(void)
+{
+	int fd, ret, is_cloned = 0;
+	struct stat statbuf = {};
+	struct statfs fsbuf = {};
+
+	fd = open("/proc/self/exe", O_RDONLY|O_CLOEXEC);
+	if (fd < 0)
+		return -ENOTRECOVERABLE;
+
+	/*
+	 * Is the binary a fully-sealed memfd? We don't need CLONED_BINARY_ENV for
+	 * this, because you cannot write to a sealed memfd no matter what (so
+	 * sharing it isn't a bad thing -- and an admin could bind-mount a sealed
+	 * memfd to /usr/bin/crun to allow re-use).
+	 */
+	ret = fcntl(fd, F_GET_SEALS);
+	if (ret >= 0) {
+		is_cloned = (ret == CRUN_MEMFD_SEALS);
+		goto out;
+	}
+
+	/* Is the binary on a read-only filesystem? We can't detect bind-mounts in
+	 * particular (in-kernel they are identical to regular mounts) but we can
+	 * at least be sure that it's read-only.  This occurs for multiple cases,
+	 * such as truly read-only filesystems like squashfs/erofs as well as
+	 * things like the ostree read-only bind mount.
+	 */
+	if (fstatfs(fd, &fsbuf) >= 0 && (fsbuf.f_flags & MS_RDONLY)) {
+		is_cloned = true;
+		goto out;
+	}
+
+	/*
+	 * All other forms require CLONED_BINARY_ENV, since they are potentially
+	 * writeable (or we can't tell if they're fully safe) and thus we must
+	 * check the environment as an extra layer of defence.
+	 */
+	if (!getenv(CLONED_BINARY_ENV)) {
+		is_cloned = false;
+		goto out;
+	}
+
+	/*
+	 * Okay, we're a tmpfile -- or we're currently running on RHEL <=7.6
+	 * which appears to have a borked backport of F_GET_SEALS. Either way,
+	 * having a file which has no hardlinks indicates that we aren't using
+	 * a host-side "crun" binary and this is something that a container
+	 * cannot fake (because unlinking requires being able to resolve the
+	 * path that you want to unlink).
+	 */
+	if (fstat(fd, &statbuf) >= 0)
+		is_cloned |= (statbuf.st_nlink == 0);
+
+out:
+	close(fd);
+	return is_cloned;
+}
+
+/* Read a given file into a new buffer, and providing the length. */
+static char *read_file(char *path, size_t *length)
+{
+	int fd;
+	char buf[4096], *copy = NULL;
+
+	if (!length)
+		return NULL;
+
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return NULL;
+
+	*length = 0;
+	for (;;) {
+		ssize_t n;
+
+		n = read(fd, buf, sizeof(buf));
+		if (n < 0)
+			goto error;
+		if (!n)
+			break;
+
+		copy = xrealloc(copy, (*length + n) * sizeof(*copy));
+		memcpy(copy + *length, buf, n);
+		*length += n;
+	}
+	close(fd);
+	return copy;
+
+error:
+	close(fd);
+	free(copy);
+	return NULL;
+}
+
+/*
+ * A poor-man's version of "xargs -0". Basically parses a given block of
+ * NUL-delimited data, within the given length and adds a pointer to each entry
+ * to the array of pointers.
+ */
+static int parse_xargs(char *data, int data_length, char ***output)
+{
+	int num = 0;
+	char *cur = data;
+
+	if (!data || *output != NULL)
+		return -1;
+
+	while (cur < data + data_length) {
+		num++;
+		*output = xrealloc(*output, (num + 1) * sizeof(**output));
+		(*output)[num - 1] = cur;
+		cur += strlen(cur) + 1;
+	}
+	(*output)[num] = NULL;
+	return num;
+}
+
+/*
+ * "Parse" out argv from /proc/self/cmdline.
+ * This is necessary because we are running in a context where we don't have a
+ * main() that we can just get the arguments from.
+ */
+static int fetchve(char ***argv)
+{
+	char *cmdline = NULL;
+	size_t cmdline_size;
+
+	cmdline = read_file("/proc/self/cmdline", &cmdline_size);
+	if (!cmdline)
+		goto error;
+
+	if (parse_xargs(cmdline, cmdline_size, argv) <= 0)
+		goto error;
+
+	return 0;
+
+error:
+	free(cmdline);
+	return -EINVAL;
+}
+
+enum {
+	EFD_NONE = 0,
+	EFD_MEMFD,
+	EFD_FILE,
+};
+
+/*
+ * This comes from <linux/fcntl.h>. We can't hard-code __O_TMPFILE because it
+ * changes depending on the architecture. If we don't have O_TMPFILE we always
+ * have the mkostemp(3) fallback.
+ */
+#ifndef O_TMPFILE
+#  if defined(__O_TMPFILE) && defined(O_DIRECTORY)
+#    define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
+#  endif
+#endif
+
+static int make_execfd(int *fdtype)
+{
+	int fd = -1;
+	char template[PATH_MAX] = {0};
+	char *prefix = getenv("_LIBCONTAINER_STATEDIR");
+
+	if (!prefix || *prefix != '/')
+		prefix = "/tmp";
+	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
+		return -1;
+
+	/*
+	 * Now try memfd, it's much nicer than actually creating a file in STATEDIR
+	 * since it's easily detected thanks to sealing and also doesn't require
+	 * assumptions about STATEDIR.
+	 */
+	*fdtype = EFD_MEMFD;
+	fd = memfd_create(CRUN_MEMFD_COMMENT, MFD_CLOEXEC | MFD_ALLOW_SEALING);
+	if (fd >= 0)
+		return fd;
+	if (errno != ENOSYS && errno != EINVAL)
+		goto error;
+
+#ifdef O_TMPFILE
+	/*
+	 * Try O_TMPFILE to avoid races where someone might snatch our file. Note
+	 * that O_EXCL isn't actually a security measure here (since you can just
+	 * fd re-open it and clear O_EXCL).
+	 */
+	*fdtype = EFD_FILE;
+	fd = open(prefix, O_TMPFILE | O_EXCL | O_RDWR | O_CLOEXEC, 0700);
+	if (fd >= 0) {
+		struct stat statbuf = {};
+		bool working_otmpfile = false;
+
+		/*
+		 * open(2) ignores unknown O_* flags -- yeah, I was surprised when I
+		 * found this out too. As a result we can't check for EINVAL. However,
+		 * if we get nlink != 0 (or EISDIR) then we know that this kernel
+		 * doesn't support O_TMPFILE.
+		 */
+		if (fstat(fd, &statbuf) >= 0)
+			working_otmpfile = (statbuf.st_nlink == 0);
+
+		if (working_otmpfile)
+			return fd;
+
+		/* Pretend that we got EISDIR since O_TMPFILE failed. */
+		close(fd);
+		errno = EISDIR;
+	}
+	if (errno != EISDIR)
+		goto error;
+#endif /* defined(O_TMPFILE) */
+
+	/*
+	 * Our final option is to create a temporary file the old-school way, and
+	 * then unlink it so that nothing else sees it by accident.
+	 */
+	*fdtype = EFD_FILE;
+	fd = mkostemp(template, O_CLOEXEC);
+	if (fd >= 0) {
+		if (unlink(template) >= 0)
+			return fd;
+		close(fd);
+	}
+
+error:
+	*fdtype = EFD_NONE;
+	return -1;
+}
+
+static int seal_execfd(int *fd, int fdtype)
+{
+	switch (fdtype) {
+	case EFD_MEMFD:
+		return fcntl(*fd, F_ADD_SEALS, CRUN_MEMFD_SEALS);
+	case EFD_FILE: {
+		/* Need to re-open our pseudo-memfd as an O_PATH to avoid execve(2) giving -ETXTBSY. */
+		int newfd;
+		char fdpath[PATH_MAX] = {0};
+
+		if (fchmod(*fd, 0100) < 0)
+			return -1;
+
+		if (snprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", *fd) < 0)
+			return -1;
+
+		newfd = open(fdpath, O_PATH | O_CLOEXEC);
+		if (newfd < 0)
+			return -1;
+
+		close(*fd);
+		*fd = newfd;
+		return 0;
+	}
+	default:
+	   break;
+	}
+	return -1;
+}
+
+static int try_bindfd(void)
+{
+	mode_t mask;
+	int fd, ret = -1;
+	char template[PATH_MAX] = {0};
+	char *prefix = getenv("_LIBCONTAINER_STATEDIR");
+
+	if (!prefix || *prefix != '/')
+		prefix = "/tmp";
+	if (snprintf(template, sizeof(template), "%s/crun.XXXXXX", prefix) < 0)
+		return ret;
+
+	/*
+	 * We need somewhere to mount it, mounting anything over /proc/self is a
+	 * BAD idea on the host -- even if we do it temporarily.
+	 */
+	mask = umask(0700);
+	fd = mkstemp(template);
+	umask(mask);
+	if (fd < 0)
+		return ret;
+	close(fd);
+
+	/*
+	 * For obvious reasons this won't work in rootless mode because we haven't
+	 * created a userns+mntns -- but getting that to work will be a bit
+	 * complicated and it's only worth doing if someone actually needs it.
+	 */
+	ret = -EPERM;
+	if (mount("/proc/self/exe", template, "", MS_BIND, "") < 0)
+		goto out;
+	if (mount("", template, "", MS_REMOUNT | MS_BIND | MS_RDONLY, "") < 0)
+		goto out_umount;
+
+
+	/* Get read-only handle that we're sure can't be made read-write. */
+	ret = open(template, O_PATH | O_CLOEXEC);
+
+out_umount:
+	/*
+	 * Make sure the MNT_DETACH works, otherwise we could get remounted
+	 * read-write and that would be quite bad (the fd would be made read-write
+	 * too, invalidating the protection).
+	 */
+	if (umount2(template, MNT_DETACH) < 0) {
+		if (ret >= 0)
+			close(ret);
+		ret = -ENOTRECOVERABLE;
+	}
+
+out:
+	/*
+	 * We don't care about unlink errors, the worst that happens is that
+	 * there's an empty file left around in STATEDIR.
+	 */
+	unlink(template);
+	return ret;
+}
+
+static ssize_t fd_to_fd(int outfd, int infd)
+{
+	ssize_t total = 0;
+	char buffer[4096];
+
+	for (;;) {
+		ssize_t nread, nwritten = 0;
+
+		nread = read(infd, buffer, sizeof(buffer));
+		if (nread < 0)
+			return -1;
+		if (!nread)
+			break;
+
+		do {
+			ssize_t n = write(outfd, buffer + nwritten, nread - nwritten);
+			if (n < 0)
+				return -1;
+			nwritten += n;
+		} while(nwritten < nread);
+
+		total += nwritten;
+	}
+
+	return total;
+}
+
+static int clone_binary(void)
+{
+	cleanup_close int binfd = -1;
+	cleanup_close int execfd = -1;
+	struct stat statbuf = {};
+	ssize_t sent = 0;
+	int fdtype = EFD_NONE;
+
+	/*
+	 * Before we resort to copying, let's try creating an ro-binfd in one shot
+	 * by getting a handle for a read-only bind-mount of the execfd.
+	 */
+	execfd = try_bindfd();
+	if (execfd >= 0) {
+		/* Transfer ownership to caller */
+		int ret_execfd = execfd;
+		execfd = -1;
+		return ret_execfd;
+	}
+
+	/*
+	 * Dammit, that didn't work -- time to copy the binary to a safe place we
+	 * can seal the contents.
+	 */
+	execfd = make_execfd(&fdtype);
+	if (execfd < 0 || fdtype == EFD_NONE)
+		return -ENOTRECOVERABLE;
+
+	binfd = open("/proc/self/exe", O_RDONLY | O_CLOEXEC);
+	if (binfd < 0)
+		goto error;
+
+	if (fstat(binfd, &statbuf) < 0)
+		goto error;
+
+	while (sent < statbuf.st_size) {
+		int n = sendfile(execfd, binfd, NULL, statbuf.st_size - sent);
+		if (n < 0) {
+			/* sendfile can fail so we fallback to a dumb user-space copy. */
+			n = fd_to_fd(execfd, binfd);
+			if (n < 0)
+				goto error;
+		}
+		sent += n;
+	}
+	close(binfd);
+	if (sent != statbuf.st_size)
+		goto error;
+
+	if (seal_execfd(&execfd, fdtype) < 0)
+		goto error;
+
+	{
+		/* Transfer ownership to caller */
+		int ret_execfd = execfd;
+		execfd = -1;
+		return ret_execfd;
+	}
+error:
+	return -EIO;
+}
+
+/* Get cheap access to the environment. */
+extern char **environ;
+
+int ensure_cloned_binary(void)
+{
+	cleanup_close int execfd = -1;
+	char **argv = NULL;
+
+	/* Check that we're not self-cloned, and if we are then bail. */
+	int cloned = is_self_cloned();
+	if (cloned > 0 || cloned == -ENOTRECOVERABLE)
+		return cloned;
+
+	if (fetchve(&argv) < 0)
+		return -EINVAL;
+
+	execfd = clone_binary();
+	if (execfd < 0)
+		return -EIO;
+
+	if (putenv(CLONED_BINARY_ENV "=1"))
+		goto error;
+
+	fexecve(execfd, argv, environ);
+error:
+	return -ENOEXEC;
+}
 ```
 --- END FILE ---
 
@@ -13305,185 +13306,125 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-07-25 22:46:27,872 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:46:27,882 - INFO - Creating API request
-2026-07-25 22:48:01,227 - INFO - API response ChatCompletion(id='resp_09abbb1a04cac0d6016a64cc4706f8819094cf0529a5b34c89', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='I\'ll inspect the repository state first as required.```bash\ncd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099 && git rev-parse HEAD && git status --short\n```The bug is localized in `src/libcrun/linux.c` around OCI `linux.devices` handling for user namespaces:\n\n- `libcrun_set_mounts()` calls `create_missing_devs(container, is_user_ns ? true : false, ...)`.\n- When `binds == true`, `libcrun_create_dev()` bind-mounts the host device path directly into the container.\n- This preserves the host device node’s metadata instead of the OCI-configured `fileMode`, `uid`, and `gid`, causing the `/dev/net/tun` stat checks in crun-1099 to differ from the reference runtime.\n- There is already an intended device-FD send/receive mechanism (`dev_fds`), but `prepare_and_send_dev_mounts()` is effectively a stub and `create_missing_devs()` does not consume received device FDs.\n\nThe fix is to pre-create configured device nodes on the host side before entering the user namespace, send those FDs to the container init process, and bind-mount those pre-created nodes instead of bind-mounting the live host device path.\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n=======\nstatic int\nlibcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n=======\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n      char source_buffer[64];\n      const char *source = fullname;\n\n      if (sourcefd >= 0)\n        {\n          sprintf (source_buffer, "/proc/self/fd/%d", sourcefd);\n          source = source_buffer;\n        }\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\n      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n=======\n      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\n  return 0;\n}\n\nstruct symlink_s\n=======\n  return 0;\n}\n\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n{\n  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);\n}\n\nstruct symlink_s\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,\n                                        dev_fds ? dev_fds->fds[i] : -1, err);\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n=======\nstatic int\nprecreate_device_on_host (struct device_s *device, libcrun_error_t *err)\n{\n  cleanup_close int fd = -1;\n  cleanup_free char *path = NULL;\n  mode_t type = (device->type[0] == \'b\') ? S_IFBLK : ((device->type[0] == \'p\') ? S_IFIFO : S_IFCHR);\n  dev_t dev = makedev (device->major, device->minor);\n  int ret;\n\n  xasprintf (&path, "/tmp/crun-device-XXXXXX");\n\n  fd = mkstemp (path);\n  if (UNLIKELY (fd < 0))\n    return crun_make_error (err, errno, "create temporary device `%s`", device->path);\n\n  close_and_reset (&fd);\n\n  ret = unlink (path);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, "unlink temporary device `%s`", device->path);\n\n  ret = mknod (path, device->mode | type, dev);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, "mknod `%s`", device->path);\n\n  ret = chmod (path, device->mode);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, "chmod `%s`", device->path);\n    }\n\n  ret = chown (path, device->uid, device->gid);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, "chown `%s`", device->path);\n    }\n\n  fd = open (path, O_PATH | O_CLOEXEC);\n  if (UNLIKELY (fd < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, "open `%s`", device->path);\n    }\n\n  unlink (path);\n\n  return get_and_reset (&fd);\n}\n\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c\n<<<<<<< SEARCH\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n=======\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      dev_fds->fds[i] = -1;\n\n      if (has_userns)\n        {\n          struct device_s device = {\n            def->linux->devices[i]->path,\n            def->linux->devices[i]->type,\n            def->linux->devices[i]->major,\n            def->linux->devices[i]->minor,\n            def->linux->devices[i]->file_mode,\n            def->linux->devices[i]->uid,\n            def->linux->devices[i]->gid,\n          };\n\n          if (! def->linux->devices[i]->file_mode_present)\n            device.mode = 0666;\n\n          dev_fds->fds[i] = precreate_device_on_host (&device, err);\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1784990881, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=4786, prompt_tokens=112850, total_tokens=117636, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=2566, rejected_prediction_tokens=None), prompt_tokens_details=None))
-2026-07-25 22:48:01,228 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:48:01,228 - INFO - raw output:
-I'll inspect the repository state first as required.```bash
+2026-07-26 13:21:03,948 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:21:03,964 - INFO - Creating API request
+2026-07-26 13:22:22,817 - INFO - API response ChatCompletion(id='resp_0ccc4c5cd114b170016a659944500481908e9776bd8acd3117', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099 && git rev-parse HEAD && git status --short\nLocalized likely bug: `src/libcrun/linux.c` has infrastructure to pass device mount FDs into the container (`dev_fds`, `prepare_and_send_dev_mounts`, `receive_mounts(get_devices_fd_map(...))`), but the device-FD preparation function is effectively a no-op and the received FDs are never used when creating configured devices. In a user namespace, crun falls back to bind-mounting the host device path directly, so OCI `linux.devices[*].fileMode/uid/gid` are not reflected inside the container.\n\nApply these SEARCH/REPLACE edits:\n\n```python\n### src/libcrun/linux.c\n<<<<<<< SEARCH\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\nstatic int\nmount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                      int *devicefd, libcrun_error_t *err)\n{\n  const char *rootfs = get_private_data (container)->rootfs;\n  size_t rootfs_len = get_private_data (container)->rootfs_len;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  const char *rel_dev = relative_path_under_dev (device->path);\n  cleanup_close int fd = -1;\n  int ret;\n\n  if (*devicefd < 0)\n    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);\n\n  if (rel_dev)\n    {\n      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);\n      if (UNLIKELY (fd < 0))\n        {\n          if (errno == ENOENT)\n            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);\n\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "create device `%s`", device->path);\n        }\n    }\n  else\n    {\n      const char *rel_path = consume_slashes (device->path);\n\n      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);\n      if (UNLIKELY (fd < 0))\n        return fd;\n    }\n\n  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, "move device `%s`", device->path);\n\n  return 0;\n}\n\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;\n>>>>>>> REPLACE\n```\n\n```python\n### src/libcrun/linux.c\n<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n\n      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)\n        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);\n      else\n        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n>>>>>>> REPLACE\n```\n\n```python\n### src/libcrun/linux.c\n<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n\n  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n}\n=======\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  cleanup_free char *tmpdir = NULL;\n  cleanup_close int tmpfd = -1;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    dev_fds->fds[i] = -1;\n\n  if (! has_userns)\n    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");\n  if (UNLIKELY (mkdtemp (tmpdir) == NULL))\n    return crun_make_error (err, errno, "mkdtemp for devices");\n\n  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);\n  if (UNLIKELY (tmpfd < 0))\n    return crun_make_error (err, errno, "open `%s`", tmpdir);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];\n      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;\n      mode_t type = (dev->type[0] == \'b\') ? S_IFBLK : ((dev->type[0] == \'p\') ? S_IFIFO : S_IFCHR);\n      char name[32];\n\n      sprintf (name, "%zu", i);\n\n      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, "mknod `%s`", dev->path);\n\n      ret = fchmodat (tmpfd, name, mode, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, "chmod `%s`", dev->path);\n\n      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, "chown `%s`", dev->path);\n\n      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);\n      if (UNLIKELY (dev_fds->fds[i] < 0))\n        return dev_fds->fds[i];\n\n      ret = unlinkat (tmpfd, name, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, "unlink `%s`", name);\n\n      how_many++;\n    }\n\n  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  if (tmpdir)\n    (void) rmdir (tmpdir);\n\n  return ret;\n}\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1785043342, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=3989, prompt_tokens=112868, total_tokens=116857, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1878, rejected_prediction_tokens=None), prompt_tokens_details=None))
+2026-07-26 13:22:22,817 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:22:22,818 - INFO - raw output:
 cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099 && git rev-parse HEAD && git status --short
-```The bug is localized in `src/libcrun/linux.c` around OCI `linux.devices` handling for user namespaces:
+Localized likely bug: `src/libcrun/linux.c` has infrastructure to pass device mount FDs into the container (`dev_fds`, `prepare_and_send_dev_mounts`, `receive_mounts(get_devices_fd_map(...))`), but the device-FD preparation function is effectively a no-op and the received FDs are never used when creating configured devices. In a user namespace, crun falls back to bind-mounting the host device path directly, so OCI `linux.devices[*].fileMode/uid/gid` are not reflected inside the container.
 
-- `libcrun_set_mounts()` calls `create_missing_devs(container, is_user_ns ? true : false, ...)`.
-- When `binds == true`, `libcrun_create_dev()` bind-mounts the host device path directly into the container.
-- This preserves the host device node’s metadata instead of the OCI-configured `fileMode`, `uid`, and `gid`, causing the `/dev/net/tun` stat checks in crun-1099 to differ from the reference runtime.
-- There is already an intended device-FD send/receive mechanism (`dev_fds`), but `prepare_and_send_dev_mounts()` is effectively a stub and `create_missing_devs()` does not consume received device FDs.
-
-The fix is to pre-create configured device nodes on the host side before entering the user namespace, send those FDs to the container init process, and bind-mount those pre-created nodes instead of bind-mounting the live host device path.
+Apply these SEARCH/REPLACE edits:
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
+### src/libcrun/linux.c
 <<<<<<< SEARCH
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
 =======
 static int
-libcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
-                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)
->>>>>>> REPLACE
-```
-
-```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
-<<<<<<< SEARCH
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-=======
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-      char source_buffer[64];
-      const char *source = fullname;
-
-      if (sourcefd >= 0)
-        {
-          sprintf (source_buffer, "/proc/self/fd/%d", sourcefd);
-          source = source_buffer;
-        }
->>>>>>> REPLACE
-```
-
-```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
-<<<<<<< SEARCH
-      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
-=======
-      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
->>>>>>> REPLACE
-```
-
-```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
-<<<<<<< SEARCH
-  return 0;
-}
-
-struct symlink_s
-=======
-  return 0;
-}
-
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
+                      int *devicefd, libcrun_error_t *err)
 {
-  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);
+  const char *rootfs = get_private_data (container)->rootfs;
+  size_t rootfs_len = get_private_data (container)->rootfs_len;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  const char *rel_dev = relative_path_under_dev (device->path);
+  cleanup_close int fd = -1;
+  int ret;
+
+  if (*devicefd < 0)
+    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
+
+  if (rel_dev)
+    {
+      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
+      if (UNLIKELY (fd < 0))
+        {
+          if (errno == ENOENT)
+            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
+
+          if (UNLIKELY (fd < 0))
+            return crun_make_error (err, errno, "create device `%s`", device->path);
+        }
+    }
+  else
+    {
+      const char *rel_path = consume_slashes (device->path);
+
+      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
+      if (UNLIKELY (fd < 0))
+        return fd;
+    }
+
+  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "move device `%s`", device->path);
+
+  return 0;
 }
 
-struct symlink_s
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
 >>>>>>> REPLACE
 ```
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
-<<<<<<< SEARCH
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-=======
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;
->>>>>>> REPLACE
-```
-
-```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
+### src/libcrun/linux.c
 <<<<<<< SEARCH
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
       ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 =======
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
-      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,
-                                        dev_fds ? dev_fds->fds[i] : -1, err);
+
+      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
+        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
+      else
+        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 >>>>>>> REPLACE
 ```
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
+### src/libcrun/linux.c
 <<<<<<< SEARCH
 static int
 prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
 {
-=======
-static int
-precreate_device_on_host (struct device_s *device, libcrun_error_t *err)
-{
-  cleanup_close int fd = -1;
-  cleanup_free char *path = NULL;
-  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);
-  dev_t dev = makedev (device->major, device->minor);
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  size_t how_many = 0;
+  size_t i;
   int ret;
 
-  xasprintf (&path, "/tmp/crun-device-XXXXXX");
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
 
-  fd = mkstemp (path);
-  if (UNLIKELY (fd < 0))
-    return crun_make_error (err, errno, "create temporary device `%s`", device->path);
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
 
-  close_and_reset (&fd);
-
-  ret = unlink (path);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "unlink temporary device `%s`", device->path);
-
-  ret = mknod (path, device->mode | type, dev);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "mknod `%s`", device->path);
-
-  ret = chmod (path, device->mode);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chmod `%s`", device->path);
-    }
-
-  ret = chown (path, device->uid, device->gid);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chown `%s`", device->path);
-    }
-
-  fd = open (path, O_PATH | O_CLOEXEC);
-  if (UNLIKELY (fd < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "open `%s`", device->path);
-    }
-
-  unlink (path);
-
-  return get_and_reset (&fd);
-}
-
-static int
-prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
-{
->>>>>>> REPLACE
-```
-
-```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c
-<<<<<<< SEARCH
   for (i = 0; i < def->linux->devices_len; i++)
     {
       if (has_userns)
@@ -13496,198 +13437,195 @@ prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_hos
       if (dev_fds->fds[i] >= 0)
         how_many++;
     }
+
+  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+}
 =======
+static int
+prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
+{
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  cleanup_free char *tmpdir = NULL;
+  cleanup_close int tmpfd = -1;
+  size_t how_many = 0;
+  size_t i;
+  int ret;
+
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
+
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+
+  for (i = 0; i < def->linux->devices_len; i++)
+    dev_fds->fds[i] = -1;
+
+  if (! has_userns)
+    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
+  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
+    return crun_make_error (err, errno, "mkdtemp for devices");
+
+  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
+  if (UNLIKELY (tmpfd < 0))
+    return crun_make_error (err, errno, "open `%s`", tmpdir);
+
   for (i = 0; i < def->linux->devices_len; i++)
     {
-      dev_fds->fds[i] = -1;
+      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
+      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
+      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
+      char name[32];
 
-      if (has_userns)
-        {
-          struct device_s device = {
-            def->linux->devices[i]->path,
-            def->linux->devices[i]->type,
-            def->linux->devices[i]->major,
-            def->linux->devices[i]->minor,
-            def->linux->devices[i]->file_mode,
-            def->linux->devices[i]->uid,
-            def->linux->devices[i]->gid,
-          };
+      sprintf (name, "%zu", i);
 
-          if (! def->linux->devices[i]->file_mode_present)
-            device.mode = 0666;
+      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "mknod `%s`", dev->path);
 
-          dev_fds->fds[i] = precreate_device_on_host (&device, err);
-          if (UNLIKELY (dev_fds->fds[i] < 0))
-            crun_error_release (err);
-        }
+      ret = fchmodat (tmpfd, name, mode, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chmod `%s`", dev->path);
 
-      if (dev_fds->fds[i] >= 0)
-        how_many++;
+      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chown `%s`", dev->path);
+
+      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
+      if (UNLIKELY (dev_fds->fds[i] < 0))
+        return dev_fds->fds[i];
+
+      ret = unlinkat (tmpfd, name, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "unlink `%s`", name);
+
+      how_many++;
     }
+
+  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  if (tmpdir)
+    (void) rmdir (tmpdir);
+
+  return ret;
+}
 >>>>>>> REPLACE
 ```
-2026-07-25 22:48:01,228 - INFO - === file_to_commands: ===
-2026-07-25 22:48:01,228 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c'": [
-    "<<<<<<< SEARCH\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n=======\nstatic int\nlibcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n=======\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n      char source_buffer[64];\n      const char *source = fullname;\n\n      if (sourcefd >= 0)\n        {\n          sprintf (source_buffer, \"/proc/self/fd/%d\", sourcefd);\n          source = source_buffer;\n        }\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n=======\n      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  return 0;\n}\n\nstruct symlink_s\n=======\n  return 0;\n}\n\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n{\n  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);\n}\n\nstruct symlink_s\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,\n                                        dev_fds ? dev_fds->fds[i] : -1, err);\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n=======\nstatic int\nprecreate_device_on_host (struct device_s *device, libcrun_error_t *err)\n{\n  cleanup_close int fd = -1;\n  cleanup_free char *path = NULL;\n  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);\n  dev_t dev = makedev (device->major, device->minor);\n  int ret;\n\n  xasprintf (&path, \"/tmp/crun-device-XXXXXX\");\n\n  fd = mkstemp (path);\n  if (UNLIKELY (fd < 0))\n    return crun_make_error (err, errno, \"create temporary device `%s`\", device->path);\n\n  close_and_reset (&fd);\n\n  ret = unlink (path);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"unlink temporary device `%s`\", device->path);\n\n  ret = mknod (path, device->mode | type, dev);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"mknod `%s`\", device->path);\n\n  ret = chmod (path, device->mode);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"chmod `%s`\", device->path);\n    }\n\n  ret = chown (path, device->uid, device->gid);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"chown `%s`\", device->path);\n    }\n\n  fd = open (path, O_PATH | O_CLOEXEC);\n  if (UNLIKELY (fd < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"open `%s`\", device->path);\n    }\n\n  unlink (path);\n\n  return get_and_reset (&fd);\n}\n\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n=======\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      dev_fds->fds[i] = -1;\n\n      if (has_userns)\n        {\n          struct device_s device = {\n            def->linux->devices[i]->path,\n            def->linux->devices[i]->type,\n            def->linux->devices[i]->major,\n            def->linux->devices[i]->minor,\n            def->linux->devices[i]->file_mode,\n            def->linux->devices[i]->uid,\n            def->linux->devices[i]->gid,\n          };\n\n          if (! def->linux->devices[i]->file_mode_present)\n            device.mode = 0666;\n\n          dev_fds->fds[i] = precreate_device_on_host (&device, err);\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n>>>>>>> REPLACE"
+2026-07-26 13:22:22,818 - INFO - === file_to_commands: ===
+2026-07-26 13:22:22,818 - INFO - {
+  "'src/libcrun/linux.c'": [
+    "<<<<<<< SEARCH\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\nstatic int\nmount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                      int *devicefd, libcrun_error_t *err)\n{\n  const char *rootfs = get_private_data (container)->rootfs;\n  size_t rootfs_len = get_private_data (container)->rootfs_len;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  const char *rel_dev = relative_path_under_dev (device->path);\n  cleanup_close int fd = -1;\n  int ret;\n\n  if (*devicefd < 0)\n    return crun_make_error (err, 0, \"invalid device fd for `%s`\", device->path);\n\n  if (rel_dev)\n    {\n      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);\n      if (UNLIKELY (fd < 0))\n        {\n          if (errno == ENOENT)\n            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);\n\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"create device `%s`\", device->path);\n        }\n    }\n  else\n    {\n      const char *rel_path = consume_slashes (device->path);\n\n      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);\n      if (UNLIKELY (fd < 0))\n        return fd;\n    }\n\n  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"move device `%s`\", device->path);\n\n  return 0;\n}\n\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n\n      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)\n        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);\n      else\n        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n\n  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n}\n=======\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  cleanup_free char *tmpdir = NULL;\n  cleanup_close int tmpfd = -1;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    dev_fds->fds[i] = -1;\n\n  if (! has_userns)\n    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  tmpdir = xstrdup (\"/tmp/crun-devices.XXXXXX\");\n  if (UNLIKELY (mkdtemp (tmpdir) == NULL))\n    return crun_make_error (err, errno, \"mkdtemp for devices\");\n\n  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);\n  if (UNLIKELY (tmpfd < 0))\n    return crun_make_error (err, errno, \"open `%s`\", tmpdir);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];\n      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;\n      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);\n      char name[32];\n\n      sprintf (name, \"%zu\", i);\n\n      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"mknod `%s`\", dev->path);\n\n      ret = fchmodat (tmpfd, name, mode, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"chmod `%s`\", dev->path);\n\n      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"chown `%s`\", dev->path);\n\n      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);\n      if (UNLIKELY (dev_fds->fds[i] < 0))\n        return dev_fds->fds[i];\n\n      ret = unlinkat (tmpfd, name, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"unlink `%s`\", name);\n\n      how_many++;\n    }\n\n  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  if (tmpdir)\n    (void) rmdir (tmpdir);\n\n  return ret;\n}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:48:01,228 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c' ===
-2026-07-25 22:48:01,228 - INFO - === edit_commands: ===
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+2026-07-26 13:22:22,818 - INFO - === edited_file: 'src/libcrun/linux.c' ===
+2026-07-26 13:22:22,818 - INFO - === edit_commands: ===
+2026-07-26 13:22:22,818 - INFO - <<<<<<< SEARCH
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
 =======
 static int
-libcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
-                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)
->>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-=======
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-      char source_buffer[64];
-      const char *source = fullname;
-
-      if (sourcefd >= 0)
-        {
-          sprintf (source_buffer, "/proc/self/fd/%d", sourcefd);
-          source = source_buffer;
-        }
->>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
-      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
-=======
-      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
->>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
-  return 0;
-}
-
-struct symlink_s
-=======
-  return 0;
-}
-
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
+                      int *devicefd, libcrun_error_t *err)
 {
-  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);
+  const char *rootfs = get_private_data (container)->rootfs;
+  size_t rootfs_len = get_private_data (container)->rootfs_len;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  const char *rel_dev = relative_path_under_dev (device->path);
+  cleanup_close int fd = -1;
+  int ret;
+
+  if (*devicefd < 0)
+    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
+
+  if (rel_dev)
+    {
+      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
+      if (UNLIKELY (fd < 0))
+        {
+          if (errno == ENOENT)
+            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
+
+          if (UNLIKELY (fd < 0))
+            return crun_make_error (err, errno, "create device `%s`", device->path);
+        }
+    }
+  else
+    {
+      const char *rel_path = consume_slashes (device->path);
+
+      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
+      if (UNLIKELY (fd < 0))
+        return fd;
+    }
+
+  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "move device `%s`", device->path);
+
+  return 0;
 }
 
-struct symlink_s
->>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
   runtime_spec_schema_config_schema *def = container->container_def;
   const char *rootfs = get_private_data (container)->rootfs;
   int rootfsfd = get_private_data (container)->rootfsfd;
-=======
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;
+  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
 >>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
+2026-07-26 13:22:22,818 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
+2026-07-26 13:22:22,818 - INFO - <<<<<<< SEARCH
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
       ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 =======
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
-      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,
-                                        dev_fds ? dev_fds->fds[i] : -1, err);
+
+      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
+        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
+      else
+        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 >>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
+2026-07-26 13:22:22,818 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
+2026-07-26 13:22:22,818 - INFO - <<<<<<< SEARCH
 static int
 prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
 {
-=======
-static int
-precreate_device_on_host (struct device_s *device, libcrun_error_t *err)
-{
-  cleanup_close int fd = -1;
-  cleanup_free char *path = NULL;
-  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);
-  dev_t dev = makedev (device->major, device->minor);
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  size_t how_many = 0;
+  size_t i;
   int ret;
 
-  xasprintf (&path, "/tmp/crun-device-XXXXXX");
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
 
-  fd = mkstemp (path);
-  if (UNLIKELY (fd < 0))
-    return crun_make_error (err, errno, "create temporary device `%s`", device->path);
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
 
-  close_and_reset (&fd);
-
-  ret = unlink (path);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "unlink temporary device `%s`", device->path);
-
-  ret = mknod (path, device->mode | type, dev);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "mknod `%s`", device->path);
-
-  ret = chmod (path, device->mode);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chmod `%s`", device->path);
-    }
-
-  ret = chown (path, device->uid, device->gid);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chown `%s`", device->path);
-    }
-
-  fd = open (path, O_PATH | O_CLOEXEC);
-  if (UNLIKELY (fd < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "open `%s`", device->path);
-    }
-
-  unlink (path);
-
-  return get_and_reset (&fd);
-}
-
-static int
-prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
-{
->>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,228 - INFO - <<<<<<< SEARCH
   for (i = 0; i < def->linux->devices_len; i++)
     {
       if (has_userns)
@@ -13700,361 +13638,447 @@ prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_hos
       if (dev_fds->fds[i] >= 0)
         how_many++;
     }
+
+  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+}
 =======
+static int
+prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
+{
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  cleanup_free char *tmpdir = NULL;
+  cleanup_close int tmpfd = -1;
+  size_t how_many = 0;
+  size_t i;
+  int ret;
+
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
+
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+
+  for (i = 0; i < def->linux->devices_len; i++)
+    dev_fds->fds[i] = -1;
+
+  if (! has_userns)
+    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
+  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
+    return crun_make_error (err, errno, "mkdtemp for devices");
+
+  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
+  if (UNLIKELY (tmpfd < 0))
+    return crun_make_error (err, errno, "open `%s`", tmpdir);
+
   for (i = 0; i < def->linux->devices_len; i++)
     {
-      dev_fds->fds[i] = -1;
+      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
+      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
+      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
+      char name[32];
 
-      if (has_userns)
-        {
-          struct device_s device = {
-            def->linux->devices[i]->path,
-            def->linux->devices[i]->type,
-            def->linux->devices[i]->major,
-            def->linux->devices[i]->minor,
-            def->linux->devices[i]->file_mode,
-            def->linux->devices[i]->uid,
-            def->linux->devices[i]->gid,
-          };
+      sprintf (name, "%zu", i);
 
-          if (! def->linux->devices[i]->file_mode_present)
-            device.mode = 0666;
+      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "mknod `%s`", dev->path);
 
-          dev_fds->fds[i] = precreate_device_on_host (&device, err);
-          if (UNLIKELY (dev_fds->fds[i] < 0))
-            crun_error_release (err);
-        }
+      ret = fchmodat (tmpfd, name, mode, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chmod `%s`", dev->path);
 
-      if (dev_fds->fds[i] >= 0)
-        how_many++;
+      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chown `%s`", dev->path);
+
+      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
+      if (UNLIKELY (dev_fds->fds[i] < 0))
+        return dev_fds->fds[i];
+
+      ret = unlinkat (tmpfd, name, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "unlink `%s`", name);
+
+      how_many++;
     }
+
+  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  if (tmpdir)
+    (void) rmdir (tmpdir);
+
+  return ret;
+}
 >>>>>>> REPLACE
-2026-07-25 22:48:01,228 - INFO - 
+2026-07-26 13:22:22,818 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,228 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c' available=['src/libcrun/linux.c', 'src/libcrun/container.c', 'src/libcrun/criu.c', 'src/libcrun/cloned_binary.c', 'src/libcrun/utils.c']
-2026-07-25 22:48:01,232 - INFO - === file_to_commands: ===
-2026-07-25 22:48:01,232 - INFO - === file_to_commands: ===
-2026-07-25 22:48:01,232 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c'": [
-    "<<<<<<< SEARCH\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n=======\nstatic int\nlibcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n=======\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n      char source_buffer[64];\n      const char *source = fullname;\n\n      if (sourcefd >= 0)\n        {\n          sprintf (source_buffer, \"/proc/self/fd/%d\", sourcefd);\n          source = source_buffer;\n        }\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n=======\n      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  return 0;\n}\n\nstruct symlink_s\n=======\n  return 0;\n}\n\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n{\n  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);\n}\n\nstruct symlink_s\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,\n                                        dev_fds ? dev_fds->fds[i] : -1, err);\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n=======\nstatic int\nprecreate_device_on_host (struct device_s *device, libcrun_error_t *err)\n{\n  cleanup_close int fd = -1;\n  cleanup_free char *path = NULL;\n  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);\n  dev_t dev = makedev (device->major, device->minor);\n  int ret;\n\n  xasprintf (&path, \"/tmp/crun-device-XXXXXX\");\n\n  fd = mkstemp (path);\n  if (UNLIKELY (fd < 0))\n    return crun_make_error (err, errno, \"create temporary device `%s`\", device->path);\n\n  close_and_reset (&fd);\n\n  ret = unlink (path);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"unlink temporary device `%s`\", device->path);\n\n  ret = mknod (path, device->mode | type, dev);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"mknod `%s`\", device->path);\n\n  ret = chmod (path, device->mode);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"chmod `%s`\", device->path);\n    }\n\n  ret = chown (path, device->uid, device->gid);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"chown `%s`\", device->path);\n    }\n\n  fd = open (path, O_PATH | O_CLOEXEC);\n  if (UNLIKELY (fd < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"open `%s`\", device->path);\n    }\n\n  unlink (path);\n\n  return get_and_reset (&fd);\n}\n\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n=======\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      dev_fds->fds[i] = -1;\n\n      if (has_userns)\n        {\n          struct device_s device = {\n            def->linux->devices[i]->path,\n            def->linux->devices[i]->type,\n            def->linux->devices[i]->major,\n            def->linux->devices[i]->minor,\n            def->linux->devices[i]->file_mode,\n            def->linux->devices[i]->uid,\n            def->linux->devices[i]->gid,\n          };\n\n          if (! def->linux->devices[i]->file_mode_present)\n            device.mode = 0666;\n\n          dev_fds->fds[i] = precreate_device_on_host (&device, err);\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n>>>>>>> REPLACE"
+2026-07-26 13:22:22,818 - ERROR - parse_diff_edit_commands failed for src/libcrun/linux.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:22:22,827 - INFO - extracted patch:
+2026-07-26 13:22:22,827 - INFO - --- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1618,6 +1618,48 @@
+                                        { NULL, NULL, false } };
+ 
+ static int
++mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
++                      int *devicefd, libcrun_error_t *err)
++{
++  const char *rootfs = get_private_data (container)->rootfs;
++  size_t rootfs_len = get_private_data (container)->rootfs_len;
++  int rootfsfd = get_private_data (container)->rootfsfd;
++  const char *rel_dev = relative_path_under_dev (device->path);
++  cleanup_close int fd = -1;
++  int ret;
++
++  if (*devicefd < 0)
++    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
++
++  if (rel_dev)
++    {
++      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
++      if (UNLIKELY (fd < 0))
++        {
++          if (errno == ENOENT)
++            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
++
++          if (UNLIKELY (fd < 0))
++            return crun_make_error (err, errno, "create device `%s`", device->path);
++        }
++    }
++  else
++    {
++      const char *rel_path = consume_slashes (device->path);
++
++      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
++      if (UNLIKELY (fd < 0))
++        return fd;
++    }
++
++  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "move device `%s`", device->path);
++
++  return 0;
++}
++
++static int
+ create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+ {
+   int ret;
+@@ -1627,6 +1669,7 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   const char *rootfs = get_private_data (container)->rootfs;
+   int rootfsfd = get_private_data (container)->rootfsfd;
++  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
+ 
+   devfd = openat (rootfsfd, "dev", O_RDONLY | O_DIRECTORY);
+   if (UNLIKELY (devfd < 0))
+@@ -1646,7 +1689,11 @@
+ 
+       if (! def->linux->devices[i]->file_mode_present)
+         device.mode = 0666;
+-      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
++
++      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
++        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
++      else
++        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+       if (UNLIKELY (ret < 0))
+         return ret;
+     }
+@@ -3839,6 +3886,8 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+   bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
++  cleanup_free char *tmpdir = NULL;
++  cleanup_close int tmpfd = -1;
+   size_t how_many = 0;
+   size_t i;
+   int ret;
+@@ -3849,19 +3898,57 @@
+   dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+ 
+   for (i = 0; i < def->linux->devices_len; i++)
+-    {
+-      if (has_userns)
+-        {
+-          dev_fds->fds[i] = -1;
+-          if (UNLIKELY (dev_fds->fds[i] < 0))
+-            crun_error_release (err);
+-        }
+-
+-      if (dev_fds->fds[i] >= 0)
+-        how_many++;
+-    }
+-
+-  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++    dev_fds->fds[i] = -1;
++
++  if (! has_userns)
++    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
++  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
++    return crun_make_error (err, errno, "mkdtemp for devices");
++
++  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (UNLIKELY (tmpfd < 0))
++    return crun_make_error (err, errno, "open `%s`", tmpdir);
++
++  for (i = 0; i < def->linux->devices_len; i++)
++    {
++      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
++      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
++      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
++      char name[32];
++
++      sprintf (name, "%zu", i);
++
++      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "mknod `%s`", dev->path);
++
++      ret = fchmodat (tmpfd, name, mode, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chmod `%s`", dev->path);
++
++      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chown `%s`", dev->path);
++
++      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
++      if (UNLIKELY (dev_fds->fds[i] < 0))
++        return dev_fds->fds[i];
++
++      ret = unlinkat (tmpfd, name, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "unlink `%s`", name);
++
++      how_many++;
++    }
++
++  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  if (tmpdir)
++    (void) rmdir (tmpdir);
++
++  return ret;
+ }
+ 
+ static int
+2026-07-26 13:22:22,835 - INFO - === file_to_commands: ===
+2026-07-26 13:22:22,835 - INFO - === file_to_commands: ===
+2026-07-26 13:22:22,835 - INFO - {
+  "'src/libcrun/linux.c'": [
+    "<<<<<<< SEARCH\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\nstatic int\nmount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                      int *devicefd, libcrun_error_t *err)\n{\n  const char *rootfs = get_private_data (container)->rootfs;\n  size_t rootfs_len = get_private_data (container)->rootfs_len;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  const char *rel_dev = relative_path_under_dev (device->path);\n  cleanup_close int fd = -1;\n  int ret;\n\n  if (*devicefd < 0)\n    return crun_make_error (err, 0, \"invalid device fd for `%s`\", device->path);\n\n  if (rel_dev)\n    {\n      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);\n      if (UNLIKELY (fd < 0))\n        {\n          if (errno == ENOENT)\n            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);\n\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"create device `%s`\", device->path);\n        }\n    }\n  else\n    {\n      const char *rel_path = consume_slashes (device->path);\n\n      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);\n      if (UNLIKELY (fd < 0))\n        return fd;\n    }\n\n  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"move device `%s`\", device->path);\n\n  return 0;\n}\n\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n\n      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)\n        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);\n      else\n        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n\n  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n}\n=======\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  cleanup_free char *tmpdir = NULL;\n  cleanup_close int tmpfd = -1;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    dev_fds->fds[i] = -1;\n\n  if (! has_userns)\n    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  tmpdir = xstrdup (\"/tmp/crun-devices.XXXXXX\");\n  if (UNLIKELY (mkdtemp (tmpdir) == NULL))\n    return crun_make_error (err, errno, \"mkdtemp for devices\");\n\n  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);\n  if (UNLIKELY (tmpfd < 0))\n    return crun_make_error (err, errno, \"open `%s`\", tmpdir);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];\n      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;\n      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);\n      char name[32];\n\n      sprintf (name, \"%zu\", i);\n\n      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"mknod `%s`\", dev->path);\n\n      ret = fchmodat (tmpfd, name, mode, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"chmod `%s`\", dev->path);\n\n      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"chown `%s`\", dev->path);\n\n      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);\n      if (UNLIKELY (dev_fds->fds[i] < 0))\n        return dev_fds->fds[i];\n\n      ret = unlinkat (tmpfd, name, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"unlink `%s`\", name);\n\n      how_many++;\n    }\n\n  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  if (tmpdir)\n    (void) rmdir (tmpdir);\n\n  return ret;\n}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:48:01,232 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c'": [
-    "<<<<<<< SEARCH\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n=======\nstatic int\nlibcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n=======\n  if (binds)\n    {\n      cleanup_close int fd = -1;\n      char source_buffer[64];\n      const char *source = fullname;\n\n      if (sourcefd >= 0)\n        {\n          sprintf (source_buffer, \"/proc/self/fd/%d\", sourcefd);\n          source = source_buffer;\n        }\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n=======\n      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  return 0;\n}\n\nstruct symlink_s\n=======\n  return 0;\n}\n\nint\nlibcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,\n                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)\n{\n  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);\n}\n\nstruct symlink_s\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,\n                                        dev_fds ? dev_fds->fds[i] : -1, err);\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n=======\nstatic int\nprecreate_device_on_host (struct device_s *device, libcrun_error_t *err)\n{\n  cleanup_close int fd = -1;\n  cleanup_free char *path = NULL;\n  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);\n  dev_t dev = makedev (device->major, device->minor);\n  int ret;\n\n  xasprintf (&path, \"/tmp/crun-device-XXXXXX\");\n\n  fd = mkstemp (path);\n  if (UNLIKELY (fd < 0))\n    return crun_make_error (err, errno, \"create temporary device `%s`\", device->path);\n\n  close_and_reset (&fd);\n\n  ret = unlink (path);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"unlink temporary device `%s`\", device->path);\n\n  ret = mknod (path, device->mode | type, dev);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"mknod `%s`\", device->path);\n\n  ret = chmod (path, device->mode);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"chmod `%s`\", device->path);\n    }\n\n  ret = chown (path, device->uid, device->gid);\n  if (UNLIKELY (ret < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"chown `%s`\", device->path);\n    }\n\n  fd = open (path, O_PATH | O_CLOEXEC);\n  if (UNLIKELY (fd < 0))\n    {\n      int saved_errno = errno;\n      unlink (path);\n      return crun_make_error (err, saved_errno, \"open `%s`\", device->path);\n    }\n\n  unlink (path);\n\n  return get_and_reset (&fd);\n}\n\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n=======\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      dev_fds->fds[i] = -1;\n\n      if (has_userns)\n        {\n          struct device_s device = {\n            def->linux->devices[i]->path,\n            def->linux->devices[i]->type,\n            def->linux->devices[i]->major,\n            def->linux->devices[i]->minor,\n            def->linux->devices[i]->file_mode,\n            def->linux->devices[i]->uid,\n            def->linux->devices[i]->gid,\n          };\n\n          if (! def->linux->devices[i]->file_mode_present)\n            device.mode = 0666;\n\n          dev_fds->fds[i] = precreate_device_on_host (&device, err);\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n>>>>>>> REPLACE"
+2026-07-26 13:22:22,835 - INFO - {
+  "'src/libcrun/linux.c'": [
+    "<<<<<<< SEARCH\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n=======\nstatic int\nmount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,\n                      int *devicefd, libcrun_error_t *err)\n{\n  const char *rootfs = get_private_data (container)->rootfs;\n  size_t rootfs_len = get_private_data (container)->rootfs_len;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  const char *rel_dev = relative_path_under_dev (device->path);\n  cleanup_close int fd = -1;\n  int ret;\n\n  if (*devicefd < 0)\n    return crun_make_error (err, 0, \"invalid device fd for `%s`\", device->path);\n\n  if (rel_dev)\n    {\n      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);\n      if (UNLIKELY (fd < 0))\n        {\n          if (errno == ENOENT)\n            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);\n\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"create device `%s`\", device->path);\n        }\n    }\n  else\n    {\n      const char *rel_path = consume_slashes (device->path);\n\n      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);\n      if (UNLIKELY (fd < 0))\n        return fd;\n    }\n\n  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);\n  if (UNLIKELY (ret < 0))\n    return crun_make_error (err, errno, \"move device `%s`\", device->path);\n\n  return 0;\n}\n\nstatic int\ncreate_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)\n{\n  int ret;\n  size_t i;\n  struct device_s *it;\n  cleanup_close int devfd = -1;\n  runtime_spec_schema_config_schema *def = container->container_def;\n  const char *rootfs = get_private_data (container)->rootfs;\n  int rootfsfd = get_private_data (container)->rootfsfd;\n  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n=======\n      if (! def->linux->devices[i]->file_mode_present)\n        device.mode = 0666;\n\n      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)\n        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);\n      else\n        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);\n      if (UNLIKELY (ret < 0))\n        return ret;\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      if (has_userns)\n        {\n          dev_fds->fds[i] = -1;\n          if (UNLIKELY (dev_fds->fds[i] < 0))\n            crun_error_release (err);\n        }\n\n      if (dev_fds->fds[i] >= 0)\n        how_many++;\n    }\n\n  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n}\n=======\nstatic int\nprepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)\n{\n  runtime_spec_schema_config_schema *def = container->container_def;\n  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;\n  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;\n  cleanup_free char *tmpdir = NULL;\n  cleanup_close int tmpfd = -1;\n  size_t how_many = 0;\n  size_t i;\n  int ret;\n\n  if (def->linux == NULL || def->linux->devices_len == 0)\n    return 0;\n\n  dev_fds = make_libcrun_fd_map (def->linux->devices_len);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    dev_fds->fds[i] = -1;\n\n  if (! has_userns)\n    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  tmpdir = xstrdup (\"/tmp/crun-devices.XXXXXX\");\n  if (UNLIKELY (mkdtemp (tmpdir) == NULL))\n    return crun_make_error (err, errno, \"mkdtemp for devices\");\n\n  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);\n  if (UNLIKELY (tmpfd < 0))\n    return crun_make_error (err, errno, \"open `%s`\", tmpdir);\n\n  for (i = 0; i < def->linux->devices_len; i++)\n    {\n      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];\n      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;\n      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);\n      char name[32];\n\n      sprintf (name, \"%zu\", i);\n\n      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"mknod `%s`\", dev->path);\n\n      ret = fchmodat (tmpfd, name, mode, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"chmod `%s`\", dev->path);\n\n      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"chown `%s`\", dev->path);\n\n      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);\n      if (UNLIKELY (dev_fds->fds[i] < 0))\n        return dev_fds->fds[i];\n\n      ret = unlinkat (tmpfd, name, 0);\n      if (UNLIKELY (ret < 0))\n        return crun_make_error (err, errno, \"unlink `%s`\", name);\n\n      how_many++;\n    }\n\n  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);\n\n  if (tmpdir)\n    (void) rmdir (tmpdir);\n\n  return ret;\n}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:48:01,232 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c' ===
-2026-07-25 22:48:01,232 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c' ===
-2026-07-25 22:48:01,232 - INFO - === edit_commands: ===
-2026-07-25 22:48:01,232 - INFO - === edit_commands: ===
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+2026-07-26 13:22:22,835 - INFO - === edited_file: 'src/libcrun/linux.c' ===
+2026-07-26 13:22:22,835 - INFO - === edited_file: 'src/libcrun/linux.c' ===
+2026-07-26 13:22:22,835 - INFO - === edit_commands: ===
+2026-07-26 13:22:22,835 - INFO - === edit_commands: ===
+2026-07-26 13:22:22,835 - INFO - <<<<<<< SEARCH
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
 =======
 static int
-libcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
-                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)
+mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
+                      int *devicefd, libcrun_error_t *err)
+{
+  const char *rootfs = get_private_data (container)->rootfs;
+  size_t rootfs_len = get_private_data (container)->rootfs_len;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  const char *rel_dev = relative_path_under_dev (device->path);
+  cleanup_close int fd = -1;
+  int ret;
+
+  if (*devicefd < 0)
+    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
+
+  if (rel_dev)
+    {
+      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
+      if (UNLIKELY (fd < 0))
+        {
+          if (errno == ENOENT)
+            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
+
+          if (UNLIKELY (fd < 0))
+            return crun_make_error (err, errno, "create device `%s`", device->path);
+        }
+    }
+  else
+    {
+      const char *rel_path = consume_slashes (device->path);
+
+      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
+      if (UNLIKELY (fd < 0))
+        return fd;
+    }
+
+  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "move device `%s`", device->path);
+
+  return 0;
+}
+
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
 >>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+2026-07-26 13:22:22,835 - INFO - <<<<<<< SEARCH
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+{
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
 =======
 static int
-libcrun_create_dev_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
-                            bool binds, bool ensure_parent_dir, int sourcefd, libcrun_error_t *err)
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-=======
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-      char source_buffer[64];
-      const char *source = fullname;
-
-      if (sourcefd >= 0)
-        {
-          sprintf (source_buffer, "/proc/self/fd/%d", sourcefd);
-          source = source_buffer;
-        }
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-=======
-  if (binds)
-    {
-      cleanup_close int fd = -1;
-      char source_buffer[64];
-      const char *source = fullname;
-
-      if (sourcefd >= 0)
-        {
-          sprintf (source_buffer, "/proc/self/fd/%d", sourcefd);
-          source = source_buffer;
-        }
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
-=======
-      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-      ret = do_mount (container, fullname, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
-=======
-      ret = do_mount (container, source, fd, device->path, NULL, MS_BIND | MS_PRIVATE | MS_NOEXEC | MS_NOSUID, NULL, LABEL_MOUNT, err);
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-  return 0;
-}
-
-struct symlink_s
-=======
-  return 0;
-}
-
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
+                      int *devicefd, libcrun_error_t *err)
 {
-  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);
-}
+  const char *rootfs = get_private_data (container)->rootfs;
+  size_t rootfs_len = get_private_data (container)->rootfs_len;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  const char *rel_dev = relative_path_under_dev (device->path);
+  cleanup_close int fd = -1;
+  int ret;
 
-struct symlink_s
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
+  if (*devicefd < 0)
+    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
+
+  if (rel_dev)
+    {
+      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
+      if (UNLIKELY (fd < 0))
+        {
+          if (errno == ENOENT)
+            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
+
+          if (UNLIKELY (fd < 0))
+            return crun_make_error (err, errno, "create device `%s`", device->path);
+        }
+    }
+  else
+    {
+      const char *rel_path = consume_slashes (device->path);
+
+      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
+      if (UNLIKELY (fd < 0))
+        return fd;
+    }
+
+  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
+  if (UNLIKELY (ret < 0))
+    return crun_make_error (err, errno, "move device `%s`", device->path);
+
   return 0;
 }
 
-struct symlink_s
-=======
-  return 0;
-}
-
-int
-libcrun_create_dev (libcrun_container_t *container, int devfd, struct device_s *device,
-                    bool binds, bool ensure_parent_dir, libcrun_error_t *err)
+static int
+create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
 {
-  return libcrun_create_dev_from_fd (container, devfd, device, binds, ensure_parent_dir, -1, err);
-}
-
-struct symlink_s
+  int ret;
+  size_t i;
+  struct device_s *it;
+  cleanup_close int devfd = -1;
+  runtime_spec_schema_config_schema *def = container->container_def;
+  const char *rootfs = get_private_data (container)->rootfs;
+  int rootfsfd = get_private_data (container)->rootfsfd;
+  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
 >>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - 
+2026-07-26 13:22:22,835 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,232 - INFO - 
+2026-07-26 13:22:22,835 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-=======
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-=======
-  runtime_spec_schema_config_schema *def = container->container_def;
-  const char *rootfs = get_private_data (container)->rootfs;
-  int rootfsfd = get_private_data (container)->rootfsfd;
-  struct libcrun_fd_map *dev_fds = get_private_data (container)->dev_fds;
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
+2026-07-26 13:22:22,835 - INFO - <<<<<<< SEARCH
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
       ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 =======
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
-      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,
-                                        dev_fds ? dev_fds->fds[i] : -1, err);
+
+      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
+        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
+      else
+        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 >>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
+2026-07-26 13:22:22,835 - INFO - <<<<<<< SEARCH
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
       ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 =======
       if (! def->linux->devices[i]->file_mode_present)
         device.mode = 0666;
-      ret = libcrun_create_dev_from_fd (container, devfd, &device, binds, true,
-                                        dev_fds ? dev_fds->fds[i] : -1, err);
+
+      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
+        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
+      else
+        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+      if (UNLIKELY (ret < 0))
+        return ret;
 >>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - 
+2026-07-26 13:22:22,835 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,232 - INFO - 
+2026-07-26 13:22:22,835 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
+2026-07-26 13:22:22,835 - INFO - <<<<<<< SEARCH
 static int
 prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
 {
-=======
-static int
-precreate_device_on_host (struct device_s *device, libcrun_error_t *err)
-{
-  cleanup_close int fd = -1;
-  cleanup_free char *path = NULL;
-  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);
-  dev_t dev = makedev (device->major, device->minor);
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  size_t how_many = 0;
+  size_t i;
   int ret;
 
-  xasprintf (&path, "/tmp/crun-device-XXXXXX");
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
 
-  fd = mkstemp (path);
-  if (UNLIKELY (fd < 0))
-    return crun_make_error (err, errno, "create temporary device `%s`", device->path);
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
 
-  close_and_reset (&fd);
-
-  ret = unlink (path);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "unlink temporary device `%s`", device->path);
-
-  ret = mknod (path, device->mode | type, dev);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "mknod `%s`", device->path);
-
-  ret = chmod (path, device->mode);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chmod `%s`", device->path);
-    }
-
-  ret = chown (path, device->uid, device->gid);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chown `%s`", device->path);
-    }
-
-  fd = open (path, O_PATH | O_CLOEXEC);
-  if (UNLIKELY (fd < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "open `%s`", device->path);
-    }
-
-  unlink (path);
-
-  return get_and_reset (&fd);
-}
-
-static int
-prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
-{
->>>>>>> REPLACE
-2026-07-25 22:48:01,232 - INFO - <<<<<<< SEARCH
-static int
-prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
-{
-=======
-static int
-precreate_device_on_host (struct device_s *device, libcrun_error_t *err)
-{
-  cleanup_close int fd = -1;
-  cleanup_free char *path = NULL;
-  mode_t type = (device->type[0] == 'b') ? S_IFBLK : ((device->type[0] == 'p') ? S_IFIFO : S_IFCHR);
-  dev_t dev = makedev (device->major, device->minor);
-  int ret;
-
-  xasprintf (&path, "/tmp/crun-device-XXXXXX");
-
-  fd = mkstemp (path);
-  if (UNLIKELY (fd < 0))
-    return crun_make_error (err, errno, "create temporary device `%s`", device->path);
-
-  close_and_reset (&fd);
-
-  ret = unlink (path);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "unlink temporary device `%s`", device->path);
-
-  ret = mknod (path, device->mode | type, dev);
-  if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "mknod `%s`", device->path);
-
-  ret = chmod (path, device->mode);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chmod `%s`", device->path);
-    }
-
-  ret = chown (path, device->uid, device->gid);
-  if (UNLIKELY (ret < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "chown `%s`", device->path);
-    }
-
-  fd = open (path, O_PATH | O_CLOEXEC);
-  if (UNLIKELY (fd < 0))
-    {
-      int saved_errno = errno;
-      unlink (path);
-      return crun_make_error (err, saved_errno, "open `%s`", device->path);
-    }
-
-  unlink (path);
-
-  return get_and_reset (&fd);
-}
-
-static int
-prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
-{
->>>>>>> REPLACE
-2026-07-25 22:48:01,233 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,233 - INFO - 
-----------------------------------------
-2026-07-25 22:48:01,233 - INFO - <<<<<<< SEARCH
   for (i = 0; i < def->linux->devices_len; i++)
     {
       if (has_userns)
@@ -14067,36 +14091,97 @@ prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_hos
       if (dev_fds->fds[i] >= 0)
         how_many++;
     }
+
+  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+}
 =======
+static int
+prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
+{
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  cleanup_free char *tmpdir = NULL;
+  cleanup_close int tmpfd = -1;
+  size_t how_many = 0;
+  size_t i;
+  int ret;
+
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
+
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+
+  for (i = 0; i < def->linux->devices_len; i++)
+    dev_fds->fds[i] = -1;
+
+  if (! has_userns)
+    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
+  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
+    return crun_make_error (err, errno, "mkdtemp for devices");
+
+  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
+  if (UNLIKELY (tmpfd < 0))
+    return crun_make_error (err, errno, "open `%s`", tmpdir);
+
   for (i = 0; i < def->linux->devices_len; i++)
     {
-      dev_fds->fds[i] = -1;
+      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
+      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
+      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
+      char name[32];
 
-      if (has_userns)
-        {
-          struct device_s device = {
-            def->linux->devices[i]->path,
-            def->linux->devices[i]->type,
-            def->linux->devices[i]->major,
-            def->linux->devices[i]->minor,
-            def->linux->devices[i]->file_mode,
-            def->linux->devices[i]->uid,
-            def->linux->devices[i]->gid,
-          };
+      sprintf (name, "%zu", i);
 
-          if (! def->linux->devices[i]->file_mode_present)
-            device.mode = 0666;
+      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "mknod `%s`", dev->path);
 
-          dev_fds->fds[i] = precreate_device_on_host (&device, err);
-          if (UNLIKELY (dev_fds->fds[i] < 0))
-            crun_error_release (err);
-        }
+      ret = fchmodat (tmpfd, name, mode, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chmod `%s`", dev->path);
 
-      if (dev_fds->fds[i] >= 0)
-        how_many++;
+      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chown `%s`", dev->path);
+
+      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
+      if (UNLIKELY (dev_fds->fds[i] < 0))
+        return dev_fds->fds[i];
+
+      ret = unlinkat (tmpfd, name, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "unlink `%s`", name);
+
+      how_many++;
     }
+
+  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  if (tmpdir)
+    (void) rmdir (tmpdir);
+
+  return ret;
+}
 >>>>>>> REPLACE
-2026-07-25 22:48:01,233 - INFO - <<<<<<< SEARCH
+2026-07-26 13:22:22,835 - INFO - <<<<<<< SEARCH
+static int
+prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
+{
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  size_t how_many = 0;
+  size_t i;
+  int ret;
+
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
+
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+
   for (i = 0; i < def->linux->devices_len; i++)
     {
       if (has_userns)
@@ -14109,40 +14194,392 @@ prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_hos
       if (dev_fds->fds[i] >= 0)
         how_many++;
     }
+
+  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+}
 =======
+static int
+prepare_and_send_dev_mounts (libcrun_container_t *container, int sync_socket_host, libcrun_error_t *err)
+{
+  runtime_spec_schema_config_schema *def = container->container_def;
+  cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+  bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
+  cleanup_free char *tmpdir = NULL;
+  cleanup_close int tmpfd = -1;
+  size_t how_many = 0;
+  size_t i;
+  int ret;
+
+  if (def->linux == NULL || def->linux->devices_len == 0)
+    return 0;
+
+  dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+
+  for (i = 0; i < def->linux->devices_len; i++)
+    dev_fds->fds[i] = -1;
+
+  if (! has_userns)
+    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
+  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
+    return crun_make_error (err, errno, "mkdtemp for devices");
+
+  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
+  if (UNLIKELY (tmpfd < 0))
+    return crun_make_error (err, errno, "open `%s`", tmpdir);
+
   for (i = 0; i < def->linux->devices_len; i++)
     {
-      dev_fds->fds[i] = -1;
+      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
+      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
+      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
+      char name[32];
 
-      if (has_userns)
-        {
-          struct device_s device = {
-            def->linux->devices[i]->path,
-            def->linux->devices[i]->type,
-            def->linux->devices[i]->major,
-            def->linux->devices[i]->minor,
-            def->linux->devices[i]->file_mode,
-            def->linux->devices[i]->uid,
-            def->linux->devices[i]->gid,
-          };
+      sprintf (name, "%zu", i);
 
-          if (! def->linux->devices[i]->file_mode_present)
-            device.mode = 0666;
+      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "mknod `%s`", dev->path);
 
-          dev_fds->fds[i] = precreate_device_on_host (&device, err);
-          if (UNLIKELY (dev_fds->fds[i] < 0))
-            crun_error_release (err);
-        }
+      ret = fchmodat (tmpfd, name, mode, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chmod `%s`", dev->path);
 
-      if (dev_fds->fds[i] >= 0)
-        how_many++;
+      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "chown `%s`", dev->path);
+
+      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
+      if (UNLIKELY (dev_fds->fds[i] < 0))
+        return dev_fds->fds[i];
+
+      ret = unlinkat (tmpfd, name, 0);
+      if (UNLIKELY (ret < 0))
+        return crun_make_error (err, errno, "unlink `%s`", name);
+
+      how_many++;
     }
+
+  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
+
+  if (tmpdir)
+    (void) rmdir (tmpdir);
+
+  return ret;
+}
 >>>>>>> REPLACE
-2026-07-25 22:48:01,233 - INFO - 
+2026-07-26 13:22:22,835 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,233 - INFO - 
+2026-07-26 13:22:22,835 - INFO - 
 ----------------------------------------
-2026-07-25 22:48:01,233 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c' available=['src/libcrun/linux.c', 'src/libcrun/container.c', 'src/libcrun/criu.c', 'src/libcrun/cloned_binary.c', 'src/libcrun/utils.c']
-2026-07-25 22:48:01,233 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1099/src/libcrun/linux.c' available=['src/libcrun/linux.c', 'src/libcrun/container.c', 'src/libcrun/criu.c', 'src/libcrun/cloned_binary.c', 'src/libcrun/utils.c']
-2026-07-25 22:48:01,247 - INFO - differ_by_empty_lines = True
-2026-07-25 22:48:01,247 - INFO - differ_by_empty_lines = True
+2026-07-26 13:22:22,835 - ERROR - parse_diff_edit_commands failed for src/libcrun/linux.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:22:22,835 - ERROR - parse_diff_edit_commands failed for src/libcrun/linux.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:22:22,841 - INFO - extracted patch:
+2026-07-26 13:22:22,841 - INFO - extracted patch:
+2026-07-26 13:22:22,841 - INFO - --- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1618,6 +1618,48 @@
+                                        { NULL, NULL, false } };
+ 
+ static int
++mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
++                      int *devicefd, libcrun_error_t *err)
++{
++  const char *rootfs = get_private_data (container)->rootfs;
++  size_t rootfs_len = get_private_data (container)->rootfs_len;
++  int rootfsfd = get_private_data (container)->rootfsfd;
++  const char *rel_dev = relative_path_under_dev (device->path);
++  cleanup_close int fd = -1;
++  int ret;
++
++  if (*devicefd < 0)
++    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
++
++  if (rel_dev)
++    {
++      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
++      if (UNLIKELY (fd < 0))
++        {
++          if (errno == ENOENT)
++            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
++
++          if (UNLIKELY (fd < 0))
++            return crun_make_error (err, errno, "create device `%s`", device->path);
++        }
++    }
++  else
++    {
++      const char *rel_path = consume_slashes (device->path);
++
++      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
++      if (UNLIKELY (fd < 0))
++        return fd;
++    }
++
++  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "move device `%s`", device->path);
++
++  return 0;
++}
++
++static int
+ create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+ {
+   int ret;
+@@ -1627,6 +1669,7 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   const char *rootfs = get_private_data (container)->rootfs;
+   int rootfsfd = get_private_data (container)->rootfsfd;
++  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
+ 
+   devfd = openat (rootfsfd, "dev", O_RDONLY | O_DIRECTORY);
+   if (UNLIKELY (devfd < 0))
+@@ -1646,7 +1689,11 @@
+ 
+       if (! def->linux->devices[i]->file_mode_present)
+         device.mode = 0666;
+-      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
++
++      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
++        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
++      else
++        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+       if (UNLIKELY (ret < 0))
+         return ret;
+     }
+@@ -3839,6 +3886,8 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+   bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
++  cleanup_free char *tmpdir = NULL;
++  cleanup_close int tmpfd = -1;
+   size_t how_many = 0;
+   size_t i;
+   int ret;
+@@ -3849,19 +3898,57 @@
+   dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+ 
+   for (i = 0; i < def->linux->devices_len; i++)
+-    {
+-      if (has_userns)
+-        {
+-          dev_fds->fds[i] = -1;
+-          if (UNLIKELY (dev_fds->fds[i] < 0))
+-            crun_error_release (err);
+-        }
+-
+-      if (dev_fds->fds[i] >= 0)
+-        how_many++;
+-    }
+-
+-  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++    dev_fds->fds[i] = -1;
++
++  if (! has_userns)
++    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
++  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
++    return crun_make_error (err, errno, "mkdtemp for devices");
++
++  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (UNLIKELY (tmpfd < 0))
++    return crun_make_error (err, errno, "open `%s`", tmpdir);
++
++  for (i = 0; i < def->linux->devices_len; i++)
++    {
++      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
++      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
++      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
++      char name[32];
++
++      sprintf (name, "%zu", i);
++
++      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "mknod `%s`", dev->path);
++
++      ret = fchmodat (tmpfd, name, mode, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chmod `%s`", dev->path);
++
++      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chown `%s`", dev->path);
++
++      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
++      if (UNLIKELY (dev_fds->fds[i] < 0))
++        return dev_fds->fds[i];
++
++      ret = unlinkat (tmpfd, name, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "unlink `%s`", name);
++
++      how_many++;
++    }
++
++  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  if (tmpdir)
++    (void) rmdir (tmpdir);
++
++  return ret;
+ }
+ 
+ static int
+2026-07-26 13:22:22,841 - INFO - --- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1618,6 +1618,48 @@
+                                        { NULL, NULL, false } };
+ 
+ static int
++mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
++                      int *devicefd, libcrun_error_t *err)
++{
++  const char *rootfs = get_private_data (container)->rootfs;
++  size_t rootfs_len = get_private_data (container)->rootfs_len;
++  int rootfsfd = get_private_data (container)->rootfsfd;
++  const char *rel_dev = relative_path_under_dev (device->path);
++  cleanup_close int fd = -1;
++  int ret;
++
++  if (*devicefd < 0)
++    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
++
++  if (rel_dev)
++    {
++      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
++      if (UNLIKELY (fd < 0))
++        {
++          if (errno == ENOENT)
++            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
++
++          if (UNLIKELY (fd < 0))
++            return crun_make_error (err, errno, "create device `%s`", device->path);
++        }
++    }
++  else
++    {
++      const char *rel_path = consume_slashes (device->path);
++
++      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
++      if (UNLIKELY (fd < 0))
++        return fd;
++    }
++
++  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "move device `%s`", device->path);
++
++  return 0;
++}
++
++static int
+ create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+ {
+   int ret;
+@@ -1627,6 +1669,7 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   const char *rootfs = get_private_data (container)->rootfs;
+   int rootfsfd = get_private_data (container)->rootfsfd;
++  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
+ 
+   devfd = openat (rootfsfd, "dev", O_RDONLY | O_DIRECTORY);
+   if (UNLIKELY (devfd < 0))
+@@ -1646,7 +1689,11 @@
+ 
+       if (! def->linux->devices[i]->file_mode_present)
+         device.mode = 0666;
+-      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
++
++      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
++        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
++      else
++        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+       if (UNLIKELY (ret < 0))
+         return ret;
+     }
+@@ -3839,6 +3886,8 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+   bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
++  cleanup_free char *tmpdir = NULL;
++  cleanup_close int tmpfd = -1;
+   size_t how_many = 0;
+   size_t i;
+   int ret;
+@@ -3849,19 +3898,57 @@
+   dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+ 
+   for (i = 0; i < def->linux->devices_len; i++)
+-    {
+-      if (has_userns)
+-        {
+-          dev_fds->fds[i] = -1;
+-          if (UNLIKELY (dev_fds->fds[i] < 0))
+-            crun_error_release (err);
+-        }
+-
+-      if (dev_fds->fds[i] >= 0)
+-        how_many++;
+-    }
+-
+-  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++    dev_fds->fds[i] = -1;
++
++  if (! has_userns)
++    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
++  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
++    return crun_make_error (err, errno, "mkdtemp for devices");
++
++  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (UNLIKELY (tmpfd < 0))
++    return crun_make_error (err, errno, "open `%s`", tmpdir);
++
++  for (i = 0; i < def->linux->devices_len; i++)
++    {
++      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
++      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
++      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
++      char name[32];
++
++      sprintf (name, "%zu", i);
++
++      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "mknod `%s`", dev->path);
++
++      ret = fchmodat (tmpfd, name, mode, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chmod `%s`", dev->path);
++
++      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chown `%s`", dev->path);
++
++      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
++      if (UNLIKELY (dev_fds->fds[i] < 0))
++        return dev_fds->fds[i];
++
++      ret = unlinkat (tmpfd, name, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "unlink `%s`", name);
++
++      how_many++;
++    }
++
++  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  if (tmpdir)
++    (void) rmdir (tmpdir);
++
++  return ret;
+ }
+ 
+ static int
+2026-07-26 13:22:22,898 - INFO - differ_by_empty_lines = False
+2026-07-26 13:22:22,898 - INFO - differ_by_empty_lines = False

@@ -1,5 +1,5 @@
-2026-07-25 22:56:58,108 - INFO - ================ repairing youki-2994 ================
-2026-07-25 22:56:58,109 - INFO - prompting with message:
+2026-07-26 14:23:08,915 - INFO - ================ repairing youki-2994 ================
+2026-07-26 14:23:08,919 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case youki-2994.
@@ -21,7 +21,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-2994
@@ -4315,211 +4316,171 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-07-25 22:56:58,119 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:56:58,131 - INFO - Creating API request
-2026-07-25 22:57:34,394 - INFO - API response ChatCompletion(id='resp_03bb7fc47b7fecf7016a64cebccbac819099f7d9a61f407a7b', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='I\'ll inspect the writable repository state first.Required first command to run in the writable repository:\n```sh\ncd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994 && git rev-parse HEAD && git status --short\n``` \nBug localization: this is the OCI lifecycle-state ordering bug fixed upstream by PR #3181. `createRuntime` hooks must run only after the container has transitioned to and persisted the `created` state. The affected behavior runs `createRuntime` while the container state is still `creating`, so hooks observing runtime state see the wrong status.\n\nApply these edits in the writable repository.\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs\n<<<<<<< SEARCH\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, "failed to run create runtime hooks");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n=======\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs\n<<<<<<< SEARCH\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        Ok(pid)\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, "failed to run create runtime hooks");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n        Ok(pid)\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1784991454, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1744, prompt_tokens=36837, total_tokens=38581, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1225, rejected_prediction_tokens=None), prompt_tokens_details=None))
-2026-07-25 22:57:34,394 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:57:34,394 - INFO - raw output:
-I'll inspect the writable repository state first.Required first command to run in the writable repository:
-```sh
+2026-07-26 14:23:08,920 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 14:23:08,943 - INFO - Creating API request
+2026-07-26 14:23:30,973 - INFO - API response ChatCompletion(id='resp_0e38168259b715b7016a65a7d065f08194b0bafa2510207589', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994 && git rev-parse HEAD && git status --short\nThe bug is in the container creation lifecycle ordering, not in the init-process `createContainer`/`startContainer` hook handling. For OCI conformance, `createRuntime` hooks must observe the container in the `created` lifecycle state. The affected behavior runs `createRuntime` hooks before persisting the container as `Created`, so a hook that inspects runtime state can see the wrong state.\n\nApply this edit:\n\n```python\n### crates/libcontainer/src/container/builder_impl.rs\n<<<<<<< SEARCH\n        // Run createRuntime hooks.\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, "failed to run create runtime hooks");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        // Run createRuntime hooks after the container has transitioned to the\n        // created state. The OCI runtime specification requires createRuntime\n        // hooks to run as part of the create operation, and hooks must be able\n        // to observe the container lifecycle state as "created".\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, "failed to run create runtime hooks");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1785047010, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=953, prompt_tokens=36855, total_tokens=37808, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=545, rejected_prediction_tokens=None), prompt_tokens_details=None))
+2026-07-26 14:23:30,973 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 14:23:30,973 - INFO - raw output:
 cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994 && git rev-parse HEAD && git status --short
-``` 
-Bug localization: this is the OCI lifecycle-state ordering bug fixed upstream by PR #3181. `createRuntime` hooks must run only after the container has transitioned to and persisted the `created` state. The affected behavior runs `createRuntime` while the container state is still `creating`, so hooks observing runtime state see the wrong status.
+The bug is in the container creation lifecycle ordering, not in the init-process `createContainer`/`startContainer` hook handling. For OCI conformance, `createRuntime` hooks must observe the container in the `created` lifecycle state. The affected behavior runs `createRuntime` hooks before persisting the container as `Created`, so a hook that inspects runtime state can see the wrong state.
 
-Apply these edits in the writable repository.
-
-```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs
-<<<<<<< SEARCH
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
-        }
-
-=======
->>>>>>> REPLACE
-```
+Apply this edit:
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs
+### crates/libcontainer/src/container/builder_impl.rs
 <<<<<<< SEARCH
+        // Run createRuntime hooks.
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
+        }
+
         container.set_status(ContainerStatus::Created);
         container.save()?;
-
-        Ok(pid)
 =======
         container.set_status(ContainerStatus::Created);
         container.save()?;
 
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
+        // Run createRuntime hooks after the container has transitioned to the
+        // created state. The OCI runtime specification requires createRuntime
+        // hooks to run as part of the create operation, and hooks must be able
+        // to observe the container lifecycle state as "created".
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
         }
-
-        Ok(pid)
 >>>>>>> REPLACE
 ```
-2026-07-25 22:57:34,394 - INFO - === file_to_commands: ===
-2026-07-25 22:57:34,394 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs'": [
-    "<<<<<<< SEARCH\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, \"failed to run create runtime hooks\");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n=======\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        Ok(pid)\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, \"failed to run create runtime hooks\");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n        Ok(pid)\n>>>>>>> REPLACE"
+2026-07-26 14:23:30,973 - INFO - === file_to_commands: ===
+2026-07-26 14:23:30,974 - INFO - {
+  "'crates/libcontainer/src/container/builder_impl.rs'": [
+    "<<<<<<< SEARCH\n        // Run createRuntime hooks.\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, \"failed to run create runtime hooks\");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        // Run createRuntime hooks after the container has transitioned to the\n        // created state. The OCI runtime specification requires createRuntime\n        // hooks to run as part of the create operation, and hooks must be able\n        // to observe the container lifecycle state as \"created\".\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, \"failed to run create runtime hooks\");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:57:34,394 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs' ===
-2026-07-25 22:57:34,394 - INFO - === edit_commands: ===
-2026-07-25 22:57:34,394 - INFO - <<<<<<< SEARCH
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
+2026-07-26 14:23:30,974 - INFO - === edited_file: 'crates/libcontainer/src/container/builder_impl.rs' ===
+2026-07-26 14:23:30,974 - INFO - === edit_commands: ===
+2026-07-26 14:23:30,974 - INFO - <<<<<<< SEARCH
+        // Run createRuntime hooks.
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
         }
 
-=======
->>>>>>> REPLACE
-2026-07-25 22:57:34,394 - INFO - 
-----------------------------------------
-2026-07-25 22:57:34,394 - INFO - <<<<<<< SEARCH
         container.set_status(ContainerStatus::Created);
         container.save()?;
-
-        Ok(pid)
 =======
         container.set_status(ContainerStatus::Created);
         container.save()?;
 
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
+        // Run createRuntime hooks after the container has transitioned to the
+        // created state. The OCI runtime specification requires createRuntime
+        // hooks to run as part of the create operation, and hooks must be able
+        // to observe the container lifecycle state as "created".
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
         }
-
-        Ok(pid)
 >>>>>>> REPLACE
-2026-07-25 22:57:34,395 - INFO - 
+2026-07-26 14:23:30,974 - INFO - 
 ----------------------------------------
-2026-07-25 22:57:34,395 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/process/fork.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
-2026-07-25 22:57:34,397 - INFO - === file_to_commands: ===
-2026-07-25 22:57:34,397 - INFO - === file_to_commands: ===
-2026-07-25 22:57:34,397 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs'": [
-    "<<<<<<< SEARCH\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, \"failed to run create runtime hooks\");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n=======\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        Ok(pid)\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, \"failed to run create runtime hooks\");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n        Ok(pid)\n>>>>>>> REPLACE"
+2026-07-26 14:23:30,974 - ERROR - edited_file not found after normalize: raw="'crates/libcontainer/src/container/builder_impl.rs'" normalized='crates/libcontainer/src/container/builder_impl.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/process/fork.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
+2026-07-26 14:23:30,977 - INFO - === file_to_commands: ===
+2026-07-26 14:23:30,977 - INFO - === file_to_commands: ===
+2026-07-26 14:23:30,977 - INFO - {
+  "'crates/libcontainer/src/container/builder_impl.rs'": [
+    "<<<<<<< SEARCH\n        // Run createRuntime hooks.\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, \"failed to run create runtime hooks\");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        // Run createRuntime hooks after the container has transitioned to the\n        // created state. The OCI runtime specification requires createRuntime\n        // hooks to run as part of the create operation, and hooks must be able\n        // to observe the container lifecycle state as \"created\".\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, \"failed to run create runtime hooks\");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:57:34,397 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs'": [
-    "<<<<<<< SEARCH\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, \"failed to run create runtime hooks\");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n=======\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        Ok(pid)\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        if matches!(self.container_type, ContainerType::InitContainer) {\n            if let Some(hooks) = self.spec.hooks() {\n                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                    |err| {\n                        tracing::error!(?err, \"failed to run create runtime hooks\");\n                        LibcontainerError::Hooks(err)\n                    },\n                )?;\n            }\n        }\n\n        Ok(pid)\n>>>>>>> REPLACE"
+2026-07-26 14:23:30,977 - INFO - {
+  "'crates/libcontainer/src/container/builder_impl.rs'": [
+    "<<<<<<< SEARCH\n        // Run createRuntime hooks.\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, \"failed to run create runtime hooks\");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n=======\n        container.set_status(ContainerStatus::Created);\n        container.save()?;\n\n        // Run createRuntime hooks after the container has transitioned to the\n        // created state. The OCI runtime specification requires createRuntime\n        // hooks to run as part of the create operation, and hooks must be able\n        // to observe the container lifecycle state as \"created\".\n        if let Some(hooks) = spec.hooks() {\n            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(\n                |err| {\n                    tracing::error!(?err, \"failed to run create runtime hooks\");\n                    LibcontainerError::Hooks(err)\n                },\n            )?;\n        }\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:57:34,397 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs' ===
-2026-07-25 22:57:34,397 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs' ===
-2026-07-25 22:57:34,397 - INFO - === edit_commands: ===
-2026-07-25 22:57:34,397 - INFO - === edit_commands: ===
-2026-07-25 22:57:34,397 - INFO - <<<<<<< SEARCH
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
+2026-07-26 14:23:30,977 - INFO - === edited_file: 'crates/libcontainer/src/container/builder_impl.rs' ===
+2026-07-26 14:23:30,977 - INFO - === edited_file: 'crates/libcontainer/src/container/builder_impl.rs' ===
+2026-07-26 14:23:30,977 - INFO - === edit_commands: ===
+2026-07-26 14:23:30,977 - INFO - === edit_commands: ===
+2026-07-26 14:23:30,977 - INFO - <<<<<<< SEARCH
+        // Run createRuntime hooks.
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
         }
 
-=======
->>>>>>> REPLACE
-2026-07-25 22:57:34,397 - INFO - <<<<<<< SEARCH
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
-        }
-
-=======
->>>>>>> REPLACE
-2026-07-25 22:57:34,397 - INFO - 
-----------------------------------------
-2026-07-25 22:57:34,397 - INFO - 
-----------------------------------------
-2026-07-25 22:57:34,397 - INFO - <<<<<<< SEARCH
         container.set_status(ContainerStatus::Created);
         container.save()?;
-
-        Ok(pid)
 =======
         container.set_status(ContainerStatus::Created);
         container.save()?;
 
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
+        // Run createRuntime hooks after the container has transitioned to the
+        // created state. The OCI runtime specification requires createRuntime
+        // hooks to run as part of the create operation, and hooks must be able
+        // to observe the container lifecycle state as "created".
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
+        }
+>>>>>>> REPLACE
+2026-07-26 14:23:30,977 - INFO - <<<<<<< SEARCH
+        // Run createRuntime hooks.
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
         }
 
-        Ok(pid)
->>>>>>> REPLACE
-2026-07-25 22:57:34,397 - INFO - <<<<<<< SEARCH
         container.set_status(ContainerStatus::Created);
         container.save()?;
-
-        Ok(pid)
 =======
         container.set_status(ContainerStatus::Created);
         container.save()?;
 
-        if matches!(self.container_type, ContainerType::InitContainer) {
-            if let Some(hooks) = self.spec.hooks() {
-                hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
-                    |err| {
-                        tracing::error!(?err, "failed to run create runtime hooks");
-                        LibcontainerError::Hooks(err)
-                    },
-                )?;
-            }
+        // Run createRuntime hooks after the container has transitioned to the
+        // created state. The OCI runtime specification requires createRuntime
+        // hooks to run as part of the create operation, and hooks must be able
+        // to observe the container lifecycle state as "created".
+        if let Some(hooks) = spec.hooks() {
+            hooks::run_hooks(hooks.create_runtime().as_ref(), &container, None).map_err(
+                |err| {
+                    tracing::error!(?err, "failed to run create runtime hooks");
+                    LibcontainerError::Hooks(err)
+                },
+            )?;
         }
-
-        Ok(pid)
 >>>>>>> REPLACE
-2026-07-25 22:57:34,397 - INFO - 
+2026-07-26 14:23:30,977 - INFO - 
 ----------------------------------------
-2026-07-25 22:57:34,397 - INFO - 
+2026-07-26 14:23:30,977 - INFO - 
 ----------------------------------------
-2026-07-25 22:57:34,397 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/process/fork.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
-2026-07-25 22:57:34,397 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-2994/crates/libcontainer/src/container/builder_impl.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/process/fork.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
-2026-07-25 22:57:34,419 - INFO - differ_by_empty_lines = True
-2026-07-25 22:57:34,419 - INFO - differ_by_empty_lines = True
+2026-07-26 14:23:30,977 - ERROR - edited_file not found after normalize: raw="'crates/libcontainer/src/container/builder_impl.rs'" normalized='crates/libcontainer/src/container/builder_impl.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/process/fork.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
+2026-07-26 14:23:30,977 - ERROR - edited_file not found after normalize: raw="'crates/libcontainer/src/container/builder_impl.rs'" normalized='crates/libcontainer/src/container/builder_impl.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/process/fork.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
+2026-07-26 14:23:31,007 - INFO - differ_by_empty_lines = True
+2026-07-26 14:23:31,007 - INFO - differ_by_empty_lines = True

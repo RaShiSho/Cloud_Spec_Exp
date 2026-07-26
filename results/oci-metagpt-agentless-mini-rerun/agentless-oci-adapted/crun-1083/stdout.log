@@ -1,2 +1,119 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/9d0ce27a-9414-4a32-b700-59e2b3ffb5d7/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/fc8b9bcc-1505-4389-aed7-5e10e5bcd4d4/.git/
+[master (root-commit) 9bf1168] initial commit
+ 1 file changed, 1283 insertions(+)
+ create mode 100644 src/libcrun/cgroup-resources.c
 trying the 1-th sample ...
+--- src/libcrun/cgroup-resources.c
++++ src/libcrun/cgroup-resources.c
+@@ -132,10 +132,54 @@
+ }
+ 
+ static int
++enable_cgroup_v2_controller (int dirfd, const char *name)
++{
++  cleanup_close int parentfd = -1;
++  cleanup_free char *controller = NULL;
++  cleanup_free char *enable = NULL;
++  const char *sep;
++  size_t controller_len;
++
++  sep = strchr (name, '.');
++  if (sep == NULL)
++    return 0;
++
++  controller_len = sep - name;
++
++  /* cgroup.* files are not controlled by cgroup.subtree_control.  */
++  if (controller_len == strlen ("cgroup") && memcmp (name, "cgroup", controller_len) == 0)
++    return 0;
++
++  controller = xmalloc (controller_len + 1);
++  memcpy (controller, name, controller_len);
++  controller[controller_len] = '\0';
++
++  xasprintf (&enable, "+%s", controller);
++
++  parentfd = openat (dirfd, "..", O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (parentfd < 0)
++    return -1;
++
++  return write_cgroup_file (parentfd, "cgroup.subtree_control", enable, strlen (enable), NULL);
++}
++
++static int
+ write_file_and_check_controllers_at (bool cgroup2, int dirfd, const char *name, const void *data, size_t len,
+                                      libcrun_error_t *err)
+ {
+   int ret;
++
++  if (cgroup2)
++    {
++      /*
++        Make sure the controller is enabled in the parent cgroup before
++        writing controller-specific files in this cgroup.  Without this,
++        a configured limit such as linux.resources.memory.limit can be
++        silently ineffective from the container point of view, leaving
++        memory.max as "max" instead of the requested value.
++      */
++      (void) enable_cgroup_v2_controller (dirfd, name);
++    }
+ 
+   ret = write_cgroup_file (dirfd, name, data, len, err);
+   if (cgroup2)
+--- src/libcrun/cgroup-resources.c
++++ src/libcrun/cgroup-resources.c
+@@ -132,10 +132,54 @@
+ }
+ 
+ static int
++enable_cgroup_v2_controller (int dirfd, const char *name)
++{
++  cleanup_close int parentfd = -1;
++  cleanup_free char *controller = NULL;
++  cleanup_free char *enable = NULL;
++  const char *sep;
++  size_t controller_len;
++
++  sep = strchr (name, '.');
++  if (sep == NULL)
++    return 0;
++
++  controller_len = sep - name;
++
++  /* cgroup.* files are not controlled by cgroup.subtree_control.  */
++  if (controller_len == strlen ("cgroup") && memcmp (name, "cgroup", controller_len) == 0)
++    return 0;
++
++  controller = xmalloc (controller_len + 1);
++  memcpy (controller, name, controller_len);
++  controller[controller_len] = '\0';
++
++  xasprintf (&enable, "+%s", controller);
++
++  parentfd = openat (dirfd, "..", O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (parentfd < 0)
++    return -1;
++
++  return write_cgroup_file (parentfd, "cgroup.subtree_control", enable, strlen (enable), NULL);
++}
++
++static int
+ write_file_and_check_controllers_at (bool cgroup2, int dirfd, const char *name, const void *data, size_t len,
+                                      libcrun_error_t *err)
+ {
+   int ret;
++
++  if (cgroup2)
++    {
++      /*
++        Make sure the controller is enabled in the parent cgroup before
++        writing controller-specific files in this cgroup.  Without this,
++        a configured limit such as linux.resources.memory.limit can be
++        silently ineffective from the container point of view, leaving
++        memory.max as "max" instead of the requested value.
++      */
++      (void) enable_cgroup_v2_controller (dirfd, name);
++    }
+ 
+   ret = write_cgroup_file (dirfd, name, data, len, err);
+   if (cgroup2)

@@ -1,2 +1,171 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/99a906ed-5d95-45e4-94db-aad52ac793eb/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/1428c299-9fd1-4a8b-b7cc-f605b36838aa/.git/
+[master (root-commit) 6ef7141] initial commit
+ 1 file changed, 797 insertions(+)
+ create mode 100644 crates/libcontainer/src/container/tenant_builder.rs
 trying the 1-th sample ...
+--- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,24 +33,11 @@
+ const TENANT_NOTIFY: &str = "tenant-notify-";
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+-fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
+-    env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++fn get_env_from_spec(spec: &Spec) -> Vec<String> {
++    spec.process()
++        .and_then(|process| process.env().as_ref())
++        .cloned()
++        .unwrap_or_default()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -455,10 +442,10 @@
+         let process = if let Some(process) = &self.process {
+             self.get_process(process)?
+         } else {
+-            let original_path_env = get_path_from_spec(spec);
++            let original_env = get_env_from_spec(spec);
+             let mut process_builder = ProcessBuilder::default()
+                 .args(self.get_args()?)
+-                .env(self.get_environment(original_path_env));
++                .env(self.get_environment(original_env));
+             if let Some(cwd) = self.get_working_dir()? {
+                 process_builder = process_builder.cwd(cwd);
+             }
+@@ -556,27 +543,16 @@
+         Ok(self.args.clone())
+     }
+ 
+-    fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
+-        // It is not possible in normal flow that path is None. The original container
+-        // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
+-        if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
++        for (key, value) in &self.env {
++            env.retain(|env_var| {
++                env_var
++                    .split_once('=')
++                    .is_none_or(|(env_key, _)| env_key != key)
++            });
++            env.push(format!("{key}={value}"));
++        }
++
+         env
+     }
+ 
+--- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,24 +33,11 @@
+ const TENANT_NOTIFY: &str = "tenant-notify-";
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+-fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
+-    env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++fn get_env_from_spec(spec: &Spec) -> Vec<String> {
++    spec.process()
++        .and_then(|process| process.env().as_ref())
++        .cloned()
++        .unwrap_or_default()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -455,10 +442,10 @@
+         let process = if let Some(process) = &self.process {
+             self.get_process(process)?
+         } else {
+-            let original_path_env = get_path_from_spec(spec);
++            let original_env = get_env_from_spec(spec);
+             let mut process_builder = ProcessBuilder::default()
+                 .args(self.get_args()?)
+-                .env(self.get_environment(original_path_env));
++                .env(self.get_environment(original_env));
+             if let Some(cwd) = self.get_working_dir()? {
+                 process_builder = process_builder.cwd(cwd);
+             }
+@@ -556,27 +543,16 @@
+         Ok(self.args.clone())
+     }
+ 
+-    fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
+-        // It is not possible in normal flow that path is None. The original container
+-        // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
+-        if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
++        for (key, value) in &self.env {
++            env.retain(|env_var| {
++                env_var
++                    .split_once('=')
++                    .is_none_or(|(env_key, _)| env_key != key)
++            });
++            env.push(format!("{key}={value}"));
++        }
++
+         env
+     }
+ 

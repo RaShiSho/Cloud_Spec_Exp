@@ -1,2 +1,129 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/a6004d4d-37e4-4a92-9b10-ac3ebb7f1da7/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/aeb44858-5594-4e23-aaef-9e860a5aeb1f/.git/
+[master (root-commit) e19d02f] initial commit
+ 1 file changed, 2971 insertions(+)
+ create mode 100644 src/libcrun/linux.c
 trying the 1-th sample ...
+--- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -46,6 +46,8 @@
+ #include <limits.h>
+ #include <inttypes.h>
+ #include <sys/personality.h>
++#include <sys/ioctl.h>
++#include <net/if.h>
+ 
+ #ifndef RLIMIT_RTTIME
+ # define RLIMIT_RTTIME 15
+@@ -1811,6 +1813,36 @@
+   return strncmp (content, "deny", 4) == 0 ? 0 : 1;
+ }
+ 
++static int
++libcrun_configure_network (libcrun_error_t *err)
++{
++  int ret;
++  struct ifreq ifr;
++  cleanup_close int fd = -1;
++
++  fd = socket (AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
++  if (UNLIKELY (fd < 0))
++    return crun_make_error (err, errno, "create network configuration socket");
++
++  memset (&ifr, 0, sizeof (ifr));
++  strncpy (ifr.ifr_name, "lo", IFNAMSIZ - 1);
++
++  ret = ioctl (fd, SIOCGIFFLAGS, &ifr);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "get loopback interface flags");
++
++  if (ifr.ifr_flags & IFF_UP)
++    return 0;
++
++  ifr.ifr_flags |= IFF_UP;
++
++  ret = ioctl (fd, SIOCSIFFLAGS, &ifr);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "set loopback interface flags");
++
++  return 0;
++}
++
+ int
+ libcrun_container_enter_cgroup_ns (libcrun_container_t *container, libcrun_error_t *err)
+ {
+@@ -2562,6 +2594,13 @@
+         goto out;
+     }
+ 
++  if (flags_unshare & CLONE_NEWNET)
++    {
++      ret = libcrun_configure_network (err);
++      if (UNLIKELY (ret < 0))
++        goto out;
++    }
++
+   if (flags & CLONE_NEWPID)
+     {
+       /* A PID namespace is joined when a new process is created.  */
+--- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -46,6 +46,8 @@
+ #include <limits.h>
+ #include <inttypes.h>
+ #include <sys/personality.h>
++#include <sys/ioctl.h>
++#include <net/if.h>
+ 
+ #ifndef RLIMIT_RTTIME
+ # define RLIMIT_RTTIME 15
+@@ -1811,6 +1813,36 @@
+   return strncmp (content, "deny", 4) == 0 ? 0 : 1;
+ }
+ 
++static int
++libcrun_configure_network (libcrun_error_t *err)
++{
++  int ret;
++  struct ifreq ifr;
++  cleanup_close int fd = -1;
++
++  fd = socket (AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
++  if (UNLIKELY (fd < 0))
++    return crun_make_error (err, errno, "create network configuration socket");
++
++  memset (&ifr, 0, sizeof (ifr));
++  strncpy (ifr.ifr_name, "lo", IFNAMSIZ - 1);
++
++  ret = ioctl (fd, SIOCGIFFLAGS, &ifr);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "get loopback interface flags");
++
++  if (ifr.ifr_flags & IFF_UP)
++    return 0;
++
++  ifr.ifr_flags |= IFF_UP;
++
++  ret = ioctl (fd, SIOCSIFFLAGS, &ifr);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "set loopback interface flags");
++
++  return 0;
++}
++
+ int
+ libcrun_container_enter_cgroup_ns (libcrun_container_t *container, libcrun_error_t *err)
+ {
+@@ -2562,6 +2594,13 @@
+         goto out;
+     }
+ 
++  if (flags_unshare & CLONE_NEWNET)
++    {
++      ret = libcrun_configure_network (err);
++      if (UNLIKELY (ret < 0))
++        goto out;
++    }
++
+   if (flags & CLONE_NEWPID)
+     {
+       /* A PID namespace is joined when a new process is created.  */

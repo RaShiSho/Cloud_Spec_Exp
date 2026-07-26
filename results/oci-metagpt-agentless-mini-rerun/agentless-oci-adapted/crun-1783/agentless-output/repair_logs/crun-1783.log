@@ -1,5 +1,5 @@
-2026-07-25 22:48:38,826 - INFO - ================ repairing crun-1783 ================
-2026-07-25 22:48:38,829 - INFO - prompting with message:
+2026-07-26 13:28:30,334 - INFO - ================ repairing crun-1783 ================
+2026-07-26 13:28:30,338 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case crun-1783.
@@ -21,7 +21,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/crun-1783
@@ -16643,17 +16644,15 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-07-25 22:48:38,830 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:48:38,841 - INFO - Creating API request
-2026-07-25 22:49:12,137 - INFO - API response ChatCompletion(id='resp_0b24181790d3c1e1016a64cccaca348193b2df2c941930ccdf', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='I’ll inspect the writable worktree status first, as required.Bug localized to device-node creation in `src/libcrun/linux.c`.\n\nWhen creating default devices like `/dev/null`, `libcrun_create_dev()` creates the node relative to an already-open `/dev` fd, but then reopens it via `safe_openat(devfd, rootfs, "null", ...)`. The fallback path resolver interprets `"null"` relative to the rootfs instead of relative to `/dev`, producing the reported error: `cannot resolve \'null\' under rootfs`. Since `rel_dev` and `basename` are single path components under trusted directory fds, reopening them directly with `openat(..., O_NOFOLLOW | O_PATH)` is appropriate and avoids the incorrect rootfs-relative fallback.\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c\n<<<<<<< SEARCH\n          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return fd;\n=======\n          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "openat `%s`", device->path);\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c\n<<<<<<< SEARCH\n          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "openat `%s`", device->path);\n=======\n          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "openat `%s`", device->path);\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1784990952, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1510, prompt_tokens=142045, total_tokens=143555, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=992, rejected_prediction_tokens=None), prompt_tokens_details=None))
-2026-07-25 22:49:12,137 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:49:12,137 - INFO - raw output:
-I’ll inspect the writable worktree status first, as required.Bug localized to device-node creation in `src/libcrun/linux.c`.
-
-When creating default devices like `/dev/null`, `libcrun_create_dev()` creates the node relative to an already-open `/dev` fd, but then reopens it via `safe_openat(devfd, rootfs, "null", ...)`. The fallback path resolver interprets `"null"` relative to the rootfs instead of relative to `/dev`, producing the reported error: `cannot resolve 'null' under rootfs`. Since `rel_dev` and `basename` are single path components under trusted directory fds, reopening them directly with `openat(..., O_NOFOLLOW | O_PATH)` is appropriate and avoids the incorrect rootfs-relative fallback.
+2026-07-26 13:28:30,341 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:28:30,358 - INFO - Creating API request
+2026-07-26 13:29:02,174 - INFO - API response ChatCompletion(id='resp_03faabd7801bcde8016a659b01cf548197beaf24ca7cc20a3d', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Localized bug: `libcrun_create_dev()` creates device nodes relative to an already-open `/dev` directory fd (`devfd`), but then reopens direct `/dev/*` device nodes using `safe_openat(devfd, rootfs, rel_dev, ...)`. On systems using the fallback resolver, `safe_openat_fallback()` resolves `rel_dev` under `rootfs` instead of under `rootfs/dev`, producing the observed error like `cannot resolve \'null\' under rootfs`. Since the device was just created with `mknodat()` relative to `devfd`, reopening it should also be done relative to that same `devfd`.\n\n```python\n### src/libcrun/linux.c\n<<<<<<< SEARCH\n          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return fd;\n=======\n          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "openat `%s`", device->path);\n>>>>>>> REPLACE\n```\n\n```python\n### src/libcrun/linux.c\n<<<<<<< SEARCH\n          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "openat `%s`", device->path);\n=======\n          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, "openat `%s`", device->path);\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1785043741, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1436, prompt_tokens=142063, total_tokens=143499, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1033, rejected_prediction_tokens=None), prompt_tokens_details=None))
+2026-07-26 13:29:02,174 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:29:02,174 - INFO - raw output:
+Localized bug: `libcrun_create_dev()` creates device nodes relative to an already-open `/dev` directory fd (`devfd`), but then reopens direct `/dev/*` device nodes using `safe_openat(devfd, rootfs, rel_dev, ...)`. On systems using the fallback resolver, `safe_openat_fallback()` resolves `rel_dev` under `rootfs` instead of under `rootfs/dev`, producing the observed error like `cannot resolve 'null' under rootfs`. Since the device was just created with `mknodat()` relative to `devfd`, reopening it should also be done relative to that same `devfd`.
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c
+### src/libcrun/linux.c
 <<<<<<< SEARCH
           fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
@@ -16666,7 +16665,7 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
 ```
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c
+### src/libcrun/linux.c
 <<<<<<< SEARCH
           fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
@@ -16677,16 +16676,16 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
 ```
-2026-07-25 22:49:12,137 - INFO - === file_to_commands: ===
-2026-07-25 22:49:12,137 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c'": [
+2026-07-26 13:29:02,174 - INFO - === file_to_commands: ===
+2026-07-26 13:29:02,175 - INFO - {
+  "'src/libcrun/linux.c'": [
     "<<<<<<< SEARCH\n          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return fd;\n=======\n          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n>>>>>>> REPLACE",
     "<<<<<<< SEARCH\n          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n=======\n          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:49:12,137 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c' ===
-2026-07-25 22:49:12,137 - INFO - === edit_commands: ===
-2026-07-25 22:49:12,137 - INFO - <<<<<<< SEARCH
+2026-07-26 13:29:02,175 - INFO - === edited_file: 'src/libcrun/linux.c' ===
+2026-07-26 13:29:02,175 - INFO - === edit_commands: ===
+2026-07-26 13:29:02,175 - INFO - <<<<<<< SEARCH
           fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
             return fd;
@@ -16695,9 +16694,9 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
-2026-07-25 22:49:12,137 - INFO - 
+2026-07-26 13:29:02,175 - INFO - 
 ----------------------------------------
-2026-07-25 22:49:12,137 - INFO - <<<<<<< SEARCH
+2026-07-26 13:29:02,175 - INFO - <<<<<<< SEARCH
           fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
@@ -16706,28 +16705,52 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
-2026-07-25 22:49:12,137 - INFO - 
+2026-07-26 13:29:02,175 - INFO - 
 ----------------------------------------
-2026-07-25 22:49:12,138 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c' available=['src/libcrun/container.c', 'src/libcrun/linux.c', 'src/libcrun/criu.c', 'src/libcrun/utils.c', 'src/libcrun/cgroup-resources.c']
-2026-07-25 22:49:12,141 - INFO - === file_to_commands: ===
-2026-07-25 22:49:12,141 - INFO - === file_to_commands: ===
-2026-07-25 22:49:12,141 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c'": [
+2026-07-26 13:29:02,175 - ERROR - parse_diff_edit_commands failed for src/libcrun/linux.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:29:02,185 - INFO - extracted patch:
+2026-07-26 13:29:02,185 - INFO - --- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1695,9 +1695,9 @@
+           if (UNLIKELY (ret < 0))
+             return crun_make_error (err, errno, "mknodat `%s`", device->path);
+ 
+-          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
++          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+           if (UNLIKELY (fd < 0))
+-            return fd;
++            return crun_make_error (err, errno, "openat `%s`", device->path);
+ 
+           get_proc_self_fd_path (fd_buffer, fd);
+ 
+@@ -1750,7 +1750,7 @@
+           if (UNLIKELY (ret < 0))
+             return crun_make_error (err, errno, "mknodat `%s`", device->path);
+ 
+-          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
++          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+           if (UNLIKELY (fd < 0))
+             return crun_make_error (err, errno, "openat `%s`", device->path);
+ 
+2026-07-26 13:29:02,193 - INFO - === file_to_commands: ===
+2026-07-26 13:29:02,193 - INFO - === file_to_commands: ===
+2026-07-26 13:29:02,193 - INFO - {
+  "'src/libcrun/linux.c'": [
     "<<<<<<< SEARCH\n          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return fd;\n=======\n          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n>>>>>>> REPLACE",
     "<<<<<<< SEARCH\n          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n=======\n          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:49:12,141 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c'": [
+2026-07-26 13:29:02,193 - INFO - {
+  "'src/libcrun/linux.c'": [
     "<<<<<<< SEARCH\n          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return fd;\n=======\n          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n>>>>>>> REPLACE",
     "<<<<<<< SEARCH\n          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n=======\n          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);\n          if (UNLIKELY (fd < 0))\n            return crun_make_error (err, errno, \"openat `%s`\", device->path);\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:49:12,141 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c' ===
-2026-07-25 22:49:12,141 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c' ===
-2026-07-25 22:49:12,141 - INFO - === edit_commands: ===
-2026-07-25 22:49:12,141 - INFO - === edit_commands: ===
-2026-07-25 22:49:12,141 - INFO - <<<<<<< SEARCH
+2026-07-26 13:29:02,193 - INFO - === edited_file: 'src/libcrun/linux.c' ===
+2026-07-26 13:29:02,193 - INFO - === edited_file: 'src/libcrun/linux.c' ===
+2026-07-26 13:29:02,193 - INFO - === edit_commands: ===
+2026-07-26 13:29:02,193 - INFO - === edit_commands: ===
+2026-07-26 13:29:02,193 - INFO - <<<<<<< SEARCH
           fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
             return fd;
@@ -16736,7 +16759,7 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
-2026-07-25 22:49:12,141 - INFO - <<<<<<< SEARCH
+2026-07-26 13:29:02,193 - INFO - <<<<<<< SEARCH
           fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
             return fd;
@@ -16745,11 +16768,11 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
-2026-07-25 22:49:12,141 - INFO - 
+2026-07-26 13:29:02,193 - INFO - 
 ----------------------------------------
-2026-07-25 22:49:12,141 - INFO - 
+2026-07-26 13:29:02,193 - INFO - 
 ----------------------------------------
-2026-07-25 22:49:12,141 - INFO - <<<<<<< SEARCH
+2026-07-26 13:29:02,193 - INFO - <<<<<<< SEARCH
           fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
@@ -16758,7 +16781,7 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
-2026-07-25 22:49:12,141 - INFO - <<<<<<< SEARCH
+2026-07-26 13:29:02,193 - INFO - <<<<<<< SEARCH
           fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
@@ -16767,11 +16790,59 @@ When creating default devices like `/dev/null`, `libcrun_create_dev()` creates t
           if (UNLIKELY (fd < 0))
             return crun_make_error (err, errno, "openat `%s`", device->path);
 >>>>>>> REPLACE
-2026-07-25 22:49:12,141 - INFO - 
+2026-07-26 13:29:02,193 - INFO - 
 ----------------------------------------
-2026-07-25 22:49:12,141 - INFO - 
+2026-07-26 13:29:02,193 - INFO - 
 ----------------------------------------
-2026-07-25 22:49:12,141 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c' available=['src/libcrun/container.c', 'src/libcrun/linux.c', 'src/libcrun/criu.c', 'src/libcrun/utils.c', 'src/libcrun/cgroup-resources.c']
-2026-07-25 22:49:12,141 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/crun-1783/src/libcrun/linux.c' available=['src/libcrun/container.c', 'src/libcrun/linux.c', 'src/libcrun/criu.c', 'src/libcrun/utils.c', 'src/libcrun/cgroup-resources.c']
-2026-07-25 22:49:12,162 - INFO - differ_by_empty_lines = True
-2026-07-25 22:49:12,162 - INFO - differ_by_empty_lines = True
+2026-07-26 13:29:02,193 - ERROR - parse_diff_edit_commands failed for src/libcrun/linux.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:29:02,193 - ERROR - parse_diff_edit_commands failed for src/libcrun/linux.c; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:29:02,198 - INFO - extracted patch:
+2026-07-26 13:29:02,198 - INFO - extracted patch:
+2026-07-26 13:29:02,199 - INFO - --- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1695,9 +1695,9 @@
+           if (UNLIKELY (ret < 0))
+             return crun_make_error (err, errno, "mknodat `%s`", device->path);
+ 
+-          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
++          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+           if (UNLIKELY (fd < 0))
+-            return fd;
++            return crun_make_error (err, errno, "openat `%s`", device->path);
+ 
+           get_proc_self_fd_path (fd_buffer, fd);
+ 
+@@ -1750,7 +1750,7 @@
+           if (UNLIKELY (ret < 0))
+             return crun_make_error (err, errno, "mknodat `%s`", device->path);
+ 
+-          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
++          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+           if (UNLIKELY (fd < 0))
+             return crun_make_error (err, errno, "openat `%s`", device->path);
+ 
+2026-07-26 13:29:02,199 - INFO - --- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1695,9 +1695,9 @@
+           if (UNLIKELY (ret < 0))
+             return crun_make_error (err, errno, "mknodat `%s`", device->path);
+ 
+-          fd = safe_openat (devfd, rootfs, rel_dev, O_PATH | O_CLOEXEC, 0, err);
++          fd = openat (devfd, rel_dev, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+           if (UNLIKELY (fd < 0))
+-            return fd;
++            return crun_make_error (err, errno, "openat `%s`", device->path);
+ 
+           get_proc_self_fd_path (fd_buffer, fd);
+ 
+@@ -1750,7 +1750,7 @@
+           if (UNLIKELY (ret < 0))
+             return crun_make_error (err, errno, "mknodat `%s`", device->path);
+ 
+-          fd = safe_openat (dirfd, rootfs, basename, O_PATH | O_CLOEXEC, 0, err);
++          fd = openat (dirfd, basename, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+           if (UNLIKELY (fd < 0))
+             return crun_make_error (err, errno, "openat `%s`", device->path);
+ 
+2026-07-26 13:29:02,248 - INFO - differ_by_empty_lines = False
+2026-07-26 13:29:02,248 - INFO - differ_by_empty_lines = False

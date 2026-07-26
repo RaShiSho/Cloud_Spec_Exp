@@ -1,2 +1,99 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/1f105225-dcb8-48ad-a4f7-f7b4bced8183/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/4fdbc080-ddaf-4c32-9097-08e1108d78d8/.git/
+[master (root-commit) e4b6476] initial commit
+ 1 file changed, 1719 insertions(+)
+ create mode 100644 crates/libcontainer/src/rootfs/mount.rs
 trying the 1-th sample ...
+--- crates/libcontainer/src/rootfs/mount.rs
++++ crates/libcontainer/src/rootfs/mount.rs
+@@ -638,11 +638,11 @@
+         // - bind: open_tree -> mount_setattr -> move_mount
+         // - nonbind: fsopen -> fsconfig -> fsmount -> mount_setattr -> move_mount
+         if is_bind {
+-            let recursive = m
+-                .options()
+-                .as_ref()
+-                .map(|v| v.iter().any(|o| o == "rbind"))
+-                .unwrap_or(false);
++            let recursive = mount_option_config.flags.contains(MsFlags::MS_REC)
++                || m.options()
++                    .as_ref()
++                    .map(|v| v.iter().any(|o| o == "rbind"))
++                    .unwrap_or(false);
+             let mut open_tree_flags: libc::c_uint = (libc::OPEN_TREE_CLOEXEC as libc::c_uint)
+                 | (libc::OPEN_TREE_CLONE as libc::c_uint)
+                 | (libc::AT_EMPTY_PATH as libc::c_uint);
+@@ -696,6 +696,27 @@
+                 None,
+                 linux::MOVE_MOUNT_T_EMPTY_PATH | linux::MOVE_MOUNT_F_EMPTY_PATH,
+             )?;
++
++            // For "rbind,ro", read-only must be applied to every mount in the
++            // cloned tree. A plain read-only bind/remount only affects the
++            // top-level mount and leaves recursive submounts writable.
++            if recursive && mount_option_config.flags.contains(MsFlags::MS_RDONLY) {
++                let mounted_dest: OwnedFd = root.resolve(container_dest)?.into();
++                let readonly_attr = linux::MountAttr {
++                    attr_set: linux::MOUNT_ATTR_RDONLY,
++                    attr_clr: 0,
++                    propagation: 0,
++                    userns_fd: 0,
++                };
++
++                self.syscall.mount_setattr(
++                    mounted_dest.as_fd(),
++                    Path::new(""),
++                    linux::AT_EMPTY_PATH | linux::AT_RECURSIVE,
++                    &readonly_attr,
++                    mem::size_of::<linux::MountAttr>(),
++                )?;
++            }
+         } else {
+             let mount_fn = || -> std::result::Result<(), SyscallError> {
+                 // fsopen
+--- crates/libcontainer/src/rootfs/mount.rs
++++ crates/libcontainer/src/rootfs/mount.rs
+@@ -638,11 +638,11 @@
+         // - bind: open_tree -> mount_setattr -> move_mount
+         // - nonbind: fsopen -> fsconfig -> fsmount -> mount_setattr -> move_mount
+         if is_bind {
+-            let recursive = m
+-                .options()
+-                .as_ref()
+-                .map(|v| v.iter().any(|o| o == "rbind"))
+-                .unwrap_or(false);
++            let recursive = mount_option_config.flags.contains(MsFlags::MS_REC)
++                || m.options()
++                    .as_ref()
++                    .map(|v| v.iter().any(|o| o == "rbind"))
++                    .unwrap_or(false);
+             let mut open_tree_flags: libc::c_uint = (libc::OPEN_TREE_CLOEXEC as libc::c_uint)
+                 | (libc::OPEN_TREE_CLONE as libc::c_uint)
+                 | (libc::AT_EMPTY_PATH as libc::c_uint);
+@@ -696,6 +696,27 @@
+                 None,
+                 linux::MOVE_MOUNT_T_EMPTY_PATH | linux::MOVE_MOUNT_F_EMPTY_PATH,
+             )?;
++
++            // For "rbind,ro", read-only must be applied to every mount in the
++            // cloned tree. A plain read-only bind/remount only affects the
++            // top-level mount and leaves recursive submounts writable.
++            if recursive && mount_option_config.flags.contains(MsFlags::MS_RDONLY) {
++                let mounted_dest: OwnedFd = root.resolve(container_dest)?.into();
++                let readonly_attr = linux::MountAttr {
++                    attr_set: linux::MOUNT_ATTR_RDONLY,
++                    attr_clr: 0,
++                    propagation: 0,
++                    userns_fd: 0,
++                };
++
++                self.syscall.mount_setattr(
++                    mounted_dest.as_fd(),
++                    Path::new(""),
++                    linux::AT_EMPTY_PATH | linux::AT_RECURSIVE,
++                    &readonly_attr,
++                    mem::size_of::<linux::MountAttr>(),
++                )?;
++            }
+         } else {
+             let mount_fn = || -> std::result::Result<(), SyscallError> {
+                 // fsopen

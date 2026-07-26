@@ -1,5 +1,5 @@
-2026-07-25 22:55:40,048 - INFO - ================ repairing runc-5182 ================
-2026-07-25 22:55:40,049 - INFO - prompting with message:
+2026-07-26 13:59:25,242 - INFO - ================ repairing runc-5182 ================
+2026-07-26 13:59:25,268 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case runc-5182.
@@ -21,7 +21,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-5182
@@ -3985,1828 +3986,1234 @@ func (p *Process) InitializeIO(rootuid, rootgid int) (i *IO, err error) {
 
 
 
-### libcontainer/integration/exec_test.go
-package integration
+### libcontainer/criu_linux.go
+//go:build !runc_nocriu
+
+package libcontainer
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
-	"strconv"
 	"strings"
-	"syscall"
-	"testing"
+	"time"
+	"unicode"
+
+	"github.com/checkpoint-restore/go-criu/v7"
+	criurpc "github.com/checkpoint-restore/go-criu/v7/rpc"
+	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/opencontainers/cgroups"
-	"github.com/opencontainers/cgroups/systemd"
-	"github.com/opencontainers/runc/internal/linux"
 	"github.com/opencontainers/runc/internal/pathrs"
-	"github.com/opencontainers/runc/libcontainer"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/internal/userns"
-	"github.com/opencontainers/runtime-spec/specs-go"
-
-	"golang.org/x/sys/unix"
+	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
-func TestExecPS(t *testing.T) {
-	testExecPS(t, false)
-}
+var criuFeatures *criurpc.CriuFeatures
 
-func TestUsernsExecPS(t *testing.T) {
-	needUserNS(t)
-	testExecPS(t, true)
-}
+var ErrCriuMissingFeatures = errors.New("criu is missing features")
 
-func testExecPS(t *testing.T, userns bool) {
-	if testing.Short() {
-		return
-	}
-	config := newTemplateConfig(t, &tParam{userns: userns})
+func (c *Container) checkCriuFeatures(criuOpts *CriuOpts, criuFeat *criurpc.CriuFeatures) error {
+	t := criurpc.CriuReqType_FEATURE_CHECK
 
-	buffers := runContainerOk(t, config, "ps", "-o", "pid,user,comm")
-	lines := strings.Split(buffers.Stdout.String(), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("more than one process running for output %q", buffers.Stdout.String())
-	}
-	expected := `1 root     ps`
-	actual := strings.Trim(lines[1], "\n ")
-	if actual != expected {
-		t.Fatalf("expected output %q but received %q", expected, actual)
-	}
-}
+	// make sure the features we are looking for are really not from
+	// some previous check
+	criuFeatures = nil
 
-func TestIPCPrivate(t *testing.T) {
-	if testing.Short() {
-		return
+	req := &criurpc.CriuReq{
+		Type:     &t,
+		Features: criuFeat,
 	}
 
-	l, err := os.Readlink("/proc/1/ns/ipc")
-	ok(t, err)
-
-	config := newTemplateConfig(t, nil)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/ipc")
-
-	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual == l {
-		t.Fatalf("ipc link should be private to the container but equals host %q %q", actual, l)
-	}
-}
-
-func TestIPCHost(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	l, err := os.Readlink("/proc/1/ns/ipc")
-	ok(t, err)
-
-	config := newTemplateConfig(t, nil)
-	config.Namespaces.Remove(configs.NEWIPC)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/ipc")
-
-	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
-		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
-	}
-}
-
-func TestIPCJoinPath(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	l, err := os.Readlink("/proc/1/ns/ipc")
-	ok(t, err)
-
-	config := newTemplateConfig(t, nil)
-	config.Namespaces.Add(configs.NEWIPC, "/proc/1/ns/ipc")
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/ipc")
-
-	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
-		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
-	}
-}
-
-func TestIPCBadPath(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	config.Namespaces.Add(configs.NEWIPC, "/proc/1/ns/ipcc")
-
-	if _, _, err := runContainer(t, config, "true"); err == nil {
-		t.Fatal("container succeeded with bad ipc path")
-	}
-}
-
-func TestRlimit(t *testing.T) {
-	testRlimit(t, false)
-}
-
-func TestUsernsRlimit(t *testing.T) {
-	needUserNS(t)
-	testRlimit(t, true)
-}
-
-func testRlimit(t *testing.T, userns bool) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, &tParam{userns: userns})
-
-	// Ensure limit is lower than what the config requests to test that in a user namespace
-	// the Setrlimit call happens early enough that we still have permissions to raise the limit.
-	// Do not change the Cur value to be equal to the Max value, please see:
-	// https://github.com/opencontainers/runc/pull/4265#discussion_r1589666444
-	ok(t, unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{
-		Max: 1024,
-		Cur: 512,
-	}))
-
-	out := runContainerOk(t, config, "/bin/sh", "-c", "ulimit -n")
-	if limit := strings.TrimSpace(out.Stdout.String()); limit != "1025" {
-		t.Fatalf("expected rlimit to be 1025, got %s", limit)
-	}
-}
-
-func TestEnter(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	// Execute a first process in the container
-	stdinR, stdinW, err := os.Pipe()
-	ok(t, err)
-
-	var stdout, stdout2 bytes.Buffer
-
-	pconfig := libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"sh", "-c", "cat && readlink /proc/self/ns/pid"},
-		Env:    standardEnvironment,
-		Stdin:  stdinR,
-		Stdout: &stdout,
-		Init:   true,
-	}
-	err = container.Run(&pconfig)
-	_ = stdinR.Close()
-	defer stdinW.Close()
-	ok(t, err)
-	pid, err := pconfig.Pid()
-	ok(t, err)
-
-	// Execute another process in the container
-	stdinR2, stdinW2, err := os.Pipe()
-	ok(t, err)
-	pconfig2 := libcontainer.Process{
-		Cwd: "/",
-		Env: standardEnvironment,
-	}
-	pconfig2.Args = []string{"sh", "-c", "cat && readlink /proc/self/ns/pid"}
-	pconfig2.Stdin = stdinR2
-	pconfig2.Stdout = &stdout2
-
-	err = container.Run(&pconfig2)
-	_ = stdinR2.Close()
-	defer stdinW2.Close()
-	ok(t, err)
-
-	pid2, err := pconfig2.Pid()
-	ok(t, err)
-
-	processes, err := container.Processes()
-	ok(t, err)
-
-	n := 0
-	for i := range processes {
-		if processes[i] == pid || processes[i] == pid2 {
-			n++
-		}
-	}
-	if n != 2 {
-		t.Fatal("unexpected number of processes", processes, pid, pid2)
-	}
-
-	// Wait processes
-	_ = stdinW2.Close()
-	waitProcess(&pconfig2, t)
-
-	_ = stdinW.Close()
-	waitProcess(&pconfig, t)
-
-	// Check that both processes live in the same pidns
-	pidns := stdout.String()
-	ok(t, err)
-
-	pidns2 := stdout2.String()
-	ok(t, err)
-
-	if pidns != pidns2 {
-		t.Fatal("The second process isn't in the required pid namespace", pidns, pidns2)
-	}
-}
-
-func TestProcessEnv(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:  "/",
-		Args: []string{"sh", "-c", "env"},
-		Env: []string{
-			"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-			"HOSTNAME=integration",
-			"TERM=xterm",
-			"FOO=BAR",
-		},
-		Stdin:  nil,
-		Stdout: &stdout,
-		Init:   true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	outputEnv := stdout.String()
-
-	// Check that the environment has the key/value pair we added
-	if !strings.Contains(outputEnv, "FOO=BAR") {
-		t.Fatal("Environment doesn't have the expected FOO=BAR key/value pair: ", outputEnv)
-	}
-
-	// Make sure that HOME is set
-	if !strings.Contains(outputEnv, "HOME=/root") {
-		t.Fatal("Environment doesn't have HOME set: ", outputEnv)
-	}
-}
-
-func TestProcessEmptyCaps(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	config.Capabilities = nil
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"sh", "-c", "cat /proc/self/status"},
-		Env:    standardEnvironment,
-		Stdin:  nil,
-		Stdout: &stdout,
-		Init:   true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	outputStatus := stdout.String()
-
-	lines := strings.Split(outputStatus, "\n")
-
-	effectiveCapsLine := ""
-	for _, l := range lines {
-		line := strings.TrimSpace(l)
-		if strings.Contains(line, "CapEff:") {
-			effectiveCapsLine = line
-			break
-		}
-	}
-
-	if effectiveCapsLine == "" {
-		t.Fatal("Couldn't find effective caps: ", outputStatus)
-	}
-}
-
-func TestProcessCaps(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:          "/",
-		Args:         []string{"sh", "-c", "cat /proc/self/status"},
-		Env:          standardEnvironment,
-		Stdin:        nil,
-		Stdout:       &stdout,
-		Capabilities: &configs.Capabilities{},
-		Init:         true,
-	}
-	pconfig.Capabilities.Bounding = append(config.Capabilities.Bounding, "CAP_NET_ADMIN")
-	pconfig.Capabilities.Permitted = append(config.Capabilities.Permitted, "CAP_NET_ADMIN")
-	pconfig.Capabilities.Effective = append(config.Capabilities.Effective, "CAP_NET_ADMIN")
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	outputStatus := stdout.String()
-
-	lines := strings.Split(outputStatus, "\n")
-
-	effectiveCapsLine := ""
-	for _, l := range lines {
-		line := strings.TrimSpace(l)
-		if strings.Contains(line, "CapEff:") {
-			effectiveCapsLine = line
-			break
-		}
-	}
-
-	if effectiveCapsLine == "" {
-		t.Fatal("Couldn't find effective caps: ", outputStatus)
-	}
-
-	parts := strings.Split(effectiveCapsLine, ":")
-	effectiveCapsStr := strings.TrimSpace(parts[1])
-
-	effectiveCaps, err := strconv.ParseUint(effectiveCapsStr, 16, 64)
+	err := c.criuSwrk(nil, req, criuOpts, nil)
 	if err != nil {
-		t.Fatal("Could not parse effective caps", err)
+		return fmt.Errorf("CRIU feature check failed: %w", err)
 	}
 
-	const netAdminMask = 1 << unix.CAP_NET_ADMIN
-	if effectiveCaps&netAdminMask != netAdminMask {
-		t.Fatal("CAP_NET_ADMIN is not set as expected")
-	}
-}
+	var missingFeatures []string
 
-func TestAdditionalGroups(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:              "/",
-		Args:             []string{"sh", "-c", "id", "-Gn"},
-		Env:              standardEnvironment,
-		Stdin:            nil,
-		Stdout:           &stdout,
-		AdditionalGroups: []int{3333, 99999},
-		Init:             true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	outputGroups := stdout.String()
-
-	// Check that the groups output has the groups that we specified.
-	for _, gid := range pconfig.AdditionalGroups {
-		if !strings.Contains(outputGroups, strconv.Itoa(gid)) {
-			t.Errorf("Listed groups do not contain gid %d as expected: %v", gid, outputGroups)
+	// The outer if checks if the fields actually exist
+	if (criuFeat.MemTrack != nil) &&
+		(criuFeatures.MemTrack != nil) {
+		// The inner if checks if they are set to true
+		if *criuFeat.MemTrack && !*criuFeatures.MemTrack {
+			missingFeatures = append(missingFeatures, "MemTrack")
+			logrus.Debugf("CRIU does not support MemTrack")
 		}
 	}
+
+	// This needs to be repeated for every new feature check.
+	// Is there a way to put this in a function. Reflection?
+	if (criuFeat.LazyPages != nil) &&
+		(criuFeatures.LazyPages != nil) {
+		if *criuFeat.LazyPages && !*criuFeatures.LazyPages {
+			missingFeatures = append(missingFeatures, "LazyPages")
+			logrus.Debugf("CRIU does not support LazyPages")
+		}
+	}
+
+	if len(missingFeatures) != 0 {
+		return fmt.Errorf("%w: %v", ErrCriuMissingFeatures, missingFeatures)
+	}
+
+	return nil
 }
 
-func TestFreeze(t *testing.T) {
-	for _, systemd := range []bool{true, false} {
-		for _, set := range []bool{true, false} {
-			name := ""
-			if systemd {
-				name += "Systemd"
-			} else {
-				name += "FS"
+func compareCriuVersion(criuVersion, minVersion int) error {
+	// simple function to perform the actual version compare
+	if criuVersion < minVersion {
+		return fmt.Errorf("CRIU version %d must be %d or higher", criuVersion, minVersion)
+	}
+
+	return nil
+}
+
+// checkCriuVersion checks CRIU version greater than or equal to minVersion.
+func (c *Container) checkCriuVersion(minVersion int) error {
+	// If the version of criu has already been determined there is no need
+	// to ask criu for the version again. Use the value from c.criuVersion.
+	if c.criuVersion != 0 {
+		return compareCriuVersion(c.criuVersion, minVersion)
+	}
+
+	criu := criu.MakeCriu()
+	var err error
+	c.criuVersion, err = criu.GetCriuVersion()
+	if err != nil {
+		return fmt.Errorf("CRIU version check failed: %w", err)
+	}
+
+	return compareCriuVersion(c.criuVersion, minVersion)
+}
+
+const descriptorsFilename = "descriptors.json"
+
+func (c *Container) addCriuDumpMount(req *criurpc.CriuReq, m *configs.Mount) {
+	mountDest := strings.TrimPrefix(m.Destination, c.config.Rootfs)
+	if dest, err := securejoin.SecureJoin(c.config.Rootfs, mountDest); err == nil {
+		mountDest = dest[len(c.config.Rootfs):]
+	}
+	extMnt := &criurpc.ExtMountMap{
+		Key: proto.String(mountDest),
+		Val: proto.String(mountDest),
+	}
+	req.Opts.ExtMnt = append(req.Opts.ExtMnt, extMnt)
+}
+
+func (c *Container) addMaskPaths(req *criurpc.CriuReq) error {
+	for _, path := range c.config.MaskPaths {
+		fi, err := os.Stat(fmt.Sprintf("/proc/%d/root/%s", c.initProcess.pid(), path))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
 			}
-			if set {
-				name += "ViaSet"
-			} else {
-				name += "ViaPauseResume"
+			return err
+		}
+		if fi.IsDir() {
+			continue
+		}
+
+		extMnt := &criurpc.ExtMountMap{
+			Key: proto.String(path),
+			Val: proto.String("/dev/null"),
+		}
+		req.Opts.ExtMnt = append(req.Opts.ExtMnt, extMnt)
+	}
+	return nil
+}
+
+func (c *Container) handleCriuConfigurationFile(rpcOpts *criurpc.CriuOpts) {
+	// CRIU will evaluate a configuration starting with release 3.11.
+	// Settings in the configuration file will overwrite RPC settings.
+	// Look for annotations. The annotation 'org.criu.config'
+	// specifies if CRIU should use a different, container specific
+	// configuration file.
+	configFile, exists := utils.SearchLabels(c.config.Labels, "org.criu.config")
+	if exists {
+		// If the annotation 'org.criu.config' exists and is set
+		// to a non-empty string, tell CRIU to use that as a
+		// configuration file. If the file does not exist, CRIU
+		// will just ignore it.
+		if configFile != "" {
+			rpcOpts.ConfigFile = proto.String(configFile)
+		}
+		// If 'org.criu.config' exists and is set to an empty
+		// string, a runc specific CRIU configuration file will
+		// be not set at all.
+	} else {
+		// If the mentioned annotation has not been found, specify
+		// a default CRIU configuration file.
+		rpcOpts.ConfigFile = proto.String("/etc/criu/runc.conf")
+	}
+}
+
+func (c *Container) criuSupportsExtNS(t configs.NamespaceType) bool {
+	var minVersion int
+	switch t {
+	case configs.NEWNET:
+		// CRIU supports different external namespace with different released CRIU versions.
+		// For network namespaces to work we need at least criu 3.11.0 => 31100.
+		minVersion = 31100
+	case configs.NEWPID:
+		// For PID namespaces criu 31500 is needed.
+		minVersion = 31500
+	default:
+		return false
+	}
+	return c.checkCriuVersion(minVersion) == nil
+}
+
+func criuNsToKey(t configs.NamespaceType) string {
+	// Construct "extRoot" + capitalize(nsName) + "NS" without allocations.
+	// Result format: "extRootNetNS", "extRootPidNS", etc.
+	nsName := configs.NsName(t)
+	out := make([]byte, 0, 32)
+	out = append(out, "extRoot"...)
+	// Capitalize the first character (this assumes it's in the a-z range).
+	if len(nsName) > 0 {
+		out = append(out, byte(unicode.ToUpper(rune(nsName[0]))))
+		out = append(out, nsName[1:]...)
+	}
+	out = append(out, "NS"...)
+
+	return string(out)
+}
+
+func (c *Container) handleCheckpointingExternalNamespaces(rpcOpts *criurpc.CriuOpts, t configs.NamespaceType) error {
+	if !c.criuSupportsExtNS(t) {
+		return fmt.Errorf("criu lacks support for external %s namespace during checkpointing process (old criu version?)", configs.NsName(t))
+	}
+
+	nsPath := c.config.Namespaces.PathOf(t)
+	if nsPath == "" {
+		return nil
+	}
+	// CRIU expects the information about an external namespace
+	// like this: --external <TYPE>[<inode>]:<key>
+	// This <key> is always 'extRoot<TYPE>NS'.
+	var ns unix.Stat_t
+	if err := unix.Stat(nsPath, &ns); err != nil {
+		return err
+	}
+	criuExternal := fmt.Sprintf("%s[%d]:%s", configs.NsName(t), ns.Ino, criuNsToKey(t))
+	rpcOpts.External = append(rpcOpts.External, criuExternal)
+
+	return nil
+}
+
+func (c *Container) handleRestoringNamespaces(rpcOpts *criurpc.CriuOpts, extraFiles *[]*os.File) error {
+	for _, ns := range c.config.Namespaces {
+		switch ns.Type {
+		case configs.NEWNET, configs.NEWPID:
+			// If the container is running in a network or PID namespace and has
+			// a path to the network or PID namespace configured, we will dump
+			// that network or PID namespace as an external namespace and we
+			// will expect that the namespace exists during restore.
+			// This basically means that CRIU will ignore the namespace
+			// and expect it to be setup correctly.
+			if err := c.handleRestoringExternalNamespaces(rpcOpts, extraFiles, ns.Type); err != nil {
+				return err
 			}
-			t.Run(name, func(t *testing.T) {
-				testFreeze(t, systemd, set)
+		default:
+			// For all other namespaces except NET and PID CRIU has
+			// a simpler way of joining the existing namespace if set
+			nsPath := c.config.Namespaces.PathOf(ns.Type)
+			if nsPath == "" {
+				continue
+			}
+			if ns.Type == configs.NEWCGROUP {
+				// CRIU has no code to handle NEWCGROUP
+				return fmt.Errorf("Do not know how to handle namespace %v", ns.Type)
+			}
+			// CRIU has code to handle NEWTIME, but it does not seem to be defined in runc
+
+			// CRIU will issue a warning for NEWUSER:
+			// criu/namespaces.c: 'join-ns with user-namespace is not fully tested and dangerous'
+			rpcOpts.JoinNs = append(rpcOpts.JoinNs, &criurpc.JoinNamespace{
+				Ns:     proto.String(configs.NsName(ns.Type)),
+				NsFile: proto.String(nsPath),
 			})
 		}
 	}
+
+	return nil
 }
 
-func testFreeze(t *testing.T, withSystemd, useSet bool) {
-	if testing.Short() {
-		return
-	}
-	if withSystemd && !systemd.IsRunningSystemd() {
-		t.Skip("Test requires systemd.")
+func (c *Container) handleRestoringExternalNamespaces(rpcOpts *criurpc.CriuOpts, extraFiles *[]*os.File, t configs.NamespaceType) error {
+	if !c.criuSupportsExtNS(t) {
+		return fmt.Errorf("criu lacks support for external %s namespace during the restoration process (old criu version?)", configs.NsName(t))
 	}
 
-	config := newTemplateConfig(t, &tParam{systemd: withSystemd})
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	stdinR, stdinW, err := os.Pipe()
-	ok(t, err)
-
-	pconfig := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR,
-		Init:  true,
+	nsPath := c.config.Namespaces.PathOf(t)
+	if nsPath == "" {
+		return nil
 	}
-	err = container.Run(pconfig)
-	_ = stdinR.Close()
-	defer stdinW.Close()
-	ok(t, err)
-
-	if !useSet {
-		err = container.Pause()
-	} else {
-		config.Cgroups.Resources.Freezer = cgroups.Frozen
-		err = container.Set(*config)
+	// CRIU wants the information about an existing namespace
+	// like this: --inherit-fd fd[<fd>]:<key>
+	// The <key> needs to be the same as during checkpointing.
+	// We are always using 'extRoot<TYPE>NS' as the key in this.
+	nsFd, err := os.Open(nsPath)
+	if err != nil {
+		logrus.Errorf("If a specific network namespace is defined it must exist: %s", err)
+		return fmt.Errorf("Requested network namespace %v does not exist", nsPath)
 	}
-	ok(t, err)
-
-	state, err := container.Status()
-	ok(t, err)
-	if state != libcontainer.Paused {
-		t.Fatal("Unexpected state: ", state)
+	inheritFd := &criurpc.InheritFd{
+		Key: proto.String(criuNsToKey(t)),
+		// The offset of four is necessary because 0, 1, 2 and 3 are
+		// already used by stdin, stdout, stderr, 'criu swrk' socket.
+		Fd: proto.Int32(int32(4 + len(*extraFiles))),
 	}
+	rpcOpts.InheritFd = append(rpcOpts.InheritFd, inheritFd)
+	// All open FDs need to be transferred to CRIU via extraFiles
+	*extraFiles = append(*extraFiles, nsFd)
 
-	if !useSet {
-		err = container.Resume()
-	} else {
-		config.Cgroups.Resources.Freezer = cgroups.Thawed
-		err = container.Set(*config)
-	}
-	ok(t, err)
-
-	_ = stdinW.Close()
-	waitProcess(pconfig, t)
+	return nil
 }
 
-func TestCpuShares(t *testing.T) {
-	testCpuShares(t, false)
-}
+func (c *Container) Checkpoint(criuOpts *CriuOpts) error {
+	const logFile = "dump.log"
+	c.m.Lock()
+	defer c.m.Unlock()
 
-func TestCpuSharesSystemd(t *testing.T) {
-	if !systemd.IsRunningSystemd() {
-		t.Skip("Test requires systemd.")
-	}
-	testCpuShares(t, true)
-}
+	// Checkpoint is unlikely to work if os.Geteuid() != 0 || system.RunningInUserNS().
+	// (CLI prints a warning)
+	// TODO(avagin): Figure out how to make this work nicely. CRIU 2.0 has
+	//               support for doing unprivileged dumps, but the setup of
+	//               rootless containers might make this complicated.
 
-func testCpuShares(t *testing.T, systemd bool) {
-	if testing.Short() {
-		return
-	}
-	if cgroups.IsCgroup2UnifiedMode() {
-		t.Skip("cgroup v2 does not support CpuShares")
+	// We are relying on the CRIU version RPC which was introduced with CRIU 3.0.0
+	if err := c.checkCriuVersion(30000); err != nil {
+		return err
 	}
 
-	config := newTemplateConfig(t, &tParam{systemd: systemd})
-	config.Cgroups.Resources.CpuShares = 1
-
-	if _, _, err := runContainer(t, config, "ps"); err == nil {
-		t.Fatal("runContainer should fail with invalid CpuShares")
-	}
-}
-
-func TestPids(t *testing.T) {
-	testPids(t, false)
-}
-
-func TestPidsSystemd(t *testing.T) {
-	if !systemd.IsRunningSystemd() {
-		t.Skip("Test requires systemd.")
-	}
-	testPids(t, true)
-}
-
-func mkPtr[T any](v T) *T { return &v }
-
-func testPids(t *testing.T, systemd bool) {
-	if testing.Short() {
-		return
+	if criuOpts.ImagesDirectory == "" {
+		return errors.New("invalid directory to save checkpoint")
 	}
 
-	config := newTemplateConfig(t, &tParam{systemd: systemd})
-	config.Cgroups.Resources.PidsLimit = mkPtr[int64](-1)
-
-	// Running multiple processes, expecting it to succeed with no pids limit.
-	runContainerOk(t, config, "/bin/sh", "-c", "/bin/true | /bin/true | /bin/true | /bin/true")
-
-	// Enforce a permissive limit. This needs to be fairly hand-wavey due to the
-	// issues with running Go binaries with pids restrictions (see below).
-	config.Cgroups.Resources.PidsLimit = mkPtr[int64](64)
-	runContainerOk(t, config, "/bin/sh", "-c", `
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true`)
-
-	// Enforce a restrictive limit. 64 * /bin/true + 1 * shell should cause
-	// this to fail reliably.
-	config.Cgroups.Resources.PidsLimit = mkPtr[int64](64)
-	out, _, err := runContainer(t, config, "/bin/sh", "-c", `
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true`)
-	if err != nil && !strings.Contains(out.String(), "sh: can't fork") {
-		t.Fatal(err)
+	cgMode, err := criuCgMode(criuOpts.ManageCgroupsMode)
+	if err != nil {
+		return err
 	}
 
-	if err == nil {
-		t.Fatal("expected fork() to fail with restrictive pids limit")
+	// Since a container can be C/R'ed multiple times,
+	// the checkpoint directory may already exist.
+	if err := os.Mkdir(criuOpts.ImagesDirectory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
 	}
 
-	// Minimal restrictions are not really supported, due to quirks in using Go
-	// due to the fact that it spawns random processes. While we do our best with
-	// late setting cgroup values, it's just too unreliable with very small pids.max.
-	// As such, we don't test that case. YMMV.
-}
-
-func TestCgroupResourcesUnifiedErrorOnV1(t *testing.T) {
-	testCgroupResourcesUnifiedErrorOnV1(t, false)
-}
-
-func TestCgroupResourcesUnifiedErrorOnV1Systemd(t *testing.T) {
-	if !systemd.IsRunningSystemd() {
-		t.Skip("Test requires systemd.")
+	logDir := criuOpts.ImagesDirectory
+	imageDir, err := os.Open(criuOpts.ImagesDirectory)
+	if err != nil {
+		return err
 	}
-	testCgroupResourcesUnifiedErrorOnV1(t, true)
-}
+	defer imageDir.Close()
 
-func testCgroupResourcesUnifiedErrorOnV1(t *testing.T, systemd bool) {
-	if testing.Short() {
-		return
-	}
-	if cgroups.IsCgroup2UnifiedMode() {
-		t.Skip("requires cgroup v1")
-	}
-
-	config := newTemplateConfig(t, &tParam{systemd: systemd})
-	config.Cgroups.Resources.Unified = map[string]string{
-		"memory.min": "10240",
-	}
-	_, _, err := runContainer(t, config, "true")
-	if !strings.Contains(err.Error(), cgroups.ErrV1NoUnified.Error()) {
-		t.Fatalf("expected error to contain %v, got %v", cgroups.ErrV1NoUnified, err)
-	}
-}
-
-func TestCgroupResourcesUnified(t *testing.T) {
-	testCgroupResourcesUnified(t, false)
-}
-
-func TestCgroupResourcesUnifiedSystemd(t *testing.T) {
-	if !systemd.IsRunningSystemd() {
-		t.Skip("Test requires systemd.")
-	}
-	testCgroupResourcesUnified(t, true)
-}
-
-func testCgroupResourcesUnified(t *testing.T, systemd bool) {
-	if testing.Short() {
-		return
-	}
-	if !cgroups.IsCgroup2UnifiedMode() {
-		t.Skip("requires cgroup v2")
+	rpcOpts := criurpc.CriuOpts{
+		ImagesDirFd:       proto.Int32(int32(imageDir.Fd())),
+		LogLevel:          proto.Int32(4),
+		LogFile:           proto.String(logFile),
+		Root:              proto.String(c.config.Rootfs),
+		ManageCgroups:     proto.Bool(true), // Obsoleted by ManageCgroupsMode.
+		ManageCgroupsMode: &cgMode,
+		NotifyScripts:     proto.Bool(true),
+		Pid:               proto.Int32(int32(c.initProcess.pid())),
+		ShellJob:          proto.Bool(criuOpts.ShellJob),
+		LeaveRunning:      proto.Bool(criuOpts.LeaveRunning),
+		TcpEstablished:    proto.Bool(criuOpts.TcpEstablished),
+		TcpSkipInFlight:   proto.Bool(criuOpts.TcpSkipInFlight),
+		LinkRemap:         proto.Bool(criuOpts.LinkRemap),
+		ExtUnixSk:         proto.Bool(criuOpts.ExternalUnixConnections),
+		FileLocks:         proto.Bool(criuOpts.FileLocks),
+		EmptyNs:           proto.Uint32(criuOpts.EmptyNs),
+		OrphanPtsMaster:   proto.Bool(true),
+		AutoDedup:         proto.Bool(criuOpts.AutoDedup),
+		LazyPages:         proto.Bool(criuOpts.LazyPages),
 	}
 
-	config := newTemplateConfig(t, &tParam{systemd: systemd})
-	config.Cgroups.Resources.Memory = 536870912     // 512M
-	config.Cgroups.Resources.MemorySwap = 536870912 // 512M, i.e. no swap
-	config.Namespaces.Add(configs.NEWCGROUP, "")
-
-	testCases := []struct {
-		name     string
-		cfg      map[string]string
-		expError string
-		cmd      []string
-		exp      string
-	}{
-		{
-			name: "dummy",
-			cmd:  []string{"true"},
-			exp:  "",
-		},
-		{
-			name: "set memory.min",
-			cfg:  map[string]string{"memory.min": "131072"},
-			cmd:  []string{"cat", "/sys/fs/cgroup/memory.min"},
-			exp:  "131072\n",
-		},
-		{
-			name: "check memory.max",
-			cmd:  []string{"cat", "/sys/fs/cgroup/memory.max"},
-			exp:  strconv.Itoa(int(config.Cgroups.Resources.Memory)) + "\n",
-		},
-
-		{
-			name: "overwrite memory.max",
-			cfg:  map[string]string{"memory.max": "268435456"},
-			cmd:  []string{"cat", "/sys/fs/cgroup/memory.max"},
-			exp:  "268435456\n",
-		},
-		{
-			name:     "no such controller error",
-			cfg:      map[string]string{"privet.vsem": "vam"},
-			expError: "controller \"privet\" not available",
-		},
-		{
-			name:     "slash in key error",
-			cfg:      map[string]string{"bad/key": "val"},
-			expError: "must be a file name (no slashes)",
-		},
-		{
-			name:     "no dot in key error",
-			cfg:      map[string]string{"badkey": "val"},
-			expError: "must be in the form CONTROLLER.PARAMETER",
-		},
-		{
-			name:     "read-only parameter",
-			cfg:      map[string]string{"pids.current": "42"},
-			expError: "failed to write",
-		},
-	}
-
-	for _, tc := range testCases {
-		config.Cgroups.Resources.Unified = tc.cfg
-		buffers, ret, err := runContainer(t, config, tc.cmd...)
-		if tc.expError != "" {
-			if err == nil {
-				t.Errorf("case %q failed: expected error, got nil", tc.name)
-				continue
-			}
-			if !strings.Contains(err.Error(), tc.expError) {
-				t.Errorf("case %q failed: expected error to contain %q, got %q", tc.name, tc.expError, err)
-			}
-			continue
+	// if criuOpts.WorkDirectory is not set, criu default is used.
+	if criuOpts.WorkDirectory != "" {
+		if err := os.Mkdir(criuOpts.WorkDirectory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
 		}
-		if err != nil {
-			t.Errorf("case %q failed: expected no error, got %v (command: %v, status: %d, stderr: %q)",
-				tc.name, err, tc.cmd, ret, buffers.Stderr.String())
-			continue
-		}
-		if tc.exp != "" {
-			out := buffers.Stdout.String()
-			if out != tc.exp {
-				t.Errorf("expected %q, got %q", tc.exp, out)
-			}
-		}
-	}
-}
-
-func TestContainerState(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	l, err := os.Readlink("/proc/1/ns/ipc")
-	ok(t, err)
-
-	config := newTemplateConfig(t, nil)
-	config.Namespaces = configs.Namespaces([]configs.Namespace{
-		{Type: configs.NEWNS},
-		{Type: configs.NEWUTS},
-		// host for IPC
-		// {Type: configs.NEWIPC},
-		{Type: configs.NEWPID},
-		{Type: configs.NEWNET},
-	})
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	stdinR, stdinW, err := os.Pipe()
-	ok(t, err)
-
-	p := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR,
-		Init:  true,
-	}
-	err = container.Run(p)
-	ok(t, err)
-	_ = stdinR.Close()
-	defer stdinW.Close()
-
-	st, err := container.State()
-	ok(t, err)
-
-	l1, err := os.Readlink(st.NamespacePaths[configs.NEWIPC])
-	ok(t, err)
-	if l1 != l {
-		t.Fatal("Container using non-host ipc namespace")
-	}
-	_ = stdinW.Close()
-	waitProcess(p, t)
-}
-
-func TestPassExtraFiles(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pipeout1, pipein1, err := os.Pipe()
-	ok(t, err)
-	pipeout2, pipein2, err := os.Pipe()
-	ok(t, err)
-	process := libcontainer.Process{
-		Cwd:        "/",
-		Args:       []string{"sh", "-c", "cd /proc/$$/fd; echo -n *; echo -n 1 >3; echo -n 2 >4"},
-		Env:        []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
-		ExtraFiles: []*os.File{pipein1, pipein2},
-		Stdin:      nil,
-		Stdout:     &stdout,
-		Init:       true,
-	}
-	err = container.Run(&process)
-	ok(t, err)
-
-	waitProcess(&process, t)
-
-	out := stdout.String()
-	// fd 5 is the directory handle for /proc/$$/fd
-	if out != "0 1 2 3 4 5" {
-		t.Fatalf("expected to have the file descriptors '0 1 2 3 4 5' passed to init, got '%s'", out)
-	}
-	buf := []byte{0}
-	_, err = pipeout1.Read(buf)
-	ok(t, err)
-	out1 := string(buf)
-	if out1 != "1" {
-		t.Fatalf("expected first pipe to receive '1', got '%s'", out1)
-	}
-
-	_, err = pipeout2.Read(buf)
-	ok(t, err)
-	out2 := string(buf)
-	if out2 != "2" {
-		t.Fatalf("expected second pipe to receive '2', got '%s'", out2)
-	}
-}
-
-func TestSysctl(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	config.Sysctl = map[string]string{
-		"kernel.shmmni": "8192",
-		"kernel/shmmax": "4194304",
-	}
-	const (
-		cmd = "cat shmmni shmmax"
-		exp = "8192\n4194304\n"
-	)
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:    "/proc/sys/kernel",
-		Args:   []string{"sh", "-c", cmd},
-		Env:    standardEnvironment,
-		Stdin:  nil,
-		Stdout: &stdout,
-		Init:   true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	out := stdout.String()
-	if out != exp {
-		t.Fatalf("expected %s, got %s", exp, out)
-	}
-}
-
-func TestMountCgroupRO(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-	config := newTemplateConfig(t, nil)
-	buffers := runContainerOk(t, config, "mount")
-
-	mountInfo := buffers.Stdout.String()
-	lines := strings.SplitSeq(mountInfo, "\n")
-	for l := range lines {
-		if strings.HasPrefix(l, "tmpfs on /sys/fs/cgroup") {
-			if !strings.Contains(l, "ro") ||
-				!strings.Contains(l, "nosuid") ||
-				!strings.Contains(l, "nodev") ||
-				!strings.Contains(l, "noexec") {
-				t.Fatalf("Mode expected to contain 'ro,nosuid,nodev,noexec': %s", l)
-			}
-			if !strings.Contains(l, "mode=755") {
-				t.Fatalf("Mode expected to contain 'mode=755': %s", l)
-			}
-			continue
-		}
-		if !strings.HasPrefix(l, "cgroup") {
-			continue
-		}
-		if !strings.Contains(l, "ro") ||
-			!strings.Contains(l, "nosuid") ||
-			!strings.Contains(l, "nodev") ||
-			!strings.Contains(l, "noexec") {
-			t.Fatalf("Mode expected to contain 'ro,nosuid,nodev,noexec': %s", l)
-		}
-	}
-}
-
-func TestMountCgroupRW(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-	config := newTemplateConfig(t, nil)
-	// clear the RO flag from cgroup mount
-	for _, m := range config.Mounts {
-		if m.Device == "cgroup" {
-			m.Flags = defaultMountFlags
-			break
-		}
-	}
-
-	buffers := runContainerOk(t, config, "mount")
-
-	mountInfo := buffers.Stdout.String()
-	lines := strings.SplitSeq(mountInfo, "\n")
-	for l := range lines {
-		if strings.HasPrefix(l, "tmpfs on /sys/fs/cgroup") {
-			if !strings.Contains(l, "rw") ||
-				!strings.Contains(l, "nosuid") ||
-				!strings.Contains(l, "nodev") ||
-				!strings.Contains(l, "noexec") {
-				t.Fatalf("Mode expected to contain 'rw,nosuid,nodev,noexec': %s", l)
-			}
-			if !strings.Contains(l, "mode=755") {
-				t.Fatalf("Mode expected to contain 'mode=755': %s", l)
-			}
-			continue
-		}
-		if !strings.HasPrefix(l, "cgroup") {
-			continue
-		}
-		if !strings.Contains(l, "rw") ||
-			!strings.Contains(l, "nosuid") ||
-			!strings.Contains(l, "nodev") ||
-			!strings.Contains(l, "noexec") {
-			t.Fatalf("Mode expected to contain 'rw,nosuid,nodev,noexec': %s", l)
-		}
-	}
-}
-
-func TestOomScoreAdj(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	config.OomScoreAdj = ptrInt(200)
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"sh", "-c", "cat /proc/self/oom_score_adj"},
-		Env:    standardEnvironment,
-		Stdin:  nil,
-		Stdout: &stdout,
-		Init:   true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-	outputOomScoreAdj := strings.TrimSpace(stdout.String())
-
-	// Check that the oom_score_adj matches the value that was set as part of config.
-	if outputOomScoreAdj != strconv.Itoa(*config.OomScoreAdj) {
-		t.Fatalf("Expected oom_score_adj %d; got %q", *config.OomScoreAdj, outputOomScoreAdj)
-	}
-}
-
-func TestHook(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	config := newTemplateConfig(t, nil)
-	expectedBundle := t.TempDir()
-	config.Labels = append(config.Labels, "bundle="+expectedBundle)
-
-	getRootfsFromBundle := func(bundle string) (string, error) {
-		f, err := os.Open(filepath.Join(bundle, "config.json"))
-		if err != nil {
-			return "", err
-		}
-
-		var config configs.Config
-		if err = json.NewDecoder(f).Decode(&config); err != nil {
-			return "", err
-		}
-		return config.Rootfs, nil
-	}
-	createFileFromBundle := func(filename, bundle string) error {
-		root, err := getRootfsFromBundle(bundle)
+		workDir, err := os.Open(criuOpts.WorkDirectory)
 		if err != nil {
 			return err
 		}
+		defer workDir.Close()
+		rpcOpts.WorkDirFd = proto.Int32(int32(workDir.Fd()))
+		logDir = criuOpts.WorkDirectory
+	}
 
-		f, err := os.Create(filepath.Join(root, filename))
-		if err != nil {
+	c.handleCriuConfigurationFile(&rpcOpts)
+
+	// If the container is running in a network namespace and has
+	// a path to the network namespace configured, we will dump
+	// that network namespace as an external namespace and we
+	// will expect that the namespace exists during restore.
+	// This basically means that CRIU will ignore the namespace
+	// and expect to be setup correctly.
+	if err := c.handleCheckpointingExternalNamespaces(&rpcOpts, configs.NEWNET); err != nil {
+		return err
+	}
+
+	// Same for possible external PID namespaces
+	if err := c.handleCheckpointingExternalNamespaces(&rpcOpts, configs.NEWPID); err != nil {
+		return err
+	}
+
+	// CRIU can use cgroup freezer; when rpcOpts.FreezeCgroup
+	// is not set, CRIU uses ptrace() to pause the processes.
+	// Note cgroup v2 freezer is only supported since CRIU release 3.14.
+	if !cgroups.IsCgroup2UnifiedMode() || c.checkCriuVersion(31400) == nil {
+		if fcg := c.cgroupManager.Path("freezer"); fcg != "" {
+			rpcOpts.FreezeCgroup = proto.String(fcg)
+		}
+	}
+
+	// append optional criu opts, e.g., page-server and port
+	if criuOpts.PageServer.Address != "" && criuOpts.PageServer.Port != 0 {
+		rpcOpts.Ps = &criurpc.CriuPageServerInfo{
+			Address: proto.String(criuOpts.PageServer.Address),
+			Port:    proto.Int32(criuOpts.PageServer.Port),
+		}
+	}
+
+	// pre-dump may need parentImage param to complete iterative migration
+	if criuOpts.ParentImage != "" {
+		rpcOpts.ParentImg = proto.String(criuOpts.ParentImage)
+		rpcOpts.TrackMem = proto.Bool(true)
+	}
+
+	var t criurpc.CriuReqType
+	if criuOpts.PreDump {
+		feat := criurpc.CriuFeatures{
+			MemTrack: proto.Bool(true),
+		}
+
+		if err := c.checkCriuFeatures(criuOpts, &feat); err != nil {
 			return err
 		}
-		return f.Close()
+
+		t = criurpc.CriuReqType_PRE_DUMP
+	} else {
+		t = criurpc.CriuReqType_DUMP
 	}
 
-	// Note FunctionHooks can't be serialized to json this means they won't be passed down to the container
-	// For CreateContainer and StartContainer which run in the container namespace, this means we need to pass Command Hooks.
-	hookFiles := map[configs.HookName]string{
-		configs.Prestart:        "prestart",
-		configs.CreateRuntime:   "createRuntime",
-		configs.CreateContainer: "createContainer",
-		configs.StartContainer:  "startContainer",
-		configs.Poststart:       "poststart",
+	if criuOpts.LazyPages {
+		// lazy migration requested; check if criu supports it
+		feat := criurpc.CriuFeatures{
+			LazyPages: proto.Bool(true),
+		}
+		if err := c.checkCriuFeatures(criuOpts, &feat); err != nil {
+			return err
+		}
+
+		if fd := criuOpts.StatusFd; fd != -1 {
+			// check that the FD is valid
+			flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+			if err != nil {
+				return fmt.Errorf("invalid --status-fd argument %d: %w", fd, err)
+			}
+			// and writable
+			if flags&unix.O_WRONLY == 0 {
+				return fmt.Errorf("invalid --status-fd argument %d: not writable", fd)
+			}
+
+			if c.checkCriuVersion(31500) != nil {
+				// For criu 3.15+, use notifications (see case "status-ready"
+				// in criuNotifications). Otherwise, rely on criu status fd.
+				rpcOpts.StatusFd = proto.Int32(int32(fd))
+			}
+		}
 	}
 
-	config.Hooks = configs.Hooks{
-		configs.Prestart: configs.HookList{
-			configs.NewFunctionHook(func(s *specs.State) error {
-				if s.Bundle != expectedBundle {
-					t.Fatalf("Expected prestart hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
-				}
-				return createFileFromBundle(hookFiles[configs.Prestart], s.Bundle)
-			}),
-		},
-		configs.CreateRuntime: configs.HookList{
-			configs.NewFunctionHook(func(s *specs.State) error {
-				if s.Bundle != expectedBundle {
-					t.Fatalf("Expected createRuntime hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
-				}
-				return createFileFromBundle(hookFiles[configs.CreateRuntime], s.Bundle)
-			}),
-		},
-		configs.CreateContainer: configs.HookList{
-			configs.NewCommandHook(&configs.Command{
-				Path: "/bin/bash",
-				Args: []string{"/bin/bash", "-c", fmt.Sprintf("touch ./%s", hookFiles[configs.CreateContainer])},
-			}),
-		},
-		configs.StartContainer: configs.HookList{
-			configs.NewCommandHook(&configs.Command{
-				Path: "/bin/sh",
-				Args: []string{"/bin/sh", "-c", fmt.Sprintf("touch /%s", hookFiles[configs.StartContainer])},
-			}),
-		},
-		configs.Poststart: configs.HookList{
-			configs.NewFunctionHook(func(s *specs.State) error {
-				if s.Bundle != expectedBundle {
-					t.Fatalf("Expected poststart hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
-				}
-				return createFileFromBundle(hookFiles[configs.Poststart], s.Bundle)
-			}),
-		},
-		configs.Poststop: configs.HookList{
-			configs.NewFunctionHook(func(s *specs.State) error {
-				if s.Bundle != expectedBundle {
-					t.Fatalf("Expected poststop hook bundlePath '%s'; got '%s'", expectedBundle, s.Bundle)
-				}
+	req := &criurpc.CriuReq{
+		Type: &t,
+		Opts: &rpcOpts,
+	}
 
-				root, err := getRootfsFromBundle(s.Bundle)
+	// no need to dump all this in pre-dump
+	if !criuOpts.PreDump {
+		hasCgroupns := c.config.Namespaces.Contains(configs.NEWCGROUP)
+		for _, m := range c.config.Mounts {
+			switch m.Device {
+			case "bind":
+				c.addCriuDumpMount(req, m)
+			case "cgroup":
+				if cgroups.IsCgroup2UnifiedMode() || hasCgroupns {
+					// real mount(s)
+					continue
+				}
+				// a set of "external" bind mounts
+				binds, err := getCgroupMounts(m)
 				if err != nil {
 					return err
 				}
+				for _, b := range binds {
+					c.addCriuDumpMount(req, b)
+				}
+			}
+		}
 
-				for _, hook := range hookFiles {
-					if err = os.RemoveAll(filepath.Join(root, hook)); err != nil {
-						return err
+		if err := c.addMaskPaths(req); err != nil {
+			return err
+		}
+
+		for _, node := range c.config.Devices {
+			m := &configs.Mount{Destination: node.Path, Source: node.Path}
+			c.addCriuDumpMount(req, m)
+		}
+
+		// Write the FD info to a file in the image directory
+		fdsJSON, err := json.Marshal(c.initProcess.externalDescriptors())
+		if err != nil {
+			return err
+		}
+
+		err = os.WriteFile(filepath.Join(criuOpts.ImagesDirectory, descriptorsFilename), fdsJSON, 0o600)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = c.criuSwrk(nil, req, criuOpts, nil)
+	if err != nil {
+		logCriuErrors(logDir, logFile)
+		return err
+	}
+	return nil
+}
+
+func (c *Container) addCriuRestoreMount(req *criurpc.CriuReq, m *configs.Mount) {
+	mountDest := strings.TrimPrefix(m.Destination, c.config.Rootfs)
+	if dest, err := securejoin.SecureJoin(c.config.Rootfs, mountDest); err == nil {
+		mountDest = dest[len(c.config.Rootfs):]
+	}
+	extMnt := &criurpc.ExtMountMap{
+		Key: proto.String(mountDest),
+		Val: proto.String(m.Source),
+	}
+	req.Opts.ExtMnt = append(req.Opts.ExtMnt, extMnt)
+}
+
+func (c *Container) restoreNetwork(req *criurpc.CriuReq, criuOpts *CriuOpts) {
+	for _, iface := range c.config.Networks {
+		switch iface.Type {
+		case "veth":
+			veth := new(criurpc.CriuVethPair)
+			veth.IfOut = proto.String(iface.HostInterfaceName)
+			veth.IfIn = proto.String(iface.Name)
+			req.Opts.Veths = append(req.Opts.Veths, veth)
+		case "loopback":
+			// Do nothing
+		}
+	}
+	for _, i := range criuOpts.VethPairs {
+		veth := new(criurpc.CriuVethPair)
+		veth.IfOut = proto.String(i.HostInterfaceName)
+		veth.IfIn = proto.String(i.ContainerInterfaceName)
+		req.Opts.Veths = append(req.Opts.Veths, veth)
+	}
+}
+
+func isOnTmpfs(path string, mounts []*configs.Mount) bool {
+	for _, m := range mounts {
+		if m.Device == "tmpfs" && strings.HasPrefix(path, m.Destination+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// prepareCriuRestoreMounts tries to set up the rootfs of the
+// container to be restored in the same way runc does it for
+// initial container creation. Even for a read-only rootfs container
+// runc modifies the rootfs to add mountpoints which do not exist.
+// This function also creates missing mountpoints as long as they
+// are not on top of a tmpfs, as CRIU will restore tmpfs content anyway.
+func (c *Container) prepareCriuRestoreMounts(mounts []*configs.Mount) error {
+	rootFd, err := os.OpenFile(c.config.Rootfs, unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_PATH, 0)
+	if err != nil {
+		return fmt.Errorf("open rootfs handle: %w", err)
+	}
+	defer rootFd.Close()
+
+	umounts := []string{}
+	defer func() {
+		for _, u := range umounts {
+			mntFile, err := pathrs.OpenInRoot(rootFd, u, unix.O_PATH)
+			if err != nil {
+				logrus.Warnf("Error during cleanup unmounting %s: open handle: %v", u, err)
+				continue
+			}
+			_ = utils.WithProcfdFile(mntFile, func(procfd string) error {
+				if err := unix.Unmount(procfd, unix.MNT_DETACH); err != nil {
+					if err != unix.EINVAL {
+						// Ignore EINVAL as it means 'target is not a mount point.'
+						// It probably has already been unmounted.
+						logrus.Warnf("Error during cleanup unmounting of %s (%s): %v", procfd, u, err)
 					}
 				}
 				return nil
-			}),
+			})
+			_ = mntFile.Close()
+		}
+	}()
+	// Now go through all mounts and create the required mountpoints.
+	for _, m := range mounts {
+		// No cgroup mount point(s) need to be created:
+		// * for v1, mount points are saved by CRIU because
+		//   /sys/fs/cgroup is a tmpfs mount;
+		// * for v2, /sys/fs/cgroup is a real mount, but
+		//   the mountpoint appears as soon as /sys is mounted.
+		if m.Device == "cgroup" {
+			continue
+		}
+		// If the mountpoint is on a tmpfs, skip it as CRIU will
+		// restore the complete tmpfs content from its checkpoint.
+		if isOnTmpfs(m.Destination, mounts) {
+			continue
+		}
+		me := mountEntry{Mount: m}
+		if err := me.createOpenMountpoint(rootFd); err != nil {
+			return fmt.Errorf("create criu restore mountpoint for %s mount: %w", me.Destination, err)
+		}
+		if me.dstFile != nil {
+			defer me.dstFile.Close()
+		}
+		// If the mount point is a bind mount, we need to mount
+		// it now so that runc can create the necessary mount
+		// points for mounts in bind mounts.
+		// This also happens during initial container creation.
+		// Without this CRIU restore will fail
+		// See: https://github.com/opencontainers/runc/issues/2748
+		// It is also not necessary to order the mount points
+		// because during initial container creation mounts are
+		// set up in the order they are configured.
+		if m.Device == "bind" {
+			if err := utils.WithProcfdFile(me.dstFile, func(dstFd string) error {
+				return mountViaFds(m.Source, nil, m.Destination, dstFd, "", unix.MS_BIND|unix.MS_REC, "")
+			}); err != nil {
+				return err
+			}
+			umounts = append(umounts, m.Destination)
+		}
+		if me.dstFile != nil {
+			// As this is being done in a loop, the defer earlier will be
+			// delayed until all mountpoints are handled -- for a config with
+			// many mountpoints this could result in a lot of open files. So we
+			// opportunistically close the file as well as deferring it.
+			_ = me.dstFile.Close()
+		}
+	}
+	return nil
+}
+
+// Restore restores the checkpointed container to a running state using the
+// criu(8) utility.
+func (c *Container) Restore(process *Process, criuOpts *CriuOpts) error {
+	const logFile = "restore.log"
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	var extraFiles []*os.File
+
+	// Restore is unlikely to work if os.Geteuid() != 0 || system.RunningInUserNS().
+	// (CLI prints a warning)
+	// TODO(avagin): Figure out how to make this work nicely. CRIU doesn't have
+	//               support for unprivileged restore at the moment.
+
+	// We are relying on the CRIU version RPC which was introduced with CRIU 3.0.0
+	if err := c.checkCriuVersion(30000); err != nil {
+		return err
+	}
+	if criuOpts.ImagesDirectory == "" {
+		return errors.New("invalid directory to restore checkpoint")
+	}
+
+	cgMode, err := criuCgMode(criuOpts.ManageCgroupsMode)
+	if err != nil {
+		return err
+	}
+
+	logDir := criuOpts.ImagesDirectory
+	imageDir, err := os.Open(criuOpts.ImagesDirectory)
+	if err != nil {
+		return err
+	}
+	defer imageDir.Close()
+	// CRIU has a few requirements for a root directory:
+	// * it must be a mount point
+	// * its parent must not be overmounted
+	// c.config.Rootfs is bind-mounted to a temporary directory
+	// to satisfy these requirements.
+	root := filepath.Join(c.stateDir, "criu-root")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		return err
+	}
+	defer os.Remove(root)
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	err = mount(c.config.Rootfs, root, "", unix.MS_BIND|unix.MS_REC, "")
+	if err != nil {
+		return err
+	}
+	defer unix.Unmount(root, unix.MNT_DETACH) //nolint: errcheck
+	t := criurpc.CriuReqType_RESTORE
+	req := &criurpc.CriuReq{
+		Type: &t,
+		Opts: &criurpc.CriuOpts{
+			ImagesDirFd:       proto.Int32(int32(imageDir.Fd())),
+			EvasiveDevices:    proto.Bool(true),
+			LogLevel:          proto.Int32(4),
+			LogFile:           proto.String(logFile),
+			RstSibling:        proto.Bool(true),
+			Root:              proto.String(root),
+			ManageCgroups:     proto.Bool(true), // Obsoleted by ManageCgroupsMode.
+			ManageCgroupsMode: &cgMode,
+			NotifyScripts:     proto.Bool(true),
+			ShellJob:          proto.Bool(criuOpts.ShellJob),
+			ExtUnixSk:         proto.Bool(criuOpts.ExternalUnixConnections),
+			TcpEstablished:    proto.Bool(criuOpts.TcpEstablished),
+			FileLocks:         proto.Bool(criuOpts.FileLocks),
+			EmptyNs:           proto.Uint32(criuOpts.EmptyNs),
+			OrphanPtsMaster:   proto.Bool(true),
+			AutoDedup:         proto.Bool(criuOpts.AutoDedup),
+			LazyPages:         proto.Bool(criuOpts.LazyPages),
 		},
 	}
 
-	// write config of json format into config.json under bundle
-	f, err := os.OpenFile(filepath.Join(expectedBundle, "config.json"), os.O_CREATE|os.O_RDWR, 0o644)
-	ok(t, err)
-	ok(t, json.NewEncoder(f).Encode(config))
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-
-	// e.g: 'ls /prestart ...'
-	var cmd strings.Builder
-	cmd.WriteString("ls ")
-	for _, hook := range hookFiles {
-		cmd.WriteString("/" + hook + " ")
+	if criuOpts.LsmProfile != "" {
+		// CRIU older than 3.16 has a bug which breaks the possibility
+		// to set a different LSM profile.
+		if err := c.checkCriuVersion(31600); err != nil {
+			return errors.New("--lsm-profile requires at least CRIU 3.16")
+		}
+		req.Opts.LsmProfile = proto.String(criuOpts.LsmProfile)
+	}
+	if criuOpts.LsmMountContext != "" {
+		if err := c.checkCriuVersion(31600); err != nil {
+			return errors.New("--lsm-mount-context requires at least CRIU 3.16")
+		}
+		req.Opts.LsmMountContext = proto.String(criuOpts.LsmMountContext)
 	}
 
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"sh", "-c", cmd.String()},
-		Env:    standardEnvironment,
-		Stdin:  nil,
-		Stdout: &stdout,
-		Init:   true,
+	if criuOpts.WorkDirectory != "" {
+		// Since a container can be C/R'ed multiple times,
+		// the work directory may already exist.
+		if err := os.Mkdir(criuOpts.WorkDirectory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		workDir, err := os.Open(criuOpts.WorkDirectory)
+		if err != nil {
+			return err
+		}
+		defer workDir.Close()
+		req.Opts.WorkDirFd = proto.Int32(int32(workDir.Fd()))
+		logDir = criuOpts.WorkDirectory
 	}
-	err = container.Run(&pconfig)
-	ok(t, err)
+	c.handleCriuConfigurationFile(req.Opts)
 
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	if err := container.Destroy(); err != nil {
-		t.Fatalf("container destroy %s", err)
+	if err := c.handleRestoringNamespaces(req.Opts, &extraFiles); err != nil {
+		return err
 	}
 
-	for _, hook := range []string{"prestart", "createRuntime", "poststart"} {
-		fi, err := os.Stat(filepath.Join(config.Rootfs, hook))
-		if err == nil || !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("expected file '%s to not exists, but it does", fi.Name())
+	// This will modify the rootfs of the container in the same way runc
+	// modifies the container during initial creation.
+	if err := c.prepareCriuRestoreMounts(c.config.Mounts); err != nil {
+		return err
+	}
+
+	hasCgroupns := c.config.Namespaces.Contains(configs.NEWCGROUP)
+	for _, m := range c.config.Mounts {
+		switch m.Device {
+		case "bind":
+			c.addCriuRestoreMount(req, m)
+		case "cgroup":
+			if cgroups.IsCgroup2UnifiedMode() || hasCgroupns {
+				continue
+			}
+			// cgroup v1 is a set of bind mounts, unless cgroupns is used
+			binds, err := getCgroupMounts(m)
+			if err != nil {
+				return err
+			}
+			for _, b := range binds {
+				c.addCriuRestoreMount(req, b)
+			}
 		}
 	}
+
+	if len(c.config.MaskPaths) > 0 {
+		m := &configs.Mount{Destination: "/dev/null", Source: "/dev/null"}
+		c.addCriuRestoreMount(req, m)
+	}
+
+	for _, node := range c.config.Devices {
+		m := &configs.Mount{Destination: node.Path, Source: node.Path}
+		c.addCriuRestoreMount(req, m)
+	}
+
+	if criuOpts.EmptyNs&unix.CLONE_NEWNET == 0 {
+		c.restoreNetwork(req, criuOpts)
+	}
+
+	var (
+		fds    []string
+		fdJSON []byte
+	)
+	if fdJSON, err = os.ReadFile(filepath.Join(criuOpts.ImagesDirectory, descriptorsFilename)); err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(fdJSON, &fds); err != nil {
+		return err
+	}
+	for i := range fds {
+		if s := fds[i]; strings.Contains(s, "pipe:") {
+			inheritFd := new(criurpc.InheritFd)
+			inheritFd.Key = proto.String(s)
+			inheritFd.Fd = proto.Int32(int32(i))
+			req.Opts.InheritFd = append(req.Opts.InheritFd, inheritFd)
+		}
+	}
+	err = c.criuSwrk(process, req, criuOpts, extraFiles)
+	if err != nil {
+		logCriuErrors(logDir, logFile)
+	}
+
+	// Now that CRIU is done let's close all opened FDs CRIU needed.
+	for _, fd := range extraFiles {
+		fd.Close()
+	}
+
+	return err
 }
 
-func TestSTDIOPermissions(t *testing.T) {
-	if testing.Short() {
+// logCriuErrors tries to find and log errors from a criu log file.
+// The output is similar to what "grep -n -B5 Error" does.
+func logCriuErrors(dir, file string) {
+	lookFor := []byte("Error") // Print the line that contains this...
+	const max = 5 + 1          // ... and a few preceding lines.
+
+	logFile := filepath.Join(dir, file)
+	f, err := os.Open(logFile)
+	if err != nil {
+		logrus.Warn(err)
 		return
 	}
+	defer f.Close()
 
-	config := newTemplateConfig(t, nil)
-	buffers := runContainerOk(t, config, "sh", "-c", "echo hi > /dev/stderr")
-
-	if actual := strings.Trim(buffers.Stderr.String(), "\n"); actual != "hi" {
-		t.Fatalf("stderr should equal be equal %q %q", actual, "hi")
-	}
-}
-
-func unmountOp(path string) {
-	_ = unix.Unmount(path, unix.MNT_DETACH)
-}
-
-// Launch container with rootfsPropagation in rslave mode. Also
-// bind mount a volume /mnt1host at /mnt1cont at the time of launch. Now do
-// another mount on host (/mnt1host/mnt2host) and this new mount should
-// propagate to container (/mnt1cont/mnt2host)
-func TestRootfsPropagationSlaveMount(t *testing.T) {
-	var mountPropagated bool
-	var dir1cont string
-	var dir2cont string
-
-	dir1cont = "/root/mnt1cont"
-
-	if testing.Short() {
-		return
-	}
-	config := newTemplateConfig(t, nil)
-	config.RootPropagation = unix.MS_SLAVE | unix.MS_REC
-
-	// Bind mount a volume.
-	dir1host := t.TempDir()
-
-	// Make this dir a "shared" mount point. This will make sure a
-	// slave relationship can be established in container.
-	err := unix.Mount(dir1host, dir1host, "bind", unix.MS_BIND|unix.MS_REC, "")
-	ok(t, err)
-	err = unix.Mount("", dir1host, "", unix.MS_SHARED|unix.MS_REC, "")
-	ok(t, err)
-	defer unmountOp(dir1host)
-
-	config.Mounts = append(config.Mounts, &configs.Mount{
-		Source:      dir1host,
-		Destination: dir1cont,
-		Device:      "bind",
-		Flags:       unix.MS_BIND | unix.MS_REC,
-	})
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	stdinR, stdinW, err := os.Pipe()
-	ok(t, err)
-
-	pconfig := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR,
-		Init:  true,
-	}
-
-	err = container.Run(pconfig)
-	_ = stdinR.Close()
-	defer stdinW.Close()
-	ok(t, err)
-
-	// Create mnt2host under dir1host and bind mount itself on top of it.
-	// This should be visible in container.
-	dir2host := filepath.Join(dir1host, "mnt2host")
-	err = os.Mkdir(dir2host, 0o700)
-	ok(t, err)
-	defer remove(dir2host)
-
-	err = unix.Mount(dir2host, dir2host, "bind", unix.MS_BIND, "")
-	defer unmountOp(dir2host)
-	ok(t, err)
-
-	// Run "cat /proc/self/mountinfo" in container and look at mount points.
-	var stdout2 bytes.Buffer
-
-	stdinR2, stdinW2, err := os.Pipe()
-	ok(t, err)
-
-	pconfig2 := &libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"cat", "/proc/self/mountinfo"},
-		Env:    standardEnvironment,
-		Stdin:  stdinR2,
-		Stdout: &stdout2,
-	}
-
-	err = container.Run(pconfig2)
-	_ = stdinR2.Close()
-	defer stdinW2.Close()
-	ok(t, err)
-
-	_ = stdinW2.Close()
-	waitProcess(pconfig2, t)
-	_ = stdinW.Close()
-	waitProcess(pconfig, t)
-
-	mountPropagated = false
-	dir2cont = filepath.Join(dir1cont, filepath.Base(dir2host))
-
-	propagationInfo := stdout2.String()
-	lines := strings.SplitSeq(propagationInfo, "\n")
-	for l := range lines {
-		linefields := strings.Split(l, " ")
-		if len(linefields) < 5 {
+	var lines [max][]byte
+	var idx, lineNo, printedLineNo int
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		lineNo++
+		lines[idx] = s.Bytes()
+		idx = (idx + 1) % max
+		if !bytes.Contains(s.Bytes(), lookFor) {
 			continue
 		}
-
-		if linefields[4] == dir2cont {
-			mountPropagated = true
-			break
+		// Found an error.
+		if printedLineNo == 0 {
+			logrus.Warnf("--- Quoting %q", logFile)
+		} else if lineNo-max > printedLineNo {
+			// Mark the gap.
+			logrus.Warn("...")
+		}
+		// Print the last lines.
+		for add := range max {
+			i := (idx + add) % max
+			s := lines[i]
+			actLineNo := lineNo + add - max + 1
+			if len(s) > 0 && actLineNo > printedLineNo {
+				logrus.Warnf("%d:%s", actLineNo, s)
+				printedLineNo = actLineNo
+			}
 		}
 	}
-
-	if mountPropagated != true {
-		t.Fatalf("Mount on host %s did not propagate in container at %s\n", dir2host, dir2cont)
+	if printedLineNo != 0 {
+		logrus.Warn("---") // End of "Quoting ...".
+	}
+	if err := s.Err(); err != nil {
+		logrus.Warnf("read %q: %v", logFile, err)
 	}
 }
 
-// Launch container with rootfsPropagation 0 so no propagation flags are
-// applied. Also bind mount a volume /mnt1host at /mnt1cont at the time of
-// launch. Now do a mount in container (/mnt1cont/mnt2cont) and this new
-// mount should propagate to host (/mnt1host/mnt2cont)
-
-func TestRootfsPropagationSharedMount(t *testing.T) {
-	var dir1cont string
-	var dir2cont string
-
-	dir1cont = "/root/mnt1cont"
-
-	if testing.Short() {
-		return
-	}
-	config := newTemplateConfig(t, nil)
-	config.RootPropagation = unix.MS_PRIVATE
-
-	// Bind mount a volume.
-	dir1host := t.TempDir()
-
-	// Make this dir a "shared" mount point. This will make sure a
-	// shared relationship can be established in container.
-	err := unix.Mount(dir1host, dir1host, "bind", unix.MS_BIND|unix.MS_REC, "")
-	ok(t, err)
-	err = unix.Mount("", dir1host, "", unix.MS_SHARED|unix.MS_REC, "")
-	ok(t, err)
-	defer unmountOp(dir1host)
-
-	config.Mounts = append(config.Mounts, &configs.Mount{
-		Source:      dir1host,
-		Destination: dir1cont,
-		Device:      "bind",
-		Flags:       unix.MS_BIND | unix.MS_REC,
-	})
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	stdinR, stdinW, err := os.Pipe()
-	ok(t, err)
-
-	pconfig := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR,
-		Init:  true,
+func (c *Container) criuApplyCgroups(pid int, req *criurpc.CriuReq) error {
+	// need to apply cgroups only on restore
+	if req.GetType() != criurpc.CriuReqType_RESTORE {
+		return nil
 	}
 
-	err = container.Run(pconfig)
-	_ = stdinR.Close()
-	defer stdinW.Close()
-	ok(t, err)
-
-	// Create mnt2cont under dir1host. This will become visible inside container
-	// at mnt1cont/mnt2cont. Bind mount itself on top of it. This
-	// should be visible on host now.
-	dir2host := filepath.Join(dir1host, "mnt2cont")
-	err = os.Mkdir(dir2host, 0o700)
-	ok(t, err)
-	defer remove(dir2host)
-
-	dir2cont = filepath.Join(dir1cont, filepath.Base(dir2host))
-
-	// Mount something in container and see if it is visible on host.
-	var stdout2 bytes.Buffer
-
-	stdinR2, stdinW2, err := os.Pipe()
-	ok(t, err)
-
-	pconfig2 := &libcontainer.Process{
-		Cwd:          "/",
-		Args:         []string{"mount", "--bind", dir2cont, dir2cont},
-		Env:          standardEnvironment,
-		Stdin:        stdinR2,
-		Stdout:       &stdout2,
-		Capabilities: &configs.Capabilities{},
+	// XXX: Do we need to deal with this case? AFAIK criu still requires root.
+	if err := c.cgroupManager.Apply(pid); err != nil {
+		return err
 	}
 
-	// Provide CAP_SYS_ADMIN
-	pconfig2.Capabilities.Bounding = append(config.Capabilities.Bounding, "CAP_SYS_ADMIN")
-	pconfig2.Capabilities.Permitted = append(config.Capabilities.Permitted, "CAP_SYS_ADMIN")
-	pconfig2.Capabilities.Effective = append(config.Capabilities.Effective, "CAP_SYS_ADMIN")
+	if err := c.cgroupManager.Set(c.config.Cgroups.Resources); err != nil {
+		return err
+	}
 
-	err = container.Run(pconfig2)
-	_ = stdinR2.Close()
-	defer stdinW2.Close()
-	ok(t, err)
-
-	// Wait for process
-	_ = stdinW2.Close()
-	waitProcess(pconfig2, t)
-	_ = stdinW.Close()
-	waitProcess(pconfig, t)
-
-	defer unmountOp(dir2host)
-
-	// Check if mount is visible on host or not.
-	out, err := exec.Command("findmnt", "-n", "-f", "-oTARGET", dir2host).CombinedOutput()
-	outtrim := string(bytes.TrimSpace(out))
+	// TODO(@kolyshkin): should we use c.cgroupManager.GetPaths()
+	// instead of reading /proc/pid/cgroup?
+	path := fmt.Sprintf("/proc/%d/cgroup", pid)
+	cgroupsPaths, err := cgroups.ParseCgroupFile(path)
 	if err != nil {
-		t.Logf("findmnt error %q: %q", err, outtrim)
+		return err
 	}
 
-	if outtrim != dir2host {
-		t.Fatalf("Mount in container on %s did not propagate to host on %s. finmnt output=%s", dir2cont, dir2host, outtrim)
-	}
-}
-
-func TestPIDHost(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	l, err := os.Readlink("/proc/1/ns/pid")
-	ok(t, err)
-
-	config := newTemplateConfig(t, nil)
-	config.Namespaces.Remove(configs.NEWPID)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/pid")
-
-	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
-		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
-	}
-}
-
-func TestHostPidnsInitKill(t *testing.T) {
-	config := newTemplateConfig(t, nil)
-	// Implicitly use host pid ns.
-	config.Namespaces.Remove(configs.NEWPID)
-	testPidnsInitKill(t, config)
-}
-
-func TestSharedPidnsInitKill(t *testing.T) {
-	config := newTemplateConfig(t, nil)
-	// Explicitly use host pid ns.
-	config.Namespaces.Add(configs.NEWPID, "/proc/1/ns/pid")
-	testPidnsInitKill(t, config)
-}
-
-func testPidnsInitKill(t *testing.T, config *configs.Config) {
-	if testing.Short() {
-		return
-	}
-
-	// Run a container with two long-running processes.
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	process1 := &libcontainer.Process{
-		Cwd:  "/",
-		Args: []string{"sleep", "1h"},
-		Env:  standardEnvironment,
-		Init: true,
-	}
-	err = container.Run(process1)
-	ok(t, err)
-
-	process2 := &libcontainer.Process{
-		Cwd:  "/",
-		Args: []string{"sleep", "1h"},
-		Env:  standardEnvironment,
-		Init: false,
-	}
-	err = container.Run(process2)
-	ok(t, err)
-
-	// Kill the container.
-	err = container.Signal(syscall.SIGKILL)
-	ok(t, err)
-	_, err = process1.Wait()
-	if err == nil {
-		t.Fatal("expected Wait to indicate failure")
-	}
-
-	// The non-init process must've also been killed. If not,
-	// the test will time out.
-	_, err = process2.Wait()
-	if err == nil {
-		t.Fatal("expected Wait to indicate failure")
-	}
-}
-
-func TestInitJoinPID(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-	// Execute a long-running container
-	config1 := newTemplateConfig(t, nil)
-	container1, err := newContainer(t, config1)
-	ok(t, err)
-	defer destroyContainer(container1)
-
-	stdinR1, stdinW1, err := os.Pipe()
-	ok(t, err)
-	init1 := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR1,
-		Init:  true,
-	}
-	err = container1.Run(init1)
-	_ = stdinR1.Close()
-	defer stdinW1.Close()
-	ok(t, err)
-
-	// get the state of the first container
-	state1, err := container1.State()
-	ok(t, err)
-	pidns1 := state1.NamespacePaths[configs.NEWPID]
-
-	// Run a container inside the existing pidns but with different cgroups
-	config2 := newTemplateConfig(t, nil)
-	config2.Namespaces.Add(configs.NEWPID, pidns1)
-	config2.Cgroups.Path = "integration/test2"
-	container2, err := newContainer(t, config2)
-	ok(t, err)
-	defer destroyContainer(container2)
-
-	stdinR2, stdinW2, err := os.Pipe()
-	ok(t, err)
-	init2 := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR2,
-		Init:  true,
-	}
-	err = container2.Run(init2)
-	_ = stdinR2.Close()
-	defer stdinW2.Close()
-	ok(t, err)
-	// get the state of the second container
-	state2, err := container2.State()
-	ok(t, err)
-
-	ns1, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/pid", state1.InitProcessPid))
-	ok(t, err)
-	ns2, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/pid", state2.InitProcessPid))
-	ok(t, err)
-	if ns1 != ns2 {
-		t.Errorf("pidns(%s), wanted %s", ns2, ns1)
-	}
-
-	// check that namespaces are not the same
-	if reflect.DeepEqual(state2.NamespacePaths, state1.NamespacePaths) {
-		t.Errorf("Namespaces(%v), original %v", state2.NamespacePaths,
-			state1.NamespacePaths)
-	}
-	// check that pidns is joined correctly. The initial container process list
-	// should contain the second container's init process
-	buffers := newStdBuffers()
-	ps := &libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"ps"},
-		Env:    standardEnvironment,
-		Stdout: buffers.Stdout,
-	}
-	err = container1.Run(ps)
-	ok(t, err)
-	waitProcess(ps, t)
-
-	// Stop init processes one by one. Stop the second container should
-	// not stop the first.
-	_ = stdinW2.Close()
-	waitProcess(init2, t)
-	_ = stdinW1.Close()
-	waitProcess(init1, t)
-
-	out := strings.TrimSpace(buffers.Stdout.String())
-	// output of ps inside the initial PID namespace should have
-	// 1 line of header,
-	// 2 lines of init processes,
-	// 1 line of ps process
-	if len(strings.Split(out, "\n")) != 4 {
-		t.Errorf("unexpected running process, output %q", out)
-	}
-}
-
-func TestInitJoinNetworkAndUser(t *testing.T) {
-	needUserNS(t)
-	if testing.Short() {
-		return
-	}
-
-	// Execute a long-running container
-	config1 := newTemplateConfig(t, &tParam{userns: true})
-	container1, err := newContainer(t, config1)
-	ok(t, err)
-	defer destroyContainer(container1)
-
-	stdinR1, stdinW1, err := os.Pipe()
-	ok(t, err)
-	init1 := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR1,
-		Init:  true,
-	}
-	err = container1.Run(init1)
-	_ = stdinR1.Close()
-	defer stdinW1.Close()
-	ok(t, err)
-
-	// get the state of the first container
-	state1, err := container1.State()
-	ok(t, err)
-	netns1 := state1.NamespacePaths[configs.NEWNET]
-	userns1 := state1.NamespacePaths[configs.NEWUSER]
-
-	// Run a container inside the existing pidns but with different cgroups.
-	config2 := newTemplateConfig(t, &tParam{userns: true})
-	config2.Namespaces.Add(configs.NEWNET, netns1)
-	config2.Namespaces.Add(configs.NEWUSER, userns1)
-	// Emulate specconv.setupUserNamespace().
-	uidMap, gidMap, err := userns.GetUserNamespaceMappings(userns1)
-	ok(t, err)
-	config2.UIDMappings = uidMap
-	config2.GIDMappings = gidMap
-	config2.Cgroups.Path = "integration/test2"
-	container2, err := newContainer(t, config2)
-	ok(t, err)
-	defer destroyContainer(container2)
-
-	stdinR2, stdinW2, err := os.Pipe()
-	ok(t, err)
-	init2 := &libcontainer.Process{
-		Cwd:   "/",
-		Args:  []string{"cat"},
-		Env:   standardEnvironment,
-		Stdin: stdinR2,
-		Init:  true,
-	}
-	err = container2.Run(init2)
-	_ = stdinR2.Close()
-	defer stdinW2.Close()
-	ok(t, err)
-
-	// get the state of the second container
-	state2, err := container2.State()
-	ok(t, err)
-
-	for _, ns := range []string{"net", "user"} {
-		ns1, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/%s", state1.InitProcessPid, ns))
-		ok(t, err)
-		ns2, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/%s", state2.InitProcessPid, ns))
-		ok(t, err)
-		if ns1 != ns2 {
-			t.Errorf("%s(%s), wanted %s", ns, ns2, ns1)
+	for c, p := range cgroupsPaths {
+		cgroupRoot := &criurpc.CgroupRoot{
+			Ctrl: proto.String(c),
+			Path: proto.String(p),
 		}
+		req.Opts.CgRoot = append(req.Opts.CgRoot, cgroupRoot)
 	}
 
-	// check that namespaces are not the same
-	if reflect.DeepEqual(state2.NamespacePaths, state1.NamespacePaths) {
-		t.Errorf("Namespaces(%v), original %v", state2.NamespacePaths,
-			state1.NamespacePaths)
-	}
-	// Stop init processes one by one. Stop the second container should
-	// not stop the first.
-	_ = stdinW2.Close()
-	waitProcess(init2, t)
-	_ = stdinW1.Close()
-	waitProcess(init1, t)
+	return nil
 }
 
-func TestTmpfsCopyUp(t *testing.T) {
-	if testing.Short() {
-		return
+func (c *Container) criuSwrk(process *Process, req *criurpc.CriuReq, opts *CriuOpts, extraFiles []*os.File) error {
+	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return err
 	}
 
-	config := newTemplateConfig(t, nil)
-	config.Mounts = append(config.Mounts, &configs.Mount{
-		Source:      "tmpfs",
-		Destination: "/etc",
-		Device:      "tmpfs",
-		Extensions:  configs.EXT_COPYUP,
-	})
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-	pconfig := libcontainer.Process{
-		Args:   []string{"ls", "/etc/passwd"},
-		Env:    standardEnvironment,
-		Stdin:  nil,
-		Stdout: &stdout,
-		Init:   true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	outputLs := stdout.String()
-
-	// Check that the ls output has /etc/passwd
-	if !strings.Contains(outputLs, "/etc/passwd") {
-		t.Fatalf("/etc/passwd not copied up as expected: %v", outputLs)
-	}
-}
-
-func TestCGROUPPrivate(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/cgroup"); errors.Is(err, os.ErrNotExist) {
-		t.Skip("Test requires cgroupns.")
-	}
-	if testing.Short() {
-		return
+	criuClient := os.NewFile(uintptr(fds[0]), "criu-transport-client")
+	criuClientFileCon, err := net.FileConn(criuClient)
+	criuClient.Close()
+	if err != nil {
+		return err
 	}
 
-	l, err := os.Readlink("/proc/1/ns/cgroup")
-	ok(t, err)
+	criuClientCon := criuClientFileCon.(*net.UnixConn)
+	defer criuClientCon.Close()
 
-	config := newTemplateConfig(t, nil)
-	config.Namespaces.Add(configs.NEWCGROUP, "")
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/cgroup")
+	criuServer := os.NewFile(uintptr(fds[1]), "criu-transport-server")
+	defer criuServer.Close()
 
-	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual == l {
-		t.Fatalf("cgroup link should be private to the container but equals host %q %q", actual, l)
+	if c.criuVersion != 0 {
+		// If the CRIU Version is still '0' then this is probably
+		// the initial CRIU run to detect the version. Skip it.
+		logrus.Debugf("Using CRIU %d", c.criuVersion)
 	}
-}
-
-func TestCGROUPHost(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/cgroup"); errors.Is(err, os.ErrNotExist) {
-		t.Skip("Test requires cgroupns.")
+	cmd := exec.Command("criu", "swrk", "3")
+	if process != nil {
+		cmd.Stdin = process.Stdin
+		cmd.Stdout = process.Stdout
+		cmd.Stderr = process.Stderr
 	}
-	if testing.Short() {
-		return
-	}
-
-	l, err := os.Readlink("/proc/1/ns/cgroup")
-	ok(t, err)
-
-	config := newTemplateConfig(t, nil)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/cgroup")
-
-	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
-		t.Fatalf("cgroup link not equal to host link %q %q", actual, l)
-	}
-}
-
-func TestFdLeaks(t *testing.T) {
-	testFdLeaks(t, false)
-}
-
-func TestFdLeaksSystemd(t *testing.T) {
-	if !systemd.IsRunningSystemd() {
-		t.Skip("Test requires systemd.")
-	}
-	testFdLeaks(t, true)
-}
-
-func fdList(t *testing.T) []string {
-	fdDir, closer, err := pathrs.ProcThreadSelfOpen("fd/", unix.O_DIRECTORY|unix.O_CLOEXEC)
-	ok(t, err)
-	defer closer()
-	defer fdDir.Close()
-
-	fds, err := fdDir.Readdirnames(-1)
-	ok(t, err)
-
-	// Remove the fdDir fd.
-	extraFd := strconv.Itoa(int(fdDir.Fd()))
-	return slices.DeleteFunc(fds, func(fd string) bool {
-		return fd == extraFd
-	})
-}
-
-func testFdLeaks(t *testing.T, systemd bool) {
-	if testing.Short() {
-		return
+	cmd.ExtraFiles = append(cmd.ExtraFiles, criuServer)
+	if extraFiles != nil {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, extraFiles...)
 	}
 
-	config := newTemplateConfig(t, &tParam{systemd: systemd})
-	// Run a container once to exclude file descriptors that are only
-	// opened once during the process lifetime by the library and are
-	// never closed. Those are not considered leaks.
-	//
-	// Examples of this open-once file descriptors are:
-	//  - /sys/fs/cgroup dirfd opened by prepareOpenat2 in libct/cgroups;
-	//  - dbus connection opened by getConnection in libct/cgroups/systemd.
-	runContainerOk(t, config, "true")
-	fds0 := fdList(t)
-
-	runContainerOk(t, config, "true")
-	fds1 := fdList(t)
-
-	if slices.Equal(fds0, fds1) {
-		return
+	if err := cmd.Start(); err != nil {
+		return err
 	}
-	// Show the extra opened files.
+	// we close criuServer so that even if CRIU crashes or unexpectedly exits, runc will not hang.
+	criuServer.Close()
+	// cmd.Process will be replaced by a restored init.
+	criuProcess := cmd.Process
 
-	excludedPaths := []string{
-		"anon_inode:bpf-prog", // FIXME: see https://github.com/opencontainers/runc/issues/2366#issuecomment-776411392
-	}
-
-	count := 0
-
-	procSelfFd, closer, err := pathrs.ProcThreadSelfOpen("fd/", unix.O_DIRECTORY|unix.O_CLOEXEC)
-	ok(t, err)
-	defer closer()
-	defer procSelfFd.Close()
-
-next_fd:
-	for _, fd1 := range fds1 {
-		for _, fd0 := range fds0 {
-			if fd0 == fd1 {
-				continue next_fd
+	var criuProcessState *os.ProcessState
+	defer func() {
+		if criuProcessState == nil {
+			criuClientCon.Close()
+			_, err := criuProcess.Wait()
+			if err != nil {
+				logrus.Warnf("wait on criuProcess returned %v", err)
 			}
 		}
-		dst, _ := linux.Readlinkat(procSelfFd, fd1)
-		for _, ex := range excludedPaths {
-			if ex == dst {
-				continue next_fd
+	}()
+
+	if err := c.criuApplyCgroups(criuProcess.Pid, req); err != nil {
+		return err
+	}
+
+	var extFds []string
+	if process != nil {
+		extFds, err = getPipeFds(criuProcess.Pid)
+		if err != nil {
+			return err
+		}
+	}
+
+	logrus.Debugf("Using CRIU in %s mode", req.GetType().String())
+	// In the case of criurpc.CriuReqType_FEATURE_CHECK req.GetOpts()
+	// should be empty. For older CRIU versions it still will be
+	// available but empty. criurpc.CriuReqType_VERSION actually
+	// has no req.GetOpts().
+	if logrus.GetLevel() >= logrus.DebugLevel &&
+		(req.GetType() != criurpc.CriuReqType_FEATURE_CHECK &&
+			req.GetType() != criurpc.CriuReqType_VERSION) {
+
+		val := reflect.ValueOf(req.GetOpts())
+		v := reflect.Indirect(val)
+		for i := range v.NumField() {
+			st := v.Type()
+			name := st.Field(i).Name
+			if 'A' <= name[0] && name[0] <= 'Z' {
+				value := val.MethodByName("Get" + name).Call([]reflect.Value{})
+				logrus.Debugf("CRIU option %s with value %v", name, value[0])
 			}
 		}
+	}
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return err
+	}
+	_, err = criuClientCon.Write(data)
+	if err != nil {
+		return err
+	}
 
-		count++
-		t.Logf("extra fd %s -> %s", fd1, dst)
+	buf := make([]byte, 10*4096)
+	oob := make([]byte, 4096)
+	for {
+		n, oobn, _, _, err := criuClientCon.ReadMsgUnix(buf, oob)
+		if req.Opts != nil && req.Opts.StatusFd != nil {
+			// Close status_fd as soon as we got something back from criu,
+			// assuming it has consumed (reopened) it by this time.
+			// Otherwise it will might be left open forever and whoever
+			// is waiting on it will wait forever.
+			fd := int(*req.Opts.StatusFd)
+			_ = unix.Close(fd)
+			req.Opts.StatusFd = nil
+		}
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return errors.New("unexpected EOF")
+		}
+		if n == len(buf) {
+			return errors.New("buffer is too small")
+		}
+
+		resp := new(criurpc.CriuResp)
+		err = proto.Unmarshal(buf[:n], resp)
+		if err != nil {
+			return err
+		}
+		t := resp.GetType()
+		if !resp.GetSuccess() {
+			return fmt.Errorf("criu failed: type %s errno %d", t, resp.GetCrErrno())
+		}
+
+		switch t {
+		case criurpc.CriuReqType_FEATURE_CHECK:
+			logrus.Debugf("Feature check says: %s", resp)
+			criuFeatures = resp.GetFeatures()
+		case criurpc.CriuReqType_NOTIFY:
+			if err := c.criuNotifications(resp, process, cmd, opts, extFds, oob[:oobn]); err != nil {
+				return err
+			}
+			req = &criurpc.CriuReq{
+				Type:          &t,
+				NotifySuccess: proto.Bool(true),
+			}
+			data, err = proto.Marshal(req)
+			if err != nil {
+				return err
+			}
+			_, err = criuClientCon.Write(data)
+			if err != nil {
+				return err
+			}
+			continue
+		case criurpc.CriuReqType_RESTORE:
+		case criurpc.CriuReqType_DUMP:
+		case criurpc.CriuReqType_PRE_DUMP:
+		default:
+			return fmt.Errorf("unable to parse the response %s", resp.String())
+		}
+
+		break
 	}
-	if count > 0 {
-		t.Fatalf("found %d extra fds after container.Run", count)
+
+	_ = criuClientCon.CloseWrite()
+	// cmd.Wait() waits cmd.goroutines which are used for proxying file descriptors.
+	// Here we want to wait only the CRIU process.
+	criuProcessState, err = criuProcess.Wait()
+	if err != nil {
+		return err
 	}
+
+	// In pre-dump mode CRIU is in a loop and waits for
+	// the final DUMP command.
+	// The current runc pre-dump approach, however, is
+	// start criu in PRE_DUMP once for a single pre-dump
+	// and not the whole series of pre-dump, pre-dump, ...m, dump
+	// If we got the message CriuReqType_PRE_DUMP it means
+	// CRIU was successful and we need to forcefully stop CRIU
+	if !criuProcessState.Success() && *req.Type != criurpc.CriuReqType_PRE_DUMP {
+		return fmt.Errorf("criu failed: %s", criuProcessState)
+	}
+	return nil
 }
 
-// Test that a container using user namespaces is able to bind mount a folder
-// that does not have permissions for group/others.
-func TestBindMountAndUser(t *testing.T) {
-	needUserNS(t)
-	if testing.Short() {
-		return
+// lockNetwork blocks any external network activity.
+func lockNetwork(config *configs.Config) error {
+	for _, config := range config.Networks {
+		strategy, err := getStrategy(config.Type)
+		if err != nil {
+			return err
+		}
+
+		if err := strategy.detach(config); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	temphost := t.TempDir()
-	dirhost := filepath.Join(temphost, "inaccessible", "dir")
-
-	err := os.MkdirAll(dirhost, 0o755)
-	ok(t, err)
-
-	err = os.WriteFile(filepath.Join(dirhost, "foo.txt"), []byte("Hello"), 0o755)
-	ok(t, err)
-
-	// Make this dir inaccessible to "group,others".
-	err = os.Chmod(filepath.Join(temphost, "inaccessible"), 0o700)
-	ok(t, err)
-
-	config := newTemplateConfig(t, &tParam{
-		userns: true,
-	})
-
-	// Set HostID to 1000 to avoid DAC_OVERRIDE bypassing the purpose of this test.
-	config.UIDMappings[0].HostID = 1000
-	config.GIDMappings[0].HostID = 1000
-
-	// Set the owner of rootfs to the effective IDs in the host to avoid errors
-	// while creating the folders to perform the mounts.
-	err = os.Chown(config.Rootfs, 1000, 1000)
-	ok(t, err)
-
-	config.Mounts = append(config.Mounts, &configs.Mount{
-		Source:      dirhost,
-		Destination: "/tmp/mnt1cont",
-		Device:      "bind",
-		Flags:       unix.MS_BIND | unix.MS_REC,
-	})
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	var stdout bytes.Buffer
-
-	pconfig := libcontainer.Process{
-		Cwd:    "/",
-		Args:   []string{"sh", "-c", "stat /tmp/mnt1cont/foo.txt"},
-		Env:    standardEnvironment,
-		Stdout: &stdout,
-		Init:   true,
+func unlockNetwork(config *configs.Config) error {
+	for _, config := range config.Networks {
+		strategy, err := getStrategy(config.Type)
+		if err != nil {
+			return err
+		}
+		if err = strategy.attach(config); err != nil {
+			return err
+		}
 	}
-	err = container.Run(&pconfig)
-	ok(t, err)
+	return nil
+}
 
-	waitProcess(&pconfig, t)
+func (c *Container) criuNotifications(resp *criurpc.CriuResp, process *Process, cmd *exec.Cmd, opts *CriuOpts, fds []string, oob []byte) error {
+	notify := resp.GetNotify()
+	if notify == nil {
+		return fmt.Errorf("invalid response: %s", resp.String())
+	}
+	script := notify.GetScript()
+	logrus.Debugf("notify: %s\n", script)
+	switch script {
+	case "post-dump":
+		f, err := os.Create(filepath.Join(c.stateDir, "checkpoint")) //nolint:forbidigo // this is a host-side operation in a runc-controlled directory
+		if err != nil {
+			return err
+		}
+		f.Close()
+	case "network-unlock":
+		if err := unlockNetwork(c.config); err != nil {
+			return err
+		}
+	case "network-lock":
+		if err := lockNetwork(c.config); err != nil {
+			return err
+		}
+	case "setup-namespaces":
+		if c.config.HasHook(configs.Prestart, configs.CreateRuntime) {
+			s, err := c.currentOCIState()
+			if err != nil {
+				return nil
+			}
+			s.Pid = int(notify.GetPid())
+
+			if err := c.config.Hooks.Run(configs.Prestart, s); err != nil {
+				return err
+			}
+			if err := c.config.Hooks.Run(configs.CreateRuntime, s); err != nil {
+				return err
+			}
+		}
+	case "post-restore":
+		pid := notify.GetPid()
+
+		p, err := os.FindProcess(int(pid))
+		if err != nil {
+			return err
+		}
+		cmd.Process = p
+
+		r, err := newRestoredProcess(cmd, fds)
+		if err != nil {
+			return err
+		}
+		process.ops = r
+		if err := c.state.transition(&restoredState{
+			imageDir: opts.ImagesDirectory,
+			c:        c,
+		}); err != nil {
+			return err
+		}
+		// create a timestamp indicating when the restored checkpoint was started
+		c.created = time.Now().UTC()
+		if !c.config.Namespaces.Contains(configs.NEWTIME) &&
+			configs.IsNamespaceSupported(configs.NEWTIME) &&
+			c.checkCriuVersion(31400) == nil {
+			// CRIU restores processes into a time namespace.
+			c.config.Namespaces = append(c.config.Namespaces,
+				configs.Namespace{Type: configs.NEWTIME})
+		}
+		if _, err := c.updateState(r); err != nil {
+			return err
+		}
+		if err := os.Remove(filepath.Join(c.stateDir, "checkpoint")); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				logrus.Error(err)
+			}
+		}
+	case "orphan-pts-master":
+		scm, err := unix.ParseSocketControlMessage(oob)
+		if err != nil {
+			return err
+		}
+		fds, err := unix.ParseUnixRights(&scm[0])
+		if err != nil {
+			return err
+		}
+
+		master := os.NewFile(uintptr(fds[0]), "orphan-pts-master")
+		defer master.Close()
+
+		// While we can access console.master, using the API is a good idea.
+		if err := utils.SendFile(process.ConsoleSocket, master); err != nil {
+			return err
+		}
+	case "status-ready":
+		if opts.StatusFd != -1 {
+			// write \0 to status fd to notify that lazy page server is ready
+			_, err := unix.Write(opts.StatusFd, []byte{0})
+			if err != nil {
+				logrus.Warnf("can't write \\0 to status fd: %v", err)
+			}
+			_ = unix.Close(opts.StatusFd)
+			opts.StatusFd = -1
+		}
+	}
+	return nil
+}
+
+func criuCgMode(mode string) (criurpc.CriuCgMode, error) {
+	switch mode {
+	case "":
+		return criurpc.CriuCgMode_DEFAULT, nil
+	case "soft":
+		return criurpc.CriuCgMode_SOFT, nil
+	case "full":
+		return criurpc.CriuCgMode_FULL, nil
+	case "strict":
+		return criurpc.CriuCgMode_STRICT, nil
+	case "ignore":
+		return criurpc.CriuCgMode_IGNORE, nil
+	default:
+		return 0, errors.New("invalid manage-cgroups-mode value")
+	}
 }
 
 
@@ -7166,17 +6573,17 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-07-25 22:55:40,050 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:55:40,061 - INFO - Creating API request
-2026-07-25 22:56:12,342 - INFO - API response ChatCompletion(id='resp_023f766dc61e8b0f016a64ce6fa8b081958c79111b8e57755c', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='The bug is localized to `libcontainer/container_linux.go`, in `(*Container).start`. When a `poststart` hook fails, runc terminates the just-started init process and immediately returns the `poststart` error. This bypasses the normal cleanup path that runs `poststop`, so configured `poststop` hooks are never invoked.\n\nApply this edit:\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go\n<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf("error running poststart hook: %w", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\ts, serr := c.currentOCIState()\n\t\t\t\t\tif serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf("error getting container state after poststart hook failure: %w; error running poststart hook: %w", serr, err)\n\t\t\t\t\t}\n\t\t\t\t\tif serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf("error running poststart hook: %w; error running poststop hook: %w", err, serr)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1784991372, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1420, prompt_tokens=61273, total_tokens=62693, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1034, rejected_prediction_tokens=None), prompt_tokens_details=None))
-2026-07-25 22:56:12,342 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:56:12,342 - INFO - raw output:
-The bug is localized to `libcontainer/container_linux.go`, in `(*Container).start`. When a `poststart` hook fails, runc terminates the just-started init process and immediately returns the `poststart` error. This bypasses the normal cleanup path that runs `poststop`, so configured `poststop` hooks are never invoked.
+2026-07-26 13:59:25,306 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:59:25,359 - INFO - Creating API request
+2026-07-26 14:00:09,197 - INFO - API response ChatCompletion(id='resp_073e862d75297e78016a65a243395c8196aa4d4baa6da85452', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Localized bug: `libcontainer/container_linux.go`, in `(*Container).start`. If a `poststart` hook fails, runc terminates the init process and immediately returns the hook error. That bypasses `poststop` cleanup hooks for this failure path.\n\nApply this SEARCH/REPLACE edit:\n\n```python\n### libcontainer/container_linux.go\n<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf("error running poststart hook: %w", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tpoststartErr := err\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\tpoststopState, err := c.currentOCIState()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))\n\t\t\t\t\t} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn poststartErr\n\t\t\t}\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1785045608, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1887, prompt_tokens=58344, total_tokens=60231, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1552, rejected_prediction_tokens=None), prompt_tokens_details=None))
+2026-07-26 14:00:09,198 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 14:00:09,198 - INFO - raw output:
+Localized bug: `libcontainer/container_linux.go`, in `(*Container).start`. If a `poststart` hook fails, runc terminates the init process and immediately returns the hook error. That bypasses `poststop` cleanup hooks for this failure path.
 
-Apply this edit:
+Apply this SEARCH/REPLACE edit:
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go
+### libcontainer/container_linux.go
 <<<<<<< SEARCH
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
@@ -7186,31 +6593,31 @@ Apply this edit:
 			}
 =======
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
+				poststartErr := err
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
 				}
 				if c.config.HasHook(configs.Poststop) {
-					s, serr := c.currentOCIState()
-					if serr != nil {
-						return fmt.Errorf("error getting container state after poststart hook failure: %w; error running poststart hook: %w", serr, err)
-					}
-					if serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {
-						return fmt.Errorf("error running poststart hook: %w; error running poststop hook: %w", err, serr)
+					poststopState, err := c.currentOCIState()
+					if err != nil {
+						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
+					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
+						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
 					}
 				}
-				return err
+				return poststartErr
 			}
 >>>>>>> REPLACE
 ```
-2026-07-25 22:56:12,342 - INFO - === file_to_commands: ===
-2026-07-25 22:56:12,342 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go'": [
-    "<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststart hook: %w\", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error terminating container after poststart hook failure: %w\", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\ts, serr := c.currentOCIState()\n\t\t\t\t\tif serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf(\"error getting container state after poststart hook failure: %w; error running poststart hook: %w\", serr, err)\n\t\t\t\t\t}\n\t\t\t\t\tif serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf(\"error running poststart hook: %w; error running poststop hook: %w\", err, serr)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n>>>>>>> REPLACE"
+2026-07-26 14:00:09,198 - INFO - === file_to_commands: ===
+2026-07-26 14:00:09,198 - INFO - {
+  "'libcontainer/container_linux.go'": [
+    "<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststart hook: %w\", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tpoststartErr := err\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error terminating container after poststart hook failure: %w\", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\tpoststopState, err := c.currentOCIState()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error getting container state for poststop hook after poststart hook failure: %w\", err))\n\t\t\t\t\t} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststop hook after poststart hook failure: %w\", err))\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn poststartErr\n\t\t\t}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:56:12,342 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go' ===
-2026-07-25 22:56:12,342 - INFO - === edit_commands: ===
-2026-07-25 22:56:12,342 - INFO - <<<<<<< SEARCH
+2026-07-26 14:00:09,198 - INFO - === edited_file: 'libcontainer/container_linux.go' ===
+2026-07-26 14:00:09,198 - INFO - === edit_commands: ===
+2026-07-26 14:00:09,198 - INFO - <<<<<<< SEARCH
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error running poststart hook: %w", err))
@@ -7219,41 +6626,66 @@ Apply this edit:
 			}
 =======
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
+				poststartErr := err
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
 				}
 				if c.config.HasHook(configs.Poststop) {
-					s, serr := c.currentOCIState()
-					if serr != nil {
-						return fmt.Errorf("error getting container state after poststart hook failure: %w; error running poststart hook: %w", serr, err)
-					}
-					if serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {
-						return fmt.Errorf("error running poststart hook: %w; error running poststop hook: %w", err, serr)
+					poststopState, err := c.currentOCIState()
+					if err != nil {
+						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
+					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
+						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
 					}
 				}
-				return err
+				return poststartErr
 			}
 >>>>>>> REPLACE
-2026-07-25 22:56:12,342 - INFO - 
+2026-07-26 14:00:09,198 - INFO - 
 ----------------------------------------
-2026-07-25 22:56:12,343 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go' available=['libcontainer/rootfs_linux.go', 'libcontainer/container_linux.go', 'libcontainer/process_linux.go', 'libcontainer/integration/exec_test.go', 'libcontainer/specconv/spec_linux.go']
-2026-07-25 22:56:12,345 - INFO - === file_to_commands: ===
-2026-07-25 22:56:12,345 - INFO - === file_to_commands: ===
-2026-07-25 22:56:12,345 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go'": [
-    "<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststart hook: %w\", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error terminating container after poststart hook failure: %w\", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\ts, serr := c.currentOCIState()\n\t\t\t\t\tif serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf(\"error getting container state after poststart hook failure: %w; error running poststart hook: %w\", serr, err)\n\t\t\t\t\t}\n\t\t\t\t\tif serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf(\"error running poststart hook: %w; error running poststop hook: %w\", err, serr)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n>>>>>>> REPLACE"
+2026-07-26 14:00:09,198 - ERROR - parse_diff_edit_commands failed for libcontainer/container_linux.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 14:00:09,204 - INFO - extracted patch:
+2026-07-26 14:00:09,204 - INFO - --- libcontainer/container_linux.go
++++ libcontainer/container_linux.go
+@@ -381,10 +381,19 @@
+ 			}
+ 
+ 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
++				poststartErr := err
+ 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
+-					logrus.Warn(fmt.Errorf("error running poststart hook: %w", err))
++					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
+ 				}
+-				return err
++				if c.config.HasHook(configs.Poststop) {
++					poststopState, err := c.currentOCIState()
++					if err != nil {
++						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
++					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
++						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
++					}
++				}
++				return poststartErr
+ 			}
+ 		}
+ 	}
+2026-07-26 14:00:09,211 - INFO - === file_to_commands: ===
+2026-07-26 14:00:09,211 - INFO - === file_to_commands: ===
+2026-07-26 14:00:09,211 - INFO - {
+  "'libcontainer/container_linux.go'": [
+    "<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststart hook: %w\", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tpoststartErr := err\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error terminating container after poststart hook failure: %w\", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\tpoststopState, err := c.currentOCIState()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error getting container state for poststop hook after poststart hook failure: %w\", err))\n\t\t\t\t\t} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststop hook after poststart hook failure: %w\", err))\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn poststartErr\n\t\t\t}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:56:12,345 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go'": [
-    "<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststart hook: %w\", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error terminating container after poststart hook failure: %w\", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\ts, serr := c.currentOCIState()\n\t\t\t\t\tif serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf(\"error getting container state after poststart hook failure: %w; error running poststart hook: %w\", serr, err)\n\t\t\t\t\t}\n\t\t\t\t\tif serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {\n\t\t\t\t\t\treturn fmt.Errorf(\"error running poststart hook: %w; error running poststop hook: %w\", err, serr)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n>>>>>>> REPLACE"
+2026-07-26 14:00:09,211 - INFO - {
+  "'libcontainer/container_linux.go'": [
+    "<<<<<<< SEARCH\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststart hook: %w\", err))\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n=======\n\t\t\tif err := c.config.Hooks.Run(configs.Poststart, s); err != nil {\n\t\t\t\tpoststartErr := err\n\t\t\t\tif err := ignoreTerminateErrors(parent.terminate()); err != nil {\n\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error terminating container after poststart hook failure: %w\", err))\n\t\t\t\t}\n\t\t\t\tif c.config.HasHook(configs.Poststop) {\n\t\t\t\t\tpoststopState, err := c.currentOCIState()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error getting container state for poststop hook after poststart hook failure: %w\", err))\n\t\t\t\t\t} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {\n\t\t\t\t\t\tlogrus.Warn(fmt.Errorf(\"error running poststop hook after poststart hook failure: %w\", err))\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn poststartErr\n\t\t\t}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:56:12,345 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go' ===
-2026-07-25 22:56:12,345 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go' ===
-2026-07-25 22:56:12,345 - INFO - === edit_commands: ===
-2026-07-25 22:56:12,345 - INFO - === edit_commands: ===
-2026-07-25 22:56:12,345 - INFO - <<<<<<< SEARCH
+2026-07-26 14:00:09,211 - INFO - === edited_file: 'libcontainer/container_linux.go' ===
+2026-07-26 14:00:09,211 - INFO - === edited_file: 'libcontainer/container_linux.go' ===
+2026-07-26 14:00:09,211 - INFO - === edit_commands: ===
+2026-07-26 14:00:09,211 - INFO - === edit_commands: ===
+2026-07-26 14:00:09,211 - INFO - <<<<<<< SEARCH
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error running poststart hook: %w", err))
@@ -7262,22 +6694,22 @@ Apply this edit:
 			}
 =======
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
+				poststartErr := err
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
 				}
 				if c.config.HasHook(configs.Poststop) {
-					s, serr := c.currentOCIState()
-					if serr != nil {
-						return fmt.Errorf("error getting container state after poststart hook failure: %w; error running poststart hook: %w", serr, err)
-					}
-					if serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {
-						return fmt.Errorf("error running poststart hook: %w; error running poststop hook: %w", err, serr)
+					poststopState, err := c.currentOCIState()
+					if err != nil {
+						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
+					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
+						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
 					}
 				}
-				return err
+				return poststartErr
 			}
 >>>>>>> REPLACE
-2026-07-25 22:56:12,345 - INFO - <<<<<<< SEARCH
+2026-07-26 14:00:09,211 - INFO - <<<<<<< SEARCH
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error running poststart hook: %w", err))
@@ -7286,26 +6718,76 @@ Apply this edit:
 			}
 =======
 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
+				poststartErr := err
 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
 					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
 				}
 				if c.config.HasHook(configs.Poststop) {
-					s, serr := c.currentOCIState()
-					if serr != nil {
-						return fmt.Errorf("error getting container state after poststart hook failure: %w; error running poststart hook: %w", serr, err)
-					}
-					if serr := c.config.Hooks.Run(configs.Poststop, s); serr != nil {
-						return fmt.Errorf("error running poststart hook: %w; error running poststop hook: %w", err, serr)
+					poststopState, err := c.currentOCIState()
+					if err != nil {
+						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
+					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
+						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
 					}
 				}
-				return err
+				return poststartErr
 			}
 >>>>>>> REPLACE
-2026-07-25 22:56:12,345 - INFO - 
+2026-07-26 14:00:09,211 - INFO - 
 ----------------------------------------
-2026-07-25 22:56:12,345 - INFO - 
+2026-07-26 14:00:09,211 - INFO - 
 ----------------------------------------
-2026-07-25 22:56:12,345 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go' available=['libcontainer/rootfs_linux.go', 'libcontainer/container_linux.go', 'libcontainer/process_linux.go', 'libcontainer/integration/exec_test.go', 'libcontainer/specconv/spec_linux.go']
-2026-07-25 22:56:12,345 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-5182/libcontainer/container_linux.go' available=['libcontainer/rootfs_linux.go', 'libcontainer/container_linux.go', 'libcontainer/process_linux.go', 'libcontainer/integration/exec_test.go', 'libcontainer/specconv/spec_linux.go']
-2026-07-25 22:56:12,365 - INFO - differ_by_empty_lines = True
-2026-07-25 22:56:12,365 - INFO - differ_by_empty_lines = True
+2026-07-26 14:00:09,211 - ERROR - parse_diff_edit_commands failed for libcontainer/container_linux.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 14:00:09,211 - ERROR - parse_diff_edit_commands failed for libcontainer/container_linux.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 14:00:09,213 - INFO - extracted patch:
+2026-07-26 14:00:09,213 - INFO - extracted patch:
+2026-07-26 14:00:09,213 - INFO - --- libcontainer/container_linux.go
++++ libcontainer/container_linux.go
+@@ -381,10 +381,19 @@
+ 			}
+ 
+ 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
++				poststartErr := err
+ 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
+-					logrus.Warn(fmt.Errorf("error running poststart hook: %w", err))
++					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
+ 				}
+-				return err
++				if c.config.HasHook(configs.Poststop) {
++					poststopState, err := c.currentOCIState()
++					if err != nil {
++						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
++					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
++						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
++					}
++				}
++				return poststartErr
+ 			}
+ 		}
+ 	}
+2026-07-26 14:00:09,213 - INFO - --- libcontainer/container_linux.go
++++ libcontainer/container_linux.go
+@@ -381,10 +381,19 @@
+ 			}
+ 
+ 			if err := c.config.Hooks.Run(configs.Poststart, s); err != nil {
++				poststartErr := err
+ 				if err := ignoreTerminateErrors(parent.terminate()); err != nil {
+-					logrus.Warn(fmt.Errorf("error running poststart hook: %w", err))
++					logrus.Warn(fmt.Errorf("error terminating container after poststart hook failure: %w", err))
+ 				}
+-				return err
++				if c.config.HasHook(configs.Poststop) {
++					poststopState, err := c.currentOCIState()
++					if err != nil {
++						logrus.Warn(fmt.Errorf("error getting container state for poststop hook after poststart hook failure: %w", err))
++					} else if err := c.config.Hooks.Run(configs.Poststop, poststopState); err != nil {
++						logrus.Warn(fmt.Errorf("error running poststop hook after poststart hook failure: %w", err))
++					}
++				}
++				return poststartErr
+ 			}
+ 		}
+ 	}
+2026-07-26 14:00:09,299 - INFO - differ_by_empty_lines = False
+2026-07-26 14:00:09,299 - INFO - differ_by_empty_lines = False

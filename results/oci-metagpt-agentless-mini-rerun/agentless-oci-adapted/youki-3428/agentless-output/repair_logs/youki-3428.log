@@ -1,5 +1,5 @@
-2026-07-25 23:05:06,229 - INFO - ================ repairing youki-3428 ================
-2026-07-25 23:05:06,238 - INFO - prompting with message:
+2026-07-26 14:31:35,087 - INFO - ================ repairing youki-3428 ================
+2026-07-26 14:31:35,089 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case youki-3428.
@@ -21,7 +21,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/youki-3428
@@ -6590,19 +6591,19 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-07-25 23:05:06,243 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 23:05:06,256 - INFO - Creating API request
-2026-07-25 23:05:45,927 - INFO - API response ChatCompletion(id='resp_0a1e407001808bbf016a64d0a68f1c8194829edc5f3fba341a', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Bug localized to `crates/libcontainer/src/container/tenant_builder.rs`.\n\nThe exec/tenant path rebuilds `process.env` from only the exec-provided environment and preserves only `PATH` from the original `config.json`. That drops other configured container env vars such as `AAA=bbb`, causing exec-spawned processes to miss them.\n\nApply these SEARCH/REPLACE edits:\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs\n<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with("PATH"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {\n    spec.process().and_then(|p| p.env().cloned())\n}\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs\n<<<<<<< SEARCH\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_path_env = get_path_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_path_env));\n=======\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_env = get_env_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_env));\n>>>>>>> REPLACE\n```\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs\n<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == "PATH" {\n                    env_exists = true;\n                }\n                format!("{k}={v}")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {\n        let mut env = Vec::new();\n        let mut positions = HashMap::new();\n\n        // Exec processes inherit the environment configured for the container init\n        // process. Environment variables supplied specifically for exec override the\n        // inherited values with the same name.\n        if let Some(original_env) = original_env {\n            for entry in original_env {\n                if let Some((key, _)) = entry.split_once(\'=\') {\n                    if let Some(index) = positions.get(key).copied() {\n                        env[index] = entry;\n                    } else {\n                        positions.insert(key.to_owned(), env.len());\n                        env.push(entry);\n                    }\n                } else {\n                    env.push(entry);\n                }\n            }\n        }\n\n        for (key, value) in &self.env {\n            let entry = format!("{key}={value}");\n            if let Some(index) = positions.get(key).copied() {\n                env[index] = entry;\n            } else {\n                positions.insert(key.clone(), env.len());\n                env.push(entry);\n            }\n        }\n\n        env\n    }\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1784991945, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1902, prompt_tokens=53590, total_tokens=55492, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=861, rejected_prediction_tokens=None), prompt_tokens_details=None))
-2026-07-25 23:05:45,927 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 23:05:45,927 - INFO - raw output:
-Bug localized to `crates/libcontainer/src/container/tenant_builder.rs`.
+2026-07-26 14:31:35,090 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 14:31:35,112 - INFO - Creating API request
+2026-07-26 14:32:09,353 - INFO - API response ChatCompletion(id='resp_0595ecd17e27dfc1016a65a9ca873881909e29cb1949187783', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='The bug is localized to the exec/tenant process spec construction in:\n\n`crates/libcontainer/src/container/tenant_builder.rs`\n\nFor `youki exec` without a `process.json`, the runtime builds a new OCI `Process` and currently only carries over `PATH` from the original `config.json`. It drops all other configured env vars such as `AAA=bbb`. The fix is to inherit the full original `config.json` process environment, while allowing explicitly supplied exec env vars to override matching keys.\n\n```python\n### crates/libcontainer/src/container/tenant_builder.rs\n<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with("PATH"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Vec<String> {\n    spec.process()\n        .and_then(|process| process.env().as_ref())\n        .cloned()\n        .unwrap_or_default()\n}\n>>>>>>> REPLACE\n```\n\n```python\n### crates/libcontainer/src/container/tenant_builder.rs\n<<<<<<< SEARCH\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_path_env = get_path_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_path_env));\n=======\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_env = get_env_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_env));\n>>>>>>> REPLACE\n```\n\n```python\n### crates/libcontainer/src/container/tenant_builder.rs\n<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == "PATH" {\n                    env_exists = true;\n                }\n                format!("{k}={v}")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {\n        for (key, value) in &self.env {\n            env.retain(|env_var| {\n                env_var\n                    .split_once(\'=\')\n                    .is_none_or(|(env_key, _)| env_key != key)\n            });\n            env.push(format!("{key}={value}"));\n        }\n\n        env\n    }\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1785047529, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1621, prompt_tokens=53608, total_tokens=55229, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=824, rejected_prediction_tokens=None), prompt_tokens_details=None))
+2026-07-26 14:32:09,353 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 14:32:09,354 - INFO - raw output:
+The bug is localized to the exec/tenant process spec construction in:
 
-The exec/tenant path rebuilds `process.env` from only the exec-provided environment and preserves only `PATH` from the original `config.json`. That drops other configured container env vars such as `AAA=bbb`, causing exec-spawned processes to miss them.
+`crates/libcontainer/src/container/tenant_builder.rs`
 
-Apply these SEARCH/REPLACE edits:
+For `youki exec` without a `process.json`, the runtime builds a new OCI `Process` and currently only carries over `PATH` from the original `config.json`. It drops all other configured env vars such as `AAA=bbb`. The fix is to inherit the full original `config.json` process environment, while allowing explicitly supplied exec env vars to override matching keys.
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs
+### crates/libcontainer/src/container/tenant_builder.rs
 <<<<<<< SEARCH
 fn get_path_from_spec(spec: &Spec) -> Option<String> {
     let process = match spec.process() {
@@ -6624,14 +6625,17 @@ fn get_path_from_spec(spec: &Spec) -> Option<String> {
         .map(|s| s.to_string())
 }
 =======
-fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
-    spec.process().and_then(|p| p.env().cloned())
+fn get_env_from_spec(spec: &Spec) -> Vec<String> {
+    spec.process()
+        .and_then(|process| process.env().as_ref())
+        .cloned()
+        .unwrap_or_default()
 }
 >>>>>>> REPLACE
 ```
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs
+### crates/libcontainer/src/container/tenant_builder.rs
 <<<<<<< SEARCH
         let process = if let Some(process) = &self.process {
             self.get_process(process)?
@@ -6652,7 +6656,7 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
 ```
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs
+### crates/libcontainer/src/container/tenant_builder.rs
 <<<<<<< SEARCH
     fn get_environment(&self, path: Option<String>) -> Vec<String> {
         let mut env_exists = false;
@@ -6678,53 +6682,31 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
         env
     }
 =======
-    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {
-        let mut env = Vec::new();
-        let mut positions = HashMap::new();
-
-        // Exec processes inherit the environment configured for the container init
-        // process. Environment variables supplied specifically for exec override the
-        // inherited values with the same name.
-        if let Some(original_env) = original_env {
-            for entry in original_env {
-                if let Some((key, _)) = entry.split_once('=') {
-                    if let Some(index) = positions.get(key).copied() {
-                        env[index] = entry;
-                    } else {
-                        positions.insert(key.to_owned(), env.len());
-                        env.push(entry);
-                    }
-                } else {
-                    env.push(entry);
-                }
-            }
-        }
-
+    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
         for (key, value) in &self.env {
-            let entry = format!("{key}={value}");
-            if let Some(index) = positions.get(key).copied() {
-                env[index] = entry;
-            } else {
-                positions.insert(key.clone(), env.len());
-                env.push(entry);
-            }
+            env.retain(|env_var| {
+                env_var
+                    .split_once('=')
+                    .is_none_or(|(env_key, _)| env_key != key)
+            });
+            env.push(format!("{key}={value}"));
         }
 
         env
     }
 >>>>>>> REPLACE
 ```
-2026-07-25 23:05:45,927 - INFO - === file_to_commands: ===
-2026-07-25 23:05:45,927 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs'": [
-    "<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with(\"PATH\"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {\n    spec.process().and_then(|p| p.env().cloned())\n}\n>>>>>>> REPLACE",
+2026-07-26 14:32:09,354 - INFO - === file_to_commands: ===
+2026-07-26 14:32:09,354 - INFO - {
+  "'crates/libcontainer/src/container/tenant_builder.rs'": [
+    "<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with(\"PATH\"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Vec<String> {\n    spec.process()\n        .and_then(|process| process.env().as_ref())\n        .cloned()\n        .unwrap_or_default()\n}\n>>>>>>> REPLACE",
     "<<<<<<< SEARCH\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_path_env = get_path_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_path_env));\n=======\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_env = get_env_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_env));\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == \"PATH\" {\n                    env_exists = true;\n                }\n                format!(\"{k}={v}\")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {\n        let mut env = Vec::new();\n        let mut positions = HashMap::new();\n\n        // Exec processes inherit the environment configured for the container init\n        // process. Environment variables supplied specifically for exec override the\n        // inherited values with the same name.\n        if let Some(original_env) = original_env {\n            for entry in original_env {\n                if let Some((key, _)) = entry.split_once('=') {\n                    if let Some(index) = positions.get(key).copied() {\n                        env[index] = entry;\n                    } else {\n                        positions.insert(key.to_owned(), env.len());\n                        env.push(entry);\n                    }\n                } else {\n                    env.push(entry);\n                }\n            }\n        }\n\n        for (key, value) in &self.env {\n            let entry = format!(\"{key}={value}\");\n            if let Some(index) = positions.get(key).copied() {\n                env[index] = entry;\n            } else {\n                positions.insert(key.clone(), env.len());\n                env.push(entry);\n            }\n        }\n\n        env\n    }\n>>>>>>> REPLACE"
+    "<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == \"PATH\" {\n                    env_exists = true;\n                }\n                format!(\"{k}={v}\")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {\n        for (key, value) in &self.env {\n            env.retain(|env_var| {\n                env_var\n                    .split_once('=')\n                    .is_none_or(|(env_key, _)| env_key != key)\n            });\n            env.push(format!(\"{key}={value}\"));\n        }\n\n        env\n    }\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 23:05:45,927 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs' ===
-2026-07-25 23:05:45,927 - INFO - === edit_commands: ===
-2026-07-25 23:05:45,927 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,354 - INFO - === edited_file: 'crates/libcontainer/src/container/tenant_builder.rs' ===
+2026-07-26 14:32:09,354 - INFO - === edit_commands: ===
+2026-07-26 14:32:09,354 - INFO - <<<<<<< SEARCH
 fn get_path_from_spec(spec: &Spec) -> Option<String> {
     let process = match spec.process() {
         Some(p) => p,
@@ -6745,13 +6727,16 @@ fn get_path_from_spec(spec: &Spec) -> Option<String> {
         .map(|s| s.to_string())
 }
 =======
-fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
-    spec.process().and_then(|p| p.env().cloned())
+fn get_env_from_spec(spec: &Spec) -> Vec<String> {
+    spec.process()
+        .and_then(|process| process.env().as_ref())
+        .cloned()
+        .unwrap_or_default()
 }
 >>>>>>> REPLACE
-2026-07-25 23:05:45,927 - INFO - 
+2026-07-26 14:32:09,354 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,927 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,354 - INFO - <<<<<<< SEARCH
         let process = if let Some(process) = &self.process {
             self.get_process(process)?
         } else {
@@ -6768,9 +6753,9 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
                 .args(self.get_args()?)
                 .env(self.get_environment(original_env));
 >>>>>>> REPLACE
-2026-07-25 23:05:45,927 - INFO - 
+2026-07-26 14:32:09,354 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,927 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,354 - INFO - <<<<<<< SEARCH
     fn get_environment(&self, path: Option<String>) -> Vec<String> {
         let mut env_exists = false;
         let mut env: Vec<String> = self
@@ -6795,65 +6780,127 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
         env
     }
 =======
-    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {
-        let mut env = Vec::new();
-        let mut positions = HashMap::new();
-
-        // Exec processes inherit the environment configured for the container init
-        // process. Environment variables supplied specifically for exec override the
-        // inherited values with the same name.
-        if let Some(original_env) = original_env {
-            for entry in original_env {
-                if let Some((key, _)) = entry.split_once('=') {
-                    if let Some(index) = positions.get(key).copied() {
-                        env[index] = entry;
-                    } else {
-                        positions.insert(key.to_owned(), env.len());
-                        env.push(entry);
-                    }
-                } else {
-                    env.push(entry);
-                }
-            }
-        }
-
+    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
         for (key, value) in &self.env {
-            let entry = format!("{key}={value}");
-            if let Some(index) = positions.get(key).copied() {
-                env[index] = entry;
-            } else {
-                positions.insert(key.clone(), env.len());
-                env.push(entry);
-            }
+            env.retain(|env_var| {
+                env_var
+                    .split_once('=')
+                    .is_none_or(|(env_key, _)| env_key != key)
+            });
+            env.push(format!("{key}={value}"));
         }
 
         env
     }
 >>>>>>> REPLACE
-2026-07-25 23:05:45,927 - INFO - 
+2026-07-26 14:32:09,354 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,927 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/rootfs/mount.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
-2026-07-25 23:05:45,930 - INFO - === file_to_commands: ===
-2026-07-25 23:05:45,930 - INFO - === file_to_commands: ===
-2026-07-25 23:05:45,930 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs'": [
-    "<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with(\"PATH\"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {\n    spec.process().and_then(|p| p.env().cloned())\n}\n>>>>>>> REPLACE",
+2026-07-26 14:32:09,355 - ERROR - parse_diff_edit_commands failed for crates/libcontainer/src/container/tenant_builder.rs; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 14:32:09,356 - INFO - extracted patch:
+2026-07-26 14:32:09,356 - INFO - --- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,24 +33,11 @@
+ const TENANT_NOTIFY: &str = "tenant-notify-";
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+-fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
+-    env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++fn get_env_from_spec(spec: &Spec) -> Vec<String> {
++    spec.process()
++        .and_then(|process| process.env().as_ref())
++        .cloned()
++        .unwrap_or_default()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -455,10 +442,10 @@
+         let process = if let Some(process) = &self.process {
+             self.get_process(process)?
+         } else {
+-            let original_path_env = get_path_from_spec(spec);
++            let original_env = get_env_from_spec(spec);
+             let mut process_builder = ProcessBuilder::default()
+                 .args(self.get_args()?)
+-                .env(self.get_environment(original_path_env));
++                .env(self.get_environment(original_env));
+             if let Some(cwd) = self.get_working_dir()? {
+                 process_builder = process_builder.cwd(cwd);
+             }
+@@ -556,27 +543,16 @@
+         Ok(self.args.clone())
+     }
+ 
+-    fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
+-        // It is not possible in normal flow that path is None. The original container
+-        // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
+-        if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
++        for (key, value) in &self.env {
++            env.retain(|env_var| {
++                env_var
++                    .split_once('=')
++                    .is_none_or(|(env_key, _)| env_key != key)
++            });
++            env.push(format!("{key}={value}"));
++        }
++
+         env
+     }
+ 
+2026-07-26 14:32:09,362 - INFO - === file_to_commands: ===
+2026-07-26 14:32:09,362 - INFO - === file_to_commands: ===
+2026-07-26 14:32:09,362 - INFO - {
+  "'crates/libcontainer/src/container/tenant_builder.rs'": [
+    "<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with(\"PATH\"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Vec<String> {\n    spec.process()\n        .and_then(|process| process.env().as_ref())\n        .cloned()\n        .unwrap_or_default()\n}\n>>>>>>> REPLACE",
     "<<<<<<< SEARCH\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_path_env = get_path_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_path_env));\n=======\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_env = get_env_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_env));\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == \"PATH\" {\n                    env_exists = true;\n                }\n                format!(\"{k}={v}\")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {\n        let mut env = Vec::new();\n        let mut positions = HashMap::new();\n\n        // Exec processes inherit the environment configured for the container init\n        // process. Environment variables supplied specifically for exec override the\n        // inherited values with the same name.\n        if let Some(original_env) = original_env {\n            for entry in original_env {\n                if let Some((key, _)) = entry.split_once('=') {\n                    if let Some(index) = positions.get(key).copied() {\n                        env[index] = entry;\n                    } else {\n                        positions.insert(key.to_owned(), env.len());\n                        env.push(entry);\n                    }\n                } else {\n                    env.push(entry);\n                }\n            }\n        }\n\n        for (key, value) in &self.env {\n            let entry = format!(\"{key}={value}\");\n            if let Some(index) = positions.get(key).copied() {\n                env[index] = entry;\n            } else {\n                positions.insert(key.clone(), env.len());\n                env.push(entry);\n            }\n        }\n\n        env\n    }\n>>>>>>> REPLACE"
+    "<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == \"PATH\" {\n                    env_exists = true;\n                }\n                format!(\"{k}={v}\")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {\n        for (key, value) in &self.env {\n            env.retain(|env_var| {\n                env_var\n                    .split_once('=')\n                    .is_none_or(|(env_key, _)| env_key != key)\n            });\n            env.push(format!(\"{key}={value}\"));\n        }\n\n        env\n    }\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 23:05:45,930 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs'": [
-    "<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with(\"PATH\"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {\n    spec.process().and_then(|p| p.env().cloned())\n}\n>>>>>>> REPLACE",
+2026-07-26 14:32:09,362 - INFO - {
+  "'crates/libcontainer/src/container/tenant_builder.rs'": [
+    "<<<<<<< SEARCH\nfn get_path_from_spec(spec: &Spec) -> Option<String> {\n    let process = match spec.process() {\n        Some(p) => p,\n        None => return None,\n    };\n    let env = match process.env() {\n        Some(e) => e,\n        None => return None,\n    };\n    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01\n    // and that specifies having multiple env with same name is undefined behaviour\n    // so we take the last occurrence of PATH as that is somewhat intuitional of last\n    // specified value overriding\n    env.iter()\n        .find(|e| e.starts_with(\"PATH\"))\n        .iter()\n        .next_back()\n        .map(|s| s.to_string())\n}\n=======\nfn get_env_from_spec(spec: &Spec) -> Vec<String> {\n    spec.process()\n        .and_then(|process| process.env().as_ref())\n        .cloned()\n        .unwrap_or_default()\n}\n>>>>>>> REPLACE",
     "<<<<<<< SEARCH\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_path_env = get_path_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_path_env));\n=======\n        let process = if let Some(process) = &self.process {\n            self.get_process(process)?\n        } else {\n            let original_env = get_env_from_spec(spec);\n            let mut process_builder = ProcessBuilder::default()\n                .args(self.get_args()?)\n                .env(self.get_environment(original_env));\n>>>>>>> REPLACE",
-    "<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == \"PATH\" {\n                    env_exists = true;\n                }\n                format!(\"{k}={v}\")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {\n        let mut env = Vec::new();\n        let mut positions = HashMap::new();\n\n        // Exec processes inherit the environment configured for the container init\n        // process. Environment variables supplied specifically for exec override the\n        // inherited values with the same name.\n        if let Some(original_env) = original_env {\n            for entry in original_env {\n                if let Some((key, _)) = entry.split_once('=') {\n                    if let Some(index) = positions.get(key).copied() {\n                        env[index] = entry;\n                    } else {\n                        positions.insert(key.to_owned(), env.len());\n                        env.push(entry);\n                    }\n                } else {\n                    env.push(entry);\n                }\n            }\n        }\n\n        for (key, value) in &self.env {\n            let entry = format!(\"{key}={value}\");\n            if let Some(index) = positions.get(key).copied() {\n                env[index] = entry;\n            } else {\n                positions.insert(key.clone(), env.len());\n                env.push(entry);\n            }\n        }\n\n        env\n    }\n>>>>>>> REPLACE"
+    "<<<<<<< SEARCH\n    fn get_environment(&self, path: Option<String>) -> Vec<String> {\n        let mut env_exists = false;\n        let mut env: Vec<String> = self\n            .env\n            .iter()\n            .map(|(k, v)| {\n                if k == \"PATH\" {\n                    env_exists = true;\n                }\n                format!(\"{k}={v}\")\n            })\n            .collect();\n        // It is not possible in normal flow that path is None. The original container\n        // creation would have failed if path was absent. However we use Option\n        // just as a caution, and if neither exec cmd not original spec has PATH,\n        // the container creation will fail later which is ok\n        if let Some(p) = path {\n            if !env_exists {\n                env.push(p);\n            }\n        }\n        env\n    }\n=======\n    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {\n        for (key, value) in &self.env {\n            env.retain(|env_var| {\n                env_var\n                    .split_once('=')\n                    .is_none_or(|(env_key, _)| env_key != key)\n            });\n            env.push(format!(\"{key}={value}\"));\n        }\n\n        env\n    }\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 23:05:45,930 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs' ===
-2026-07-25 23:05:45,930 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs' ===
-2026-07-25 23:05:45,930 - INFO - === edit_commands: ===
-2026-07-25 23:05:45,930 - INFO - === edit_commands: ===
-2026-07-25 23:05:45,930 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,362 - INFO - === edited_file: 'crates/libcontainer/src/container/tenant_builder.rs' ===
+2026-07-26 14:32:09,362 - INFO - === edited_file: 'crates/libcontainer/src/container/tenant_builder.rs' ===
+2026-07-26 14:32:09,362 - INFO - === edit_commands: ===
+2026-07-26 14:32:09,362 - INFO - === edit_commands: ===
+2026-07-26 14:32:09,362 - INFO - <<<<<<< SEARCH
 fn get_path_from_spec(spec: &Spec) -> Option<String> {
     let process = match spec.process() {
         Some(p) => p,
@@ -6874,11 +6921,14 @@ fn get_path_from_spec(spec: &Spec) -> Option<String> {
         .map(|s| s.to_string())
 }
 =======
-fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
-    spec.process().and_then(|p| p.env().cloned())
+fn get_env_from_spec(spec: &Spec) -> Vec<String> {
+    spec.process()
+        .and_then(|process| process.env().as_ref())
+        .cloned()
+        .unwrap_or_default()
 }
 >>>>>>> REPLACE
-2026-07-25 23:05:45,930 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,362 - INFO - <<<<<<< SEARCH
 fn get_path_from_spec(spec: &Spec) -> Option<String> {
     let process = match spec.process() {
         Some(p) => p,
@@ -6899,15 +6949,18 @@ fn get_path_from_spec(spec: &Spec) -> Option<String> {
         .map(|s| s.to_string())
 }
 =======
-fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
-    spec.process().and_then(|p| p.env().cloned())
+fn get_env_from_spec(spec: &Spec) -> Vec<String> {
+    spec.process()
+        .and_then(|process| process.env().as_ref())
+        .cloned()
+        .unwrap_or_default()
 }
 >>>>>>> REPLACE
-2026-07-25 23:05:45,930 - INFO - 
+2026-07-26 14:32:09,362 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,930 - INFO - 
+2026-07-26 14:32:09,362 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,930 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,362 - INFO - <<<<<<< SEARCH
         let process = if let Some(process) = &self.process {
             self.get_process(process)?
         } else {
@@ -6924,7 +6977,7 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
                 .args(self.get_args()?)
                 .env(self.get_environment(original_env));
 >>>>>>> REPLACE
-2026-07-25 23:05:45,930 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,362 - INFO - <<<<<<< SEARCH
         let process = if let Some(process) = &self.process {
             self.get_process(process)?
         } else {
@@ -6941,11 +6994,11 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
                 .args(self.get_args()?)
                 .env(self.get_environment(original_env));
 >>>>>>> REPLACE
-2026-07-25 23:05:45,930 - INFO - 
+2026-07-26 14:32:09,362 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,930 - INFO - 
+2026-07-26 14:32:09,362 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,930 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,362 - INFO - <<<<<<< SEARCH
     fn get_environment(&self, path: Option<String>) -> Vec<String> {
         let mut env_exists = false;
         let mut env: Vec<String> = self
@@ -6970,42 +7023,20 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
         env
     }
 =======
-    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {
-        let mut env = Vec::new();
-        let mut positions = HashMap::new();
-
-        // Exec processes inherit the environment configured for the container init
-        // process. Environment variables supplied specifically for exec override the
-        // inherited values with the same name.
-        if let Some(original_env) = original_env {
-            for entry in original_env {
-                if let Some((key, _)) = entry.split_once('=') {
-                    if let Some(index) = positions.get(key).copied() {
-                        env[index] = entry;
-                    } else {
-                        positions.insert(key.to_owned(), env.len());
-                        env.push(entry);
-                    }
-                } else {
-                    env.push(entry);
-                }
-            }
-        }
-
+    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
         for (key, value) in &self.env {
-            let entry = format!("{key}={value}");
-            if let Some(index) = positions.get(key).copied() {
-                env[index] = entry;
-            } else {
-                positions.insert(key.clone(), env.len());
-                env.push(entry);
-            }
+            env.retain(|env_var| {
+                env_var
+                    .split_once('=')
+                    .is_none_or(|(env_key, _)| env_key != key)
+            });
+            env.push(format!("{key}={value}"));
         }
 
         env
     }
 >>>>>>> REPLACE
-2026-07-25 23:05:45,930 - INFO - <<<<<<< SEARCH
+2026-07-26 14:32:09,362 - INFO - <<<<<<< SEARCH
     fn get_environment(&self, path: Option<String>) -> Vec<String> {
         let mut env_exists = false;
         let mut env: Vec<String> = self
@@ -7030,46 +7061,192 @@ fn get_env_from_spec(spec: &Spec) -> Option<Vec<String>> {
         env
     }
 =======
-    fn get_environment(&self, original_env: Option<Vec<String>>) -> Vec<String> {
-        let mut env = Vec::new();
-        let mut positions = HashMap::new();
-
-        // Exec processes inherit the environment configured for the container init
-        // process. Environment variables supplied specifically for exec override the
-        // inherited values with the same name.
-        if let Some(original_env) = original_env {
-            for entry in original_env {
-                if let Some((key, _)) = entry.split_once('=') {
-                    if let Some(index) = positions.get(key).copied() {
-                        env[index] = entry;
-                    } else {
-                        positions.insert(key.to_owned(), env.len());
-                        env.push(entry);
-                    }
-                } else {
-                    env.push(entry);
-                }
-            }
-        }
-
+    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
         for (key, value) in &self.env {
-            let entry = format!("{key}={value}");
-            if let Some(index) = positions.get(key).copied() {
-                env[index] = entry;
-            } else {
-                positions.insert(key.clone(), env.len());
-                env.push(entry);
-            }
+            env.retain(|env_var| {
+                env_var
+                    .split_once('=')
+                    .is_none_or(|(env_key, _)| env_key != key)
+            });
+            env.push(format!("{key}={value}"));
         }
 
         env
     }
 >>>>>>> REPLACE
-2026-07-25 23:05:45,930 - INFO - 
+2026-07-26 14:32:09,362 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,930 - INFO - 
+2026-07-26 14:32:09,362 - INFO - 
 ----------------------------------------
-2026-07-25 23:05:45,930 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/rootfs/mount.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
-2026-07-25 23:05:45,930 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/youki-3428/crates/libcontainer/src/container/tenant_builder.rs' available=['crates/libcontainer/src/process/init/process.rs', 'crates/libcontainer/src/syscall/linux.rs', 'tests/contest/runtimetest/src/tests.rs', 'crates/libcontainer/src/rootfs/mount.rs', 'crates/libcontainer/src/container/tenant_builder.rs']
-2026-07-25 23:05:45,961 - INFO - differ_by_empty_lines = True
-2026-07-25 23:05:45,961 - INFO - differ_by_empty_lines = True
+2026-07-26 14:32:09,362 - ERROR - parse_diff_edit_commands failed for crates/libcontainer/src/container/tenant_builder.rs; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 14:32:09,362 - ERROR - parse_diff_edit_commands failed for crates/libcontainer/src/container/tenant_builder.rs; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 14:32:09,363 - INFO - extracted patch:
+2026-07-26 14:32:09,363 - INFO - extracted patch:
+2026-07-26 14:32:09,364 - INFO - --- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,24 +33,11 @@
+ const TENANT_NOTIFY: &str = "tenant-notify-";
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+-fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
+-    env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++fn get_env_from_spec(spec: &Spec) -> Vec<String> {
++    spec.process()
++        .and_then(|process| process.env().as_ref())
++        .cloned()
++        .unwrap_or_default()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -455,10 +442,10 @@
+         let process = if let Some(process) = &self.process {
+             self.get_process(process)?
+         } else {
+-            let original_path_env = get_path_from_spec(spec);
++            let original_env = get_env_from_spec(spec);
+             let mut process_builder = ProcessBuilder::default()
+                 .args(self.get_args()?)
+-                .env(self.get_environment(original_path_env));
++                .env(self.get_environment(original_env));
+             if let Some(cwd) = self.get_working_dir()? {
+                 process_builder = process_builder.cwd(cwd);
+             }
+@@ -556,27 +543,16 @@
+         Ok(self.args.clone())
+     }
+ 
+-    fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
+-        // It is not possible in normal flow that path is None. The original container
+-        // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
+-        if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
++        for (key, value) in &self.env {
++            env.retain(|env_var| {
++                env_var
++                    .split_once('=')
++                    .is_none_or(|(env_key, _)| env_key != key)
++            });
++            env.push(format!("{key}={value}"));
++        }
++
+         env
+     }
+ 
+2026-07-26 14:32:09,364 - INFO - --- crates/libcontainer/src/container/tenant_builder.rs
++++ crates/libcontainer/src/container/tenant_builder.rs
+@@ -33,24 +33,11 @@
+ const TENANT_NOTIFY: &str = "tenant-notify-";
+ const TENANT_TTY: &str = "tenant-tty-";
+ 
+-fn get_path_from_spec(spec: &Spec) -> Option<String> {
+-    let process = match spec.process() {
+-        Some(p) => p,
+-        None => return None,
+-    };
+-    let env = match process.env() {
+-        Some(e) => e,
+-        None => return None,
+-    };
+-    // as per runtime spec, env vars should follow https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_01
+-    // and that specifies having multiple env with same name is undefined behaviour
+-    // so we take the last occurrence of PATH as that is somewhat intuitional of last
+-    // specified value overriding
+-    env.iter()
+-        .find(|e| e.starts_with("PATH"))
+-        .iter()
+-        .next_back()
+-        .map(|s| s.to_string())
++fn get_env_from_spec(spec: &Spec) -> Vec<String> {
++    spec.process()
++        .and_then(|process| process.env().as_ref())
++        .cloned()
++        .unwrap_or_default()
+ }
+ 
+ /// Builder that can be used to configure the properties of a process
+@@ -455,10 +442,10 @@
+         let process = if let Some(process) = &self.process {
+             self.get_process(process)?
+         } else {
+-            let original_path_env = get_path_from_spec(spec);
++            let original_env = get_env_from_spec(spec);
+             let mut process_builder = ProcessBuilder::default()
+                 .args(self.get_args()?)
+-                .env(self.get_environment(original_path_env));
++                .env(self.get_environment(original_env));
+             if let Some(cwd) = self.get_working_dir()? {
+                 process_builder = process_builder.cwd(cwd);
+             }
+@@ -556,27 +543,16 @@
+         Ok(self.args.clone())
+     }
+ 
+-    fn get_environment(&self, path: Option<String>) -> Vec<String> {
+-        let mut env_exists = false;
+-        let mut env: Vec<String> = self
+-            .env
+-            .iter()
+-            .map(|(k, v)| {
+-                if k == "PATH" {
+-                    env_exists = true;
+-                }
+-                format!("{k}={v}")
+-            })
+-            .collect();
+-        // It is not possible in normal flow that path is None. The original container
+-        // creation would have failed if path was absent. However we use Option
+-        // just as a caution, and if neither exec cmd not original spec has PATH,
+-        // the container creation will fail later which is ok
+-        if let Some(p) = path {
+-            if !env_exists {
+-                env.push(p);
+-            }
+-        }
++    fn get_environment(&self, mut env: Vec<String>) -> Vec<String> {
++        for (key, value) in &self.env {
++            env.retain(|env_var| {
++                env_var
++                    .split_once('=')
++                    .is_none_or(|(env_key, _)| env_key != key)
++            });
++            env.push(format!("{key}={value}"));
++        }
++
+         env
+     }
+ 
+2026-07-26 14:32:09,417 - INFO - differ_by_empty_lines = False
+2026-07-26 14:32:09,417 - INFO - differ_by_empty_lines = False

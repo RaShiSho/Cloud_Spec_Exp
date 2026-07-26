@@ -1,2 +1,79 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/4bad4ffb-c81a-4124-93b4-0f25df475ae3/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/326ed1fc-3c2b-4dfe-9980-77df76c5b1f6/.git/
+[master (root-commit) 6b1becb] initial commit
+ 1 file changed, 1220 insertions(+)
+ create mode 100644 crates/libcontainer/src/process/container_init_process.rs
 trying the 1-th sample ...
+--- crates/libcontainer/src/process/container_init_process.rs
++++ crates/libcontainer/src/process/container_init_process.rs
+@@ -240,11 +240,29 @@
+     // At this point we should be inside of the container and now
+     // we can re-open /dev/null if it is in use to the /dev/null
+     // in the container.
+-
+-    let dev_null = fs::File::open("/dev/null").map_err(|err| {
+-        tracing::error!(?err, "failed to open /dev/null inside the container");
+-        InitProcessError::ReopenDevNull(err)
+-    })?;
++    //
++    // However, the OCI spec allows device cgroup rules such as:
++    //   {"allow": false, "access": "rwm"}
++    // which deny all device access. If those rules are already active, opening
++    // /dev/null can fail with a permission error. This must not make container
++    // init fail before the payload is executed. In that case, keep the existing
++    // stdio fds as-is and let the configured device policy apply to subsequent
++    // opens from the container process.
++
++    let dev_null = match fs::File::open("/dev/null") {
++        Ok(dev_null) => dev_null,
++        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
++            tracing::debug!(
++                ?err,
++                "skipping /dev/null reopen because device policy denies access"
++            );
++            return Ok(());
++        }
++        Err(err) => {
++            tracing::error!(?err, "failed to open /dev/null inside the container");
++            return Err(InitProcessError::ReopenDevNull(err));
++        }
++    };
+     let dev_null_fstat_info = nix::sys::stat::fstat(dev_null.as_raw_fd()).map_err(|err| {
+         tracing::error!(?err, "failed to fstat /dev/null inside the container");
+         InitProcessError::NixOther(err)
+--- crates/libcontainer/src/process/container_init_process.rs
++++ crates/libcontainer/src/process/container_init_process.rs
+@@ -240,11 +240,29 @@
+     // At this point we should be inside of the container and now
+     // we can re-open /dev/null if it is in use to the /dev/null
+     // in the container.
+-
+-    let dev_null = fs::File::open("/dev/null").map_err(|err| {
+-        tracing::error!(?err, "failed to open /dev/null inside the container");
+-        InitProcessError::ReopenDevNull(err)
+-    })?;
++    //
++    // However, the OCI spec allows device cgroup rules such as:
++    //   {"allow": false, "access": "rwm"}
++    // which deny all device access. If those rules are already active, opening
++    // /dev/null can fail with a permission error. This must not make container
++    // init fail before the payload is executed. In that case, keep the existing
++    // stdio fds as-is and let the configured device policy apply to subsequent
++    // opens from the container process.
++
++    let dev_null = match fs::File::open("/dev/null") {
++        Ok(dev_null) => dev_null,
++        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
++            tracing::debug!(
++                ?err,
++                "skipping /dev/null reopen because device policy denies access"
++            );
++            return Ok(());
++        }
++        Err(err) => {
++            tracing::error!(?err, "failed to open /dev/null inside the container");
++            return Err(InitProcessError::ReopenDevNull(err));
++        }
++    };
+     let dev_null_fstat_info = nix::sys::stat::fstat(dev_null.as_raw_fd()).map_err(|err| {
+         tracing::error!(?err, "failed to fstat /dev/null inside the container");
+         InitProcessError::NixOther(err)

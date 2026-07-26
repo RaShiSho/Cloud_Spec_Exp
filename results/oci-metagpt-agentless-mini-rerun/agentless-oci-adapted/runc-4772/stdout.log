@@ -1,2 +1,117 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/6854134e-f1de-47e4-a412-9f8f07f8524c/.git/
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/d5aa6503-10c8-4bba-b0e1-a1b939b04ccf/.git/
+[master (root-commit) dc6b37d] initial commit
+ 1 file changed, 1275 insertions(+)
+ create mode 100644 libcontainer/specconv/spec_linux.go
 trying the 1-th sample ...
+--- libcontainer/specconv/spec_linux.go
++++ libcontainer/specconv/spec_linux.go
+@@ -719,6 +719,41 @@
+ 	return sp, nil
+ }
+ 
++const (
++	cpuSharesMin     = 2
++	cpuSharesDefault = 1024
++	cpuSharesMax     = 262144
++
++	cpuWeightMin     = 1
++	cpuWeightDefault = 100
++	cpuWeightMax     = 10000
++)
++
++// convertCPUSharesToCPUWeight converts OCI/cgroup v1 cpu.shares to cgroup v2
++// cpu.weight while preserving the default priority mapping. In particular,
++// cpu.shares=1024 is the cgroup v1 default and must map to cpu.weight=100,
++// the cgroup v2 default.
++func convertCPUSharesToCPUWeight(shares uint64) uint64 {
++	if shares == 0 {
++		return 0
++	}
++	if shares <= cpuSharesMin {
++		return cpuWeightMin
++	}
++	if shares >= cpuSharesMax {
++		return cpuWeightMax
++	}
++
++	weight := shares * cpuWeightDefault / cpuSharesDefault
++	if weight < cpuWeightMin {
++		return cpuWeightMin
++	}
++	if weight > cpuWeightMax {
++		return cpuWeightMax
++	}
++	return weight
++}
++
+ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*cgroups.Cgroup, error) {
+ 	var (
+ 		myCgroupPath string
+@@ -835,8 +870,9 @@
+ 				if r.CPU.Shares != nil {
+ 					c.Resources.CpuShares = *r.CPU.Shares
+ 
+-					// CpuWeight is used for cgroupv2 and should be converted
+-					c.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
++					// CpuWeight is used for cgroup v2 and should be converted
++					// compatibly with cgroup v1 defaults: shares=1024 -> weight=100.
++					c.Resources.CpuWeight = convertCPUSharesToCPUWeight(c.Resources.CpuShares)
+ 				}
+ 				if r.CPU.Quota != nil {
+ 					c.Resources.CpuQuota = *r.CPU.Quota
+--- libcontainer/specconv/spec_linux.go
++++ libcontainer/specconv/spec_linux.go
+@@ -719,6 +719,41 @@
+ 	return sp, nil
+ }
+ 
++const (
++	cpuSharesMin     = 2
++	cpuSharesDefault = 1024
++	cpuSharesMax     = 262144
++
++	cpuWeightMin     = 1
++	cpuWeightDefault = 100
++	cpuWeightMax     = 10000
++)
++
++// convertCPUSharesToCPUWeight converts OCI/cgroup v1 cpu.shares to cgroup v2
++// cpu.weight while preserving the default priority mapping. In particular,
++// cpu.shares=1024 is the cgroup v1 default and must map to cpu.weight=100,
++// the cgroup v2 default.
++func convertCPUSharesToCPUWeight(shares uint64) uint64 {
++	if shares == 0 {
++		return 0
++	}
++	if shares <= cpuSharesMin {
++		return cpuWeightMin
++	}
++	if shares >= cpuSharesMax {
++		return cpuWeightMax
++	}
++
++	weight := shares * cpuWeightDefault / cpuSharesDefault
++	if weight < cpuWeightMin {
++		return cpuWeightMin
++	}
++	if weight > cpuWeightMax {
++		return cpuWeightMax
++	}
++	return weight
++}
++
+ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*cgroups.Cgroup, error) {
+ 	var (
+ 		myCgroupPath string
+@@ -835,8 +870,9 @@
+ 				if r.CPU.Shares != nil {
+ 					c.Resources.CpuShares = *r.CPU.Shares
+ 
+-					// CpuWeight is used for cgroupv2 and should be converted
+-					c.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
++					// CpuWeight is used for cgroup v2 and should be converted
++					// compatibly with cgroup v1 defaults: shares=1024 -> weight=100.
++					c.Resources.CpuWeight = convertCPUSharesToCPUWeight(c.Resources.CpuShares)
+ 				}
+ 				if r.CPU.Quota != nil {
+ 					c.Resources.CpuQuota = *r.CPU.Quota

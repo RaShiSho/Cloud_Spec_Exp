@@ -1,5 +1,5 @@
-2026-07-25 22:52:10,152 - INFO - ================ repairing runc-3020 ================
-2026-07-25 22:52:10,153 - INFO - prompting with message:
+2026-07-26 13:55:25,395 - INFO - ================ repairing runc-3020 ================
+2026-07-26 13:55:25,398 - INFO - prompting with message:
 We are currently solving the following issue within our repository. Here is the issue text:
 --- BEGIN ISSUE ---
 Fix OCI runtime bug case runc-3020.
@@ -21,7 +21,8 @@ cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mi
 
 Inspect, edit, build, and collect git diff only in the writable target repository.
 Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
-Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.
+Do not use absolute paths in `### <file>` headers.
 
 Reproduction bundle absolute path (read-only):
 /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-3020
@@ -6325,17 +6326,17 @@ from flask import Flask
 
 Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
 Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
-2026-07-25 22:52:10,154 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:52:10,166 - INFO - Creating API request
-2026-07-25 22:52:42,798 - INFO - API response ChatCompletion(id='resp_0a5a2aaedc74f331016a64cd9fe76c8193937ec363bd1bcb55', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Bug localization: mount setup accepts a relative `configs.Mount.Destination`, and `securejoin.SecureJoin(rootfs, m.Destination)` treats it as relative to the rootfs. For runc-3020, this allows `relative-mount-target` to be mounted and visible in the container. The strict behavior should reject non-absolute mount destinations before any mount preparation/propagation.\n\nApply this edit:\n\n```python\n### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go\n<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\t// OCI mount destinations are container-absolute paths. Treating a\n\t// relative destination as relative to the rootfs can make invalid mounts\n\t// visible inside the container, so reject them before resolving or creating\n\t// mountpoints.\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf("mount destination %q is not absolute", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1784991162, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1380, prompt_tokens=51279, total_tokens=52659, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1034, rejected_prediction_tokens=None), prompt_tokens_details=None))
-2026-07-25 22:52:42,798 - INFO - Initializing a decoder model: gpt-5.5 ...
-2026-07-25 22:52:42,798 - INFO - raw output:
-Bug localization: mount setup accepts a relative `configs.Mount.Destination`, and `securejoin.SecureJoin(rootfs, m.Destination)` treats it as relative to the rootfs. For runc-3020, this allows `relative-mount-target` to be mounted and visible in the container. The strict behavior should reject non-absolute mount destinations before any mount preparation/propagation.
-
-Apply this edit:
+2026-07-26 13:55:25,400 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:55:25,425 - INFO - Creating API request
+2026-07-26 13:55:56,492 - INFO - API response ChatCompletion(id='resp_04a6d0d0d3b6cda3016a65a1510660819ab8596070f8cc2ea1', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020 && git rev-parse HEAD && git status --short\ngrep -R "absolute" -n . | head -100 && grep -R "Destination" -n libcontainer configs | head\nThe bug is in mount handling: relative mount destinations are currently accepted and resolved under the container rootfs. To restore strict OCI behavior for runc-3020, reject any configured mount whose destination is not absolute before attempting to create or mount it.\n\n```python\n### libcontainer/rootfs_linux.go\n<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf("mount destination %q not absolute", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None))], created=1785045356, model='gpt-5.5', object='chat.completion', moderation=None, service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=1423, prompt_tokens=51297, total_tokens=52720, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1107, rejected_prediction_tokens=None), prompt_tokens_details=None))
+2026-07-26 13:55:56,492 - INFO - Initializing a decoder model: gpt-5.5 ...
+2026-07-26 13:55:56,492 - INFO - raw output:
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020 && git rev-parse HEAD && git status --short
+grep -R "absolute" -n . | head -100 && grep -R "Destination" -n libcontainer configs | head
+The bug is in mount handling: relative mount destinations are currently accepted and resolved under the container rootfs. To restore strict OCI behavior for runc-3020, reject any configured mount whose destination is not absolute before attempting to create or mount it.
 
 ```python
-### /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go
+### libcontainer/rootfs_linux.go
 <<<<<<< SEARCH
 func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
@@ -6349,12 +6350,8 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
 
-	// OCI mount destinations are container-absolute paths. Treating a
-	// relative destination as relative to the rootfs can make invalid mounts
-	// visible inside the container, so reject them before resolving or creating
-	// mountpoints.
 	if !filepath.IsAbs(m.Destination) {
-		return fmt.Errorf("mount destination %q is not absolute", m.Destination)
+		return fmt.Errorf("mount destination %q not absolute", m.Destination)
 	}
 
 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
@@ -6363,15 +6360,15 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	}
 >>>>>>> REPLACE
 ```
-2026-07-25 22:52:42,798 - INFO - === file_to_commands: ===
-2026-07-25 22:52:42,798 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go'": [
-    "<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\t// OCI mount destinations are container-absolute paths. Treating a\n\t// relative destination as relative to the rootfs can make invalid mounts\n\t// visible inside the container, so reject them before resolving or creating\n\t// mountpoints.\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf(\"mount destination %q is not absolute\", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE"
+2026-07-26 13:55:56,493 - INFO - === file_to_commands: ===
+2026-07-26 13:55:56,493 - INFO - {
+  "'libcontainer/rootfs_linux.go'": [
+    "<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf(\"mount destination %q not absolute\", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:52:42,798 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go' ===
-2026-07-25 22:52:42,798 - INFO - === edit_commands: ===
-2026-07-25 22:52:42,798 - INFO - <<<<<<< SEARCH
+2026-07-26 13:55:56,493 - INFO - === edited_file: 'libcontainer/rootfs_linux.go' ===
+2026-07-26 13:55:56,493 - INFO - === edit_commands: ===
+2026-07-26 13:55:56,493 - INFO - <<<<<<< SEARCH
 func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
@@ -6384,12 +6381,8 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
 
-	// OCI mount destinations are container-absolute paths. Treating a
-	// relative destination as relative to the rootfs can make invalid mounts
-	// visible inside the container, so reject them before resolving or creating
-	// mountpoints.
 	if !filepath.IsAbs(m.Destination) {
-		return fmt.Errorf("mount destination %q is not absolute", m.Destination)
+		return fmt.Errorf("mount destination %q not absolute", m.Destination)
 	}
 
 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
@@ -6397,26 +6390,41 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 		return err
 	}
 >>>>>>> REPLACE
-2026-07-25 22:52:42,798 - INFO - 
+2026-07-26 13:55:56,493 - INFO - 
 ----------------------------------------
-2026-07-25 22:52:42,799 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go' available=['libcontainer/container_linux.go', 'libcontainer/rootfs_linux.go', 'libcontainer/integration/exec_test.go', 'libcontainer/init_linux.go', 'libcontainer/configs/config.go']
-2026-07-25 22:52:42,801 - INFO - === file_to_commands: ===
-2026-07-25 22:52:42,801 - INFO - === file_to_commands: ===
-2026-07-25 22:52:42,801 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go'": [
-    "<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\t// OCI mount destinations are container-absolute paths. Treating a\n\t// relative destination as relative to the rootfs can make invalid mounts\n\t// visible inside the container, so reject them before resolving or creating\n\t// mountpoints.\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf(\"mount destination %q is not absolute\", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE"
+2026-07-26 13:55:56,493 - ERROR - parse_diff_edit_commands failed for libcontainer/rootfs_linux.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:55:56,495 - INFO - extracted patch:
+2026-07-26 13:55:56,495 - INFO - --- libcontainer/rootfs_linux.go
++++ libcontainer/rootfs_linux.go
+@@ -379,6 +379,11 @@
+ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
+ 	rootfs := c.root
+ 	mountLabel := c.label
++
++	if !filepath.IsAbs(m.Destination) {
++		return fmt.Errorf("mount destination %q not absolute", m.Destination)
++	}
++
+ 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
+ 	if err != nil {
+ 		return err
+2026-07-26 13:55:56,501 - INFO - === file_to_commands: ===
+2026-07-26 13:55:56,501 - INFO - === file_to_commands: ===
+2026-07-26 13:55:56,501 - INFO - {
+  "'libcontainer/rootfs_linux.go'": [
+    "<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf(\"mount destination %q not absolute\", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:52:42,801 - INFO - {
-  "'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go'": [
-    "<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\t// OCI mount destinations are container-absolute paths. Treating a\n\t// relative destination as relative to the rootfs can make invalid mounts\n\t// visible inside the container, so reject them before resolving or creating\n\t// mountpoints.\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf(\"mount destination %q is not absolute\", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE"
+2026-07-26 13:55:56,501 - INFO - {
+  "'libcontainer/rootfs_linux.go'": [
+    "<<<<<<< SEARCH\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n=======\nfunc mountToRootfs(m *configs.Mount, c *mountConfig) error {\n\trootfs := c.root\n\tmountLabel := c.label\n\n\tif !filepath.IsAbs(m.Destination) {\n\t\treturn fmt.Errorf(\"mount destination %q not absolute\", m.Destination)\n\t}\n\n\tdest, err := securejoin.SecureJoin(rootfs, m.Destination)\n\tif err != nil {\n\t\treturn err\n\t}\n>>>>>>> REPLACE"
   ]
 }
-2026-07-25 22:52:42,801 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go' ===
-2026-07-25 22:52:42,801 - INFO - === edited_file: '/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go' ===
-2026-07-25 22:52:42,801 - INFO - === edit_commands: ===
-2026-07-25 22:52:42,801 - INFO - === edit_commands: ===
-2026-07-25 22:52:42,801 - INFO - <<<<<<< SEARCH
+2026-07-26 13:55:56,501 - INFO - === edited_file: 'libcontainer/rootfs_linux.go' ===
+2026-07-26 13:55:56,501 - INFO - === edited_file: 'libcontainer/rootfs_linux.go' ===
+2026-07-26 13:55:56,501 - INFO - === edit_commands: ===
+2026-07-26 13:55:56,501 - INFO - === edit_commands: ===
+2026-07-26 13:55:56,501 - INFO - <<<<<<< SEARCH
 func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
@@ -6429,12 +6437,8 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
 
-	// OCI mount destinations are container-absolute paths. Treating a
-	// relative destination as relative to the rootfs can make invalid mounts
-	// visible inside the container, so reject them before resolving or creating
-	// mountpoints.
 	if !filepath.IsAbs(m.Destination) {
-		return fmt.Errorf("mount destination %q is not absolute", m.Destination)
+		return fmt.Errorf("mount destination %q not absolute", m.Destination)
 	}
 
 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
@@ -6442,7 +6446,7 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 		return err
 	}
 >>>>>>> REPLACE
-2026-07-25 22:52:42,801 - INFO - <<<<<<< SEARCH
+2026-07-26 13:55:56,501 - INFO - <<<<<<< SEARCH
 func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
@@ -6455,12 +6459,8 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 	rootfs := c.root
 	mountLabel := c.label
 
-	// OCI mount destinations are container-absolute paths. Treating a
-	// relative destination as relative to the rootfs can make invalid mounts
-	// visible inside the container, so reject them before resolving or creating
-	// mountpoints.
 	if !filepath.IsAbs(m.Destination) {
-		return fmt.Errorf("mount destination %q is not absolute", m.Destination)
+		return fmt.Errorf("mount destination %q not absolute", m.Destination)
 	}
 
 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
@@ -6468,11 +6468,41 @@ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
 		return err
 	}
 >>>>>>> REPLACE
-2026-07-25 22:52:42,802 - INFO - 
+2026-07-26 13:55:56,501 - INFO - 
 ----------------------------------------
-2026-07-25 22:52:42,802 - INFO - 
+2026-07-26 13:55:56,501 - INFO - 
 ----------------------------------------
-2026-07-25 22:52:42,802 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go' available=['libcontainer/container_linux.go', 'libcontainer/rootfs_linux.go', 'libcontainer/integration/exec_test.go', 'libcontainer/init_linux.go', 'libcontainer/configs/config.go']
-2026-07-25 22:52:42,802 - ERROR - edited_file not found after normalize: raw="'/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go'" normalized='/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/agentless-oci-adapted/runc-3020/libcontainer/rootfs_linux.go' available=['libcontainer/container_linux.go', 'libcontainer/rootfs_linux.go', 'libcontainer/integration/exec_test.go', 'libcontainer/init_linux.go', 'libcontainer/configs/config.go']
-2026-07-25 22:52:42,825 - INFO - differ_by_empty_lines = True
-2026-07-25 22:52:42,825 - INFO - differ_by_empty_lines = True
+2026-07-26 13:55:56,501 - ERROR - parse_diff_edit_commands failed for libcontainer/rootfs_linux.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:55:56,501 - ERROR - parse_diff_edit_commands failed for libcontainer/rootfs_linux.go; fallback to parse_search_replace_commands: cannot access local variable 'original' where it is not associated with a value
+2026-07-26 13:55:56,502 - INFO - extracted patch:
+2026-07-26 13:55:56,502 - INFO - extracted patch:
+2026-07-26 13:55:56,502 - INFO - --- libcontainer/rootfs_linux.go
++++ libcontainer/rootfs_linux.go
+@@ -379,6 +379,11 @@
+ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
+ 	rootfs := c.root
+ 	mountLabel := c.label
++
++	if !filepath.IsAbs(m.Destination) {
++		return fmt.Errorf("mount destination %q not absolute", m.Destination)
++	}
++
+ 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
+ 	if err != nil {
+ 		return err
+2026-07-26 13:55:56,502 - INFO - --- libcontainer/rootfs_linux.go
++++ libcontainer/rootfs_linux.go
+@@ -379,6 +379,11 @@
+ func mountToRootfs(m *configs.Mount, c *mountConfig) error {
+ 	rootfs := c.root
+ 	mountLabel := c.label
++
++	if !filepath.IsAbs(m.Destination) {
++		return fmt.Errorf("mount destination %q not absolute", m.Destination)
++	}
++
+ 	dest, err := securejoin.SecureJoin(rootfs, m.Destination)
+ 	if err != nil {
+ 		return err
+2026-07-26 13:55:56,562 - INFO - differ_by_empty_lines = False
+2026-07-26 13:55:56,562 - INFO - differ_by_empty_lines = False

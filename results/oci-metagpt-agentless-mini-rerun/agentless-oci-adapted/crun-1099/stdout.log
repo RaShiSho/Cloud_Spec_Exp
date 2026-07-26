@@ -1,2 +1,309 @@
-Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/b350916e-e0db-4c89-9a4b-a4ba98d37fe4/.git/
 trying the 1-th sample ...
+--- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1618,6 +1618,48 @@
+                                        { NULL, NULL, false } };
+ 
+ static int
++mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
++                      int *devicefd, libcrun_error_t *err)
++{
++  const char *rootfs = get_private_data (container)->rootfs;
++  size_t rootfs_len = get_private_data (container)->rootfs_len;
++  int rootfsfd = get_private_data (container)->rootfsfd;
++  const char *rel_dev = relative_path_under_dev (device->path);
++  cleanup_close int fd = -1;
++  int ret;
++
++  if (*devicefd < 0)
++    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
++
++  if (rel_dev)
++    {
++      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
++      if (UNLIKELY (fd < 0))
++        {
++          if (errno == ENOENT)
++            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
++
++          if (UNLIKELY (fd < 0))
++            return crun_make_error (err, errno, "create device `%s`", device->path);
++        }
++    }
++  else
++    {
++      const char *rel_path = consume_slashes (device->path);
++
++      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
++      if (UNLIKELY (fd < 0))
++        return fd;
++    }
++
++  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "move device `%s`", device->path);
++
++  return 0;
++}
++
++static int
+ create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+ {
+   int ret;
+@@ -1627,6 +1669,7 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   const char *rootfs = get_private_data (container)->rootfs;
+   int rootfsfd = get_private_data (container)->rootfsfd;
++  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
+ 
+   devfd = openat (rootfsfd, "dev", O_RDONLY | O_DIRECTORY);
+   if (UNLIKELY (devfd < 0))
+@@ -1646,7 +1689,11 @@
+ 
+       if (! def->linux->devices[i]->file_mode_present)
+         device.mode = 0666;
+-      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
++
++      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
++        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
++      else
++        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+       if (UNLIKELY (ret < 0))
+         return ret;
+     }
+@@ -3839,6 +3886,8 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+   bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
++  cleanup_free char *tmpdir = NULL;
++  cleanup_close int tmpfd = -1;
+   size_t how_many = 0;
+   size_t i;
+   int ret;
+@@ -3849,19 +3898,57 @@
+   dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+ 
+   for (i = 0; i < def->linux->devices_len; i++)
+-    {
+-      if (has_userns)
+-        {
+-          dev_fds->fds[i] = -1;
+-          if (UNLIKELY (dev_fds->fds[i] < 0))
+-            crun_error_release (err);
+-        }
+-
+-      if (dev_fds->fds[i] >= 0)
+-        how_many++;
+-    }
+-
+-  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++    dev_fds->fds[i] = -1;
++
++  if (! has_userns)
++    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
++  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
++    return crun_make_error (err, errno, "mkdtemp for devices");
++
++  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (UNLIKELY (tmpfd < 0))
++    return crun_make_error (err, errno, "open `%s`", tmpdir);
++
++  for (i = 0; i < def->linux->devices_len; i++)
++    {
++      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
++      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
++      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
++      char name[32];
++
++      sprintf (name, "%zu", i);
++
++      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "mknod `%s`", dev->path);
++
++      ret = fchmodat (tmpfd, name, mode, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chmod `%s`", dev->path);
++
++      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chown `%s`", dev->path);
++
++      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
++      if (UNLIKELY (dev_fds->fds[i] < 0))
++        return dev_fds->fds[i];
++
++      ret = unlinkat (tmpfd, name, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "unlink `%s`", name);
++
++      how_many++;
++    }
++
++  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  if (tmpdir)
++    (void) rmdir (tmpdir);
++
++  return ret;
+ }
+ 
+ static int
+--- src/libcrun/linux.c
++++ src/libcrun/linux.c
+@@ -1618,6 +1618,48 @@
+                                        { NULL, NULL, false } };
+ 
+ static int
++mount_device_from_fd (libcrun_container_t *container, int devfd, struct device_s *device,
++                      int *devicefd, libcrun_error_t *err)
++{
++  const char *rootfs = get_private_data (container)->rootfs;
++  size_t rootfs_len = get_private_data (container)->rootfs_len;
++  int rootfsfd = get_private_data (container)->rootfsfd;
++  const char *rel_dev = relative_path_under_dev (device->path);
++  cleanup_close int fd = -1;
++  int ret;
++
++  if (*devicefd < 0)
++    return crun_make_error (err, 0, "invalid device fd for `%s`", device->path);
++
++  if (rel_dev)
++    {
++      fd = openat (devfd, rel_dev, O_NOFOLLOW | O_CLOEXEC | O_PATH | O_NONBLOCK);
++      if (UNLIKELY (fd < 0))
++        {
++          if (errno == ENOENT)
++            fd = openat (devfd, rel_dev, O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0700);
++
++          if (UNLIKELY (fd < 0))
++            return crun_make_error (err, errno, "create device `%s`", device->path);
++        }
++    }
++  else
++    {
++      const char *rel_path = consume_slashes (device->path);
++
++      fd = crun_safe_create_and_open_ref_at (false, rootfsfd, rootfs, rootfs_len, rel_path, 0755, err);
++      if (UNLIKELY (fd < 0))
++        return fd;
++    }
++
++  ret = fs_move_mount_to (get_and_reset (devicefd), fd, NULL);
++  if (UNLIKELY (ret < 0))
++    return crun_make_error (err, errno, "move device `%s`", device->path);
++
++  return 0;
++}
++
++static int
+ create_missing_devs (libcrun_container_t *container, bool binds, libcrun_error_t *err)
+ {
+   int ret;
+@@ -1627,6 +1669,7 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   const char *rootfs = get_private_data (container)->rootfs;
+   int rootfsfd = get_private_data (container)->rootfsfd;
++  struct libcrun_fd_map *dev_fds = binds ? get_private_data (container)->dev_fds : NULL;
+ 
+   devfd = openat (rootfsfd, "dev", O_RDONLY | O_DIRECTORY);
+   if (UNLIKELY (devfd < 0))
+@@ -1646,7 +1689,11 @@
+ 
+       if (! def->linux->devices[i]->file_mode_present)
+         device.mode = 0666;
+-      ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
++
++      if (dev_fds && i < dev_fds->nfds && dev_fds->fds[i] >= 0)
++        ret = mount_device_from_fd (container, devfd, &device, &(dev_fds->fds[i]), err);
++      else
++        ret = libcrun_create_dev (container, devfd, &device, binds, true, err);
+       if (UNLIKELY (ret < 0))
+         return ret;
+     }
+@@ -3839,6 +3886,8 @@
+   runtime_spec_schema_config_schema *def = container->container_def;
+   cleanup_close_map struct libcrun_fd_map *dev_fds = NULL;
+   bool has_userns = (get_private_data (container)->unshare_flags & CLONE_NEWUSER) ? true : false;
++  cleanup_free char *tmpdir = NULL;
++  cleanup_close int tmpfd = -1;
+   size_t how_many = 0;
+   size_t i;
+   int ret;
+@@ -3849,19 +3898,57 @@
+   dev_fds = make_libcrun_fd_map (def->linux->devices_len);
+ 
+   for (i = 0; i < def->linux->devices_len; i++)
+-    {
+-      if (has_userns)
+-        {
+-          dev_fds->fds[i] = -1;
+-          if (UNLIKELY (dev_fds->fds[i] < 0))
+-            crun_error_release (err);
+-        }
+-
+-      if (dev_fds->fds[i] >= 0)
+-        how_many++;
+-    }
+-
+-  return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++    dev_fds->fds[i] = -1;
++
++  if (! has_userns)
++    return send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  tmpdir = xstrdup ("/tmp/crun-devices.XXXXXX");
++  if (UNLIKELY (mkdtemp (tmpdir) == NULL))
++    return crun_make_error (err, errno, "mkdtemp for devices");
++
++  tmpfd = open (tmpdir, O_DIRECTORY | O_RDONLY | O_CLOEXEC);
++  if (UNLIKELY (tmpfd < 0))
++    return crun_make_error (err, errno, "open `%s`", tmpdir);
++
++  for (i = 0; i < def->linux->devices_len; i++)
++    {
++      runtime_spec_schema_config_schema_linux_devices_element *dev = def->linux->devices[i];
++      mode_t mode = dev->file_mode_present ? dev->file_mode : 0666;
++      mode_t type = (dev->type[0] == 'b') ? S_IFBLK : ((dev->type[0] == 'p') ? S_IFIFO : S_IFCHR);
++      char name[32];
++
++      sprintf (name, "%zu", i);
++
++      ret = mknodat (tmpfd, name, mode | type, makedev (dev->major, dev->minor));
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "mknod `%s`", dev->path);
++
++      ret = fchmodat (tmpfd, name, mode, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chmod `%s`", dev->path);
++
++      ret = fchownat (tmpfd, name, dev->uid, dev->gid, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "chown `%s`", dev->path);
++
++      dev_fds->fds[i] = get_bind_mount (tmpfd, name, err);
++      if (UNLIKELY (dev_fds->fds[i] < 0))
++        return dev_fds->fds[i];
++
++      ret = unlinkat (tmpfd, name, 0);
++      if (UNLIKELY (ret < 0))
++        return crun_make_error (err, errno, "unlink `%s`", name);
++
++      how_many++;
++    }
++
++  ret = send_mounts (sync_socket_host, dev_fds, how_many, def->linux->devices_len, err);
++
++  if (tmpdir)
++    (void) rmdir (tmpdir);
++
++  return ret;
+ }
+ 
+ static intInitialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/ea702885-b8ab-4bb5-9e92-4dfa2f541d35/.git/
+[master (root-commit) 116ded0] initial commit
+ 1 file changed, 5109 insertions(+)
+ create mode 100644 src/libcrun/linux.c
+
