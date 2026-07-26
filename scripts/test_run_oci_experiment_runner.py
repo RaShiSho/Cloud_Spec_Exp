@@ -268,6 +268,94 @@ class RunOciExperimentFailureTests(unittest.TestCase):
         self.assertEqual(oracle["error_type"], "baseline")
         self.assertEqual(oracle["message"], result["error"])
 
+    def test_agentless_task_uses_repository_relative_edit_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_dir = root / "source"
+            source_dir.mkdir()
+            case_dir = root / "case"
+            case_dir.mkdir()
+            output_root = root / "results"
+            config = {
+                "experiment": {
+                    "name": "agentless-prompt-test",
+                    "output_dir": str(output_root),
+                    "worktree_root": str(root / "worktrees"),
+                    "timeout_seconds": 30,
+                },
+                "model": {"name": "test-model"},
+                "benchmark": {},
+                "runtimes": {
+                    "crun": {
+                        "source_dir": str(source_dir),
+                        "build_command": "build-runtime",
+                        "runtime_path": "crun",
+                        "reference_runtime": "runc",
+                        "source_extensions": [".c", ".h"],
+                    }
+                },
+            }
+            case = {
+                "case_id": "crun-13",
+                "runtime": "crun",
+                "case_dir": str(case_dir),
+                "title": "test case",
+                "url": "https://example.invalid/13",
+                "category": "test",
+            }
+            baseline = {
+                "name": "agentless-oci-adapted",
+                "kind": "agentless_oci",
+                "command": "run-baseline",
+                "top_n_files": 5,
+            }
+            failure = CommandResult(
+                command="run-baseline",
+                cwd=None,
+                returncode=1,
+                stdout="",
+                stderr="expected test failure",
+            )
+
+            def create_worktree(
+                _source_dir: Path, worktree_dir: Path, _ref: str
+            ) -> None:
+                worktree_dir.mkdir(parents=True)
+                (worktree_dir / "runtime.c").write_text(
+                    "int main(void) { return 0; }\n", encoding="utf-8"
+                )
+
+            with (
+                mock.patch.object(
+                    runner, "create_worktree", side_effect=create_worktree
+                ),
+                mock.patch.object(runner, "run_command", return_value=failure),
+                mock.patch.object(runner, "git_diff", return_value=""),
+            ):
+                runner.run_one(config=config, case=case, baseline=baseline)
+
+            task_text = (
+                output_root / "agentless-oci-adapted" / "crun-13" / "task.md"
+            ).read_text(encoding="utf-8")
+            task_row = json.loads(
+                (
+                    output_root
+                    / "agentless-oci-adapted"
+                    / "crun-13"
+                    / "agentless_task.jsonl"
+                )
+                .read_text(encoding="utf-8")
+                .splitlines()[0]
+            )
+
+        self.assertIn(
+            "use repository-relative file paths exactly as shown in the localized source files",
+            task_text,
+        )
+        self.assertIn("Do not use absolute paths in `### <file>` headers.", task_text)
+        self.assertNotIn("Use absolute paths when calling Editor tools", task_text)
+        self.assertEqual(task_row["problem_statement"], task_text)
+
 
 class RunOciExperimentMetricsTests(unittest.TestCase):
     @staticmethod

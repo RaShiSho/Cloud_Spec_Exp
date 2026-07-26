@@ -342,6 +342,7 @@ def build_task_text(
     case: dict[str, Any],
     runtime_cfg: dict[str, Any],
     worktree_dir: str | Path | None = None,
+    baseline_kind: str | None = None,
 ) -> str:
     texts = read_case_text(case)
     case_dir = Path(case["case_dir"]).resolve()
@@ -351,6 +352,15 @@ def build_task_text(
     target_repo = Path(worktree_dir).resolve() if worktree_dir is not None else None
     target_instructions = []
     if target_repo is not None:
+        if baseline_kind == "agentless_oci":
+            edit_path_instructions = [
+                "When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.",
+                "Do not use absolute paths in `### <file>` headers.",
+            ]
+        else:
+            edit_path_instructions = [
+                "Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.",
+            ]
         target_instructions = [
             "Writable target repository (the only location where source changes are allowed):",
             str(target_repo),
@@ -360,7 +370,7 @@ def build_task_text(
             "",
             "Inspect, edit, build, and collect git diff only in the writable target repository.",
             "Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.",
-            "Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.",
+            *edit_path_instructions,
             "",
         ]
     return "\n".join(

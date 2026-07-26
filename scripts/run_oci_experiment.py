@@ -849,7 +849,12 @@ def run_one(
         )
 
     progress(f"{label} writing task prompt")
-    task_text = build_task_text(case, runtime_cfg, worktree_dir)
+    task_text = build_task_text(
+        case,
+        runtime_cfg,
+        worktree_dir,
+        baseline_kind=baseline.get("kind"),
+    )
     task_file = output_dir / "task.md"
     write_text(task_file, task_text)
 
