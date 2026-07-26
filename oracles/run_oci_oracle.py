@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -68,6 +69,14 @@ def ensure_text(value: str | bytes | None) -> str:
     return value
 
 
+def cleanup_temp_dir(path: Path) -> str | None:
+    try:
+        shutil.rmtree(path)
+    except OSError as exc:
+        return f"failed to remove temporary directory {path}: {exc}"
+    return None
+
+
 def run_repro(
     *,
     case_id: str,
@@ -79,7 +88,9 @@ def run_repro(
     timeout: int,
 ) -> dict[str, Any]:
     start = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix=f"oci-{case_id}-{runtime_label}-{config_name}-") as tmp:
+    tmp = Path(tempfile.mkdtemp(prefix=f"oci-{case_id}-{runtime_label}-{config_name}-"))
+    result: dict[str, Any]
+    try:
         env = os.environ.copy()
         env.update(
             {
@@ -91,8 +102,6 @@ def run_repro(
             }
         )
         try:
-            import subprocess
-
             completed = subprocess.run(
                 ["bash", "repro.sh"],
                 cwd=str(case_dir),
@@ -103,7 +112,7 @@ def run_repro(
                 capture_output=True,
                 timeout=timeout,
             )
-            return {
+            result = {
                 "runtime_label": runtime_label,
                 "config": config_name,
                 "returncode": completed.returncode,
@@ -114,7 +123,7 @@ def run_repro(
                 "error": None,
             }
         except subprocess.TimeoutExpired as exc:
-            return {
+            result = {
                 "runtime_label": runtime_label,
                 "config": config_name,
                 "returncode": 124,
@@ -125,7 +134,7 @@ def run_repro(
                 "error": f"timeout after {timeout}s",
             }
         except OSError as exc:
-            return {
+            result = {
                 "runtime_label": runtime_label,
                 "config": config_name,
                 "returncode": 127,
@@ -135,6 +144,11 @@ def run_repro(
                 "timed_out": False,
                 "error": str(exc),
             }
+    finally:
+        cleanup_warning = cleanup_temp_dir(tmp)
+
+    result["cleanup_warning"] = cleanup_warning
+    return result
 
 
 def write_output(path: Path, payload: dict[str, Any]) -> None:

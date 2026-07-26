@@ -7,10 +7,67 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ORACLE = REPO_ROOT / "oracles" / "run_oci_oracle.py"
+sys.path.insert(0, str(REPO_ROOT))
+from oracles import run_oci_oracle as oracle  # noqa: E402
+
+
+class OciOracleCleanupTests(unittest.TestCase):
+    def test_cleanup_permission_error_becomes_warning(self) -> None:
+        path = Path("/tmp/oci-cleanup-test")
+        with mock.patch.object(
+            oracle.shutil,
+            "rmtree",
+            side_effect=PermissionError("permission denied: floppy"),
+        ):
+            warning = oracle.cleanup_temp_dir(path)
+
+        self.assertIsNotNone(warning)
+        assert warning is not None
+        self.assertIn(str(path), warning)
+        self.assertIn("permission denied: floppy", warning)
+
+    def test_run_repro_preserves_result_when_cleanup_fails(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["bash", "repro.sh"],
+            returncode=0,
+            stdout="runtime output\n",
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                oracle.tempfile,
+                "mkdtemp",
+                return_value="/tmp/oci-cleanup-test",
+            ),
+            mock.patch.object(
+                oracle.subprocess,
+                "run",
+                return_value=completed,
+            ),
+            mock.patch.object(
+                oracle,
+                "cleanup_temp_dir",
+                return_value="cleanup permission denied",
+            ),
+        ):
+            result = oracle.run_repro(
+                case_id="fake-1",
+                case_dir=Path("/tmp/fake-case"),
+                rootfs_tar=Path("/tmp/fake-rootfs.tar.gz"),
+                runtime="/tmp/fake-runtime",
+                runtime_label="candidate",
+                config_name="buggy_config.json",
+                timeout=3,
+            )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["stdout"], "runtime output\n")
+        self.assertEqual(result["cleanup_warning"], "cleanup permission denied")
 
 
 def bash_is_usable() -> bool:

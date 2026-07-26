@@ -768,6 +768,55 @@ def write_oracle_error(output_dir: Path, case_id: str, error_type: str, message:
     )
 
 
+def update_metadata_from_oracle(
+    *,
+    metadata: dict[str, Any],
+    output_dir: Path,
+    oracle_result: Any,
+) -> None:
+    oracle_path = output_dir / "oracle.json"
+    if not oracle_path.exists():
+        if oracle_result.ok:
+            message = "oracle command completed without producing oracle.json"
+        else:
+            message = command_failure_message("oracle", oracle_result)
+        metadata["status"] = "error"
+        metadata["oracle_status"] = "missing"
+        metadata["error"] = message
+        return
+
+    try:
+        oracle_payload = json.loads(oracle_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        metadata["status"] = "error"
+        metadata["oracle_status"] = "invalid"
+        metadata["error"] = f"invalid oracle result: {exc}"
+        return
+
+    if not isinstance(oracle_payload, dict):
+        metadata["status"] = "error"
+        metadata["oracle_status"] = "invalid"
+        metadata["error"] = "invalid oracle result: expected a JSON object"
+        return
+
+    oracle_status = oracle_payload.get("status")
+    metadata["oracle_status"] = oracle_status
+    if oracle_status in {"pass", "fail"}:
+        metadata["status"] = "done"
+        metadata.pop("error", None)
+        return
+
+    metadata["status"] = "error"
+    if oracle_status == "error":
+        metadata["error"] = (
+            oracle_payload.get("message")
+            or command_failure_message("oracle", oracle_result)
+        )
+    else:
+        metadata["oracle_status"] = "invalid"
+        metadata["error"] = f"invalid oracle status: {oracle_status!r}"
+
+
 def run_one(
     *,
     config: dict[str, Any],
@@ -1033,6 +1082,8 @@ def run_one(
 
     oracle_script = REPO_ROOT / "oracles" / "run_oci_oracle.py"
     oracle_timeout = int(config.get("oracle", {}).get("timeout_seconds", 300))
+    oracle_path = output_dir / "oracle.json"
+    oracle_path.unlink(missing_ok=True)
     oracle_command = [
         sys.executable,
         str(oracle_script),
@@ -1047,7 +1098,7 @@ def run_one(
         "--rootfs-tar",
         str(resolve_path(benchmark.get("rootfs_tar"))),
         "--output",
-        str(output_dir / "oracle.json"),
+        str(oracle_path),
         "--timeout",
         str(oracle_timeout),
     ]
@@ -1056,7 +1107,11 @@ def run_one(
     progress(f"{label} oracle finished returncode={oracle_result.returncode} timed_out={oracle_result.timed_out}")
     write_command_logs(output_dir, "oracle", oracle_result)
     metadata["oracle_result"] = oracle_result.to_dict()
-    metadata["status"] = "done"
+    update_metadata_from_oracle(
+        metadata=metadata,
+        output_dir=output_dir,
+        oracle_result=oracle_result,
+    )
     progress(f"{label} writing final metadata: {output_dir / 'metadata.json'}")
     finalize_metadata(
         metadata,

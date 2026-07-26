@@ -541,8 +541,79 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["pipeline_elapsed_seconds"], 5.5)
         self.assertEqual(written["metrics"], result["metrics"])
 
+    def test_oracle_pass_and_fail_are_completed_verdicts(self) -> None:
+        for oracle_status, returncode in (("pass", 0), ("fail", 1)):
+            with self.subTest(oracle_status=oracle_status), tempfile.TemporaryDirectory() as tmp:
+                output_dir = Path(tmp)
+                (output_dir / "oracle.json").write_text(
+                    json.dumps({"status": oracle_status}),
+                    encoding="utf-8",
+                )
+                metadata: dict[str, object] = {}
+
+                runner.update_metadata_from_oracle(
+                    metadata=metadata,
+                    output_dir=output_dir,
+                    oracle_result=self.command_result(returncode=returncode),
+                )
+
+            self.assertEqual(metadata["status"], "done")
+            self.assertEqual(metadata["oracle_status"], oracle_status)
+            self.assertNotIn("error", metadata)
+
+    def test_oracle_error_marks_experiment_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            (output_dir / "oracle.json").write_text(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "error_type": "environment",
+                        "message": "rootfs setup failed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            metadata: dict[str, object] = {}
+
+            runner.update_metadata_from_oracle(
+                metadata=metadata,
+                output_dir=output_dir,
+                oracle_result=self.command_result(returncode=2),
+            )
+
+        self.assertEqual(metadata["status"], "error")
+        self.assertEqual(metadata["oracle_status"], "error")
+        self.assertEqual(metadata["error"], "rootfs setup failed")
+
+    def test_missing_or_invalid_oracle_result_marks_experiment_error(self) -> None:
+        for fixture, expected_status in (
+            (None, "missing"),
+            ("{invalid", "invalid"),
+            ("[]", "invalid"),
+            ('{"status": "unexpected"}', "invalid"),
+        ):
+            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as tmp:
+                output_dir = Path(tmp)
+                if fixture is not None:
+                    (output_dir / "oracle.json").write_text(
+                        fixture,
+                        encoding="utf-8",
+                    )
+                metadata: dict[str, object] = {}
+
+                runner.update_metadata_from_oracle(
+                    metadata=metadata,
+                    output_dir=output_dir,
+                    oracle_result=self.command_result(returncode=1),
+                )
+
+            self.assertEqual(metadata["status"], "error")
+            self.assertEqual(metadata["oracle_status"], expected_status)
+            self.assertIn("error", metadata)
+
     def test_no_patch_build_failure_and_success_record_timings(self) -> None:
-        for scenario in ("no_patch", "build_failure", "success"):
+        for scenario in ("no_patch", "build_failure", "oracle_failure", "success"):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 source_dir = root / "source"
@@ -586,11 +657,17 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                 }
                 success = self.command_result()
                 build_failure = self.command_result(returncode=1)
+                oracle_failure = self.command_result(
+                    returncode=1,
+                    stderr="PermissionError: permission denied: floppy",
+                )
                 side_effects = {
                     "no_patch": [success],
                     "build_failure": [success, build_failure],
+                    "oracle_failure": [success, success, oracle_failure],
                     "success": [success, success, success],
                 }[scenario]
+                side_effects_iter = iter(side_effects)
 
                 def create_worktree(
                     _source_dir: Path, worktree_dir: Path, _ref: str
@@ -598,13 +675,34 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                     worktree_dir.mkdir(parents=True)
                     (worktree_dir / "crun").write_text("", encoding="utf-8")
 
+                def run_command(command: object, **_kwargs: object) -> CommandResult:
+                    result = next(side_effects_iter)
+                    if (
+                        scenario == "success"
+                        and isinstance(command, list)
+                        and "--output" in command
+                    ):
+                        output_index = command.index("--output") + 1
+                        Path(command[output_index]).write_text(
+                            json.dumps({"status": "pass"}),
+                            encoding="utf-8",
+                        )
+                    return result
+
                 patch = "" if scenario == "no_patch" else "diff\n"
+                if scenario == "oracle_failure":
+                    stale_output_dir = output_root / "generic" / "crun-13"
+                    stale_output_dir.mkdir(parents=True)
+                    (stale_output_dir / "oracle.json").write_text(
+                        json.dumps({"status": "pass"}),
+                        encoding="utf-8",
+                    )
                 with (
                     mock.patch.object(
                         runner, "create_worktree", side_effect=create_worktree
                     ),
                     mock.patch.object(
-                        runner, "run_command", side_effect=side_effects
+                        runner, "run_command", side_effect=run_command
                     ),
                     mock.patch.object(runner, "git_diff", return_value=patch),
                 ):
@@ -623,6 +721,13 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
             expected_status = "done" if scenario == "success" else "error"
             self.assertEqual(result["status"], expected_status)
             self.assertEqual(metadata["status"], expected_status)
+            if scenario == "oracle_failure":
+                self.assertEqual(metadata["oracle_status"], "missing")
+                self.assertFalse(
+                    (
+                        output_root / "generic" / "crun-13" / "oracle.json"
+                    ).exists()
+                )
             self.assertEqual(
                 metadata["elapsed_seconds"],
                 metadata["metrics"]["pipeline_elapsed_seconds"],
