@@ -1,0 +1,1050 @@
+👋 This is mini-swe-agent version 2.4.2.
+Check the v2 migration guide at https://klieret.short.gy/mini-v2-migration
+Loading global config from '/home/aludy/.config/mini-swe-agent/.env'
+Building agent config from specs: 
+['/home/aludy/scires/Cloud_Spec_Exp/external/baselines/mini-swe-agent/src/minisweagent/config/mini.yaml']
+
+System:
+You are a helpful assistant that can interact with a computer.
+
+User:
+Please solve this issue: Fix OCI runtime bug case runc-4769.
+
+Target runtime: runc
+Title: Behavior change when duplicate additionalGids are specified
+Upstream issue: https://github.com/opencontainers/runc/issues/4769
+Category: Process & Execution
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI 
+reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769
+
+Required first command:
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && git 
+rev-parse HEAD && git status --short
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4769
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4769
+Upstream URL: https://github.com/opencontainers/runc/issues/4769
+Category: Process & Execution
+
+Payload under test:
+process.user: {"uid": 0, "gid": 0, "additionalGids": [1000, 2000, 3000, 3000]}; process args: ["/usr/bin/id"]
+
+Expected differential behavior:
+runc v1.3.0 preserves duplicate additionalGids, so `id` reports `groups=1000,2000,3000,3000`.
+runc v1.2.6 deduplicates duplicate additionalGids, so `id` reports `groups=1000,2000,3000`.
+crun 1.14.1 also preserves duplicate additionalGids, while youki follows the older runc behavior and deduplicates them.
+
+Validation procedure:
+1. Run this case with the affected runtime, for example `RUNTIME=/path/to/runc-v1.3.0 bash repro.sh`.
+2. Run the same `buggy_config.json` with a reference runtime, for example `RUNTIME=/path/to/runc-v1.2.6 bash repro.sh`.
+3. Compare stdout from `id`; the useful signal is whether the second `3000` is preserved or removed.
+4. Run `CONFIG=base_config.json bash repro.sh` as a sanity check; the baseline should report `groups=1000,2000,3000`.
+5. Treat missing runtime binaries, missing rootfs archive, or insufficient privileges as environment failures rather than 
+successful reproductions.
+
+Case README:
+# runc-4769
+
+## Upstream Issue Summary
+- Title: Behavior change when duplicate additionalGids are specified
+- URL: https://github.com/opencontainers/runc/issues/4769
+- Category: Process & Execution
+- Summary: This case reduces the issue to a small OCI process user configuration whose `additionalGids` list contains a 
+duplicate GID.
+
+## Runtime Version Assessment
+The upstream report compares runc v1.3.0 with runc v1.2.6. runc v1.3.0 preserves duplicate `additionalGids`, while runc 
+v1.2.6 deduplicates them. The report also notes that crun preserves duplicates and youki follows the older runc 
+deduplication behavior.
+
+## Buggy Version Identification
+Issue text identifies `runc version 1.3.0` as the behavior-changing version. The reported behavior changed after 
+opencontainers/runc PR #3999 removed the older path that indirectly deduplicated group IDs through a map.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration with `additionalGids` set to `[1000, 2000, 3000]`.
+- `buggy_config.json`: modified OCI configuration with `additionalGids` set to `[1000, 2000, 3000, 3000]`.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected
+config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- A rootfs containing `/usr/bin/id`; the repository Alpine rootfs provides it.
+
+## Reproduction Steps
+1. Change into `cases/runc-4769`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/runc-v1.3.0 bash repro.sh` 
+and `RUNTIME=/path/to/runc-v1.2.6 bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh`.
+5. Compare stdout from `id` against `expected_diff.txt`.
+
+## Result Validation
+Payload: process.user: {"uid": 0, "gid": 0, "additionalGids": [1000, 2000, 3000, 3000]}; process args: ["/usr/bin/id"]
+
+Oracle: runc v1.3.0 and crun preserve the duplicate group, producing `groups=1000,2000,3000,3000`. runc v1.2.6 and youki 
+deduplicate it, producing `groups=1000,2000,3000`. The baseline config should always produce `groups=1000,2000,3000`.
+
+
+You can execute bash commands and edit files to implement the necessary changes.
+
+## Recommended Workflow
+
+This workflow should be done step-by-step so that you can iterate on your changes and any possible problems.
+
+1. Analyze the codebase by finding and reading relevant files
+2. Create a script to reproduce the issue
+3. Edit the source code to resolve the issue
+4. Verify your fix works by running your script again
+5. Test edge cases to ensure your fix is robust
+6. Submit your changes and finish your work by issuing the following command: `echo 
+COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+   Do not combine it with any other command. <important>After this command, you cannot continue working on this 
+task.</important>
+
+## Command Execution Rules
+
+You are operating in an environment where
+
+1. You issue at least one command
+2. The system executes the command(s) in a subshell
+3. You see the result(s)
+4. You write your next command(s)
+
+Each response should include:
+
+1. **Reasoning text** where you explain your analysis and plan
+2. At least one tool call with your command
+
+**CRITICAL REQUIREMENTS:**
+
+- Your response SHOULD include reasoning text explaining what you're doing
+- Your response MUST include AT LEAST ONE bash tool call
+- Directory or environment variable changes are not persistent. Every action is executed in a new subshell.
+- However, you can prefix any action with `MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...` or write/load environment 
+variables from files
+- Submit your changes and finish your work by issuing the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+  Do not combine it with any other command. <important>After this command, you cannot continue working on this 
+task.</important>
+
+Example of a CORRECT response:
+<example_response>
+I need to understand the structure of the repository first. Let me check what files are in the current directory to get a 
+better understanding of the codebase.
+
+[Makes bash tool call with {"command": "ls -la"} as arguments]
+</example_response>
+
+<system_information>
+Linux 6.6.114.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025 x86_64
+</system_information>
+
+## Useful command examples
+
+### Create a new file:
+
+```bash
+cat <<'EOF' > newfile.py
+import numpy as np
+hello = "world"
+print(hello)
+EOF
+```
+
+### Edit files with sed:```bash
+# Replace all occurrences
+sed -i 's/old_string/new_string/g' filename.py
+
+# Replace only first occurrence
+sed -i 's/old_string/new_string/' filename.py
+
+# Replace first occurrence on line 1
+sed -i '1s/old_string/new_string/' filename.py
+
+# Replace all occurrences in lines 1-10
+sed -i '1,10s/old_string/new_string/g' filename.py
+```
+
+### View file content:
+
+```bash
+# View specific lines with numbers
+nl -ba filename.py | sed -n '10,20p'
+```
+
+### Any other command you want to run
+
+```bash
+anything
+```
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 1, $0.01):
+I’ll start by checking the required repository state and current commit, as requested.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && git 
+rev-parse HEAD && git status --short
+```
+
+Tool:
+<returncode>
+0
+<output>
+8b0e7511cf9207d06803fe8658956f960e13968e
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 2, $0.02):
+Next I’ll locate where runc maps OCI `additionalGids` into the process credentials, and look for group handling changes or
+helper functions that might preserve/deduplicate slices.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && grep 
+-R "AdditionalGids\|additionalGids\|Groups" -n . | head -100
+```
+
+Tool:
+<returncode>
+0
+<output>
+./vendor/golang.org/x/sys/unix/syscall_linux.go:469:    Groups uint32
+./vendor/golang.org/x/sys/unix/syscall_linux.go:477:    sa.raw.Groups = sa.Groups
+./vendor/golang.org/x/sys/unix/syscall_linux.go:984:            sa.Groups = pp.Groups
+./vendor/golang.org/x/sys/unix/ztypes_freebsd_arm64.go:202:     Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_linux.go:309:     Groups uint32
+./vendor/golang.org/x/sys/unix/ztypes_darwin_arm64.go:326:      Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_darwin_arm64.go:841:      Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_freebsd_riscv64.go:202:   Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_freebsd_386.go:205:       Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_darwin_amd64.go:326:      Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_darwin_amd64.go:841:      Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_freebsd_amd64.go:202:     Groups  [16]uint32
+./vendor/golang.org/x/sys/unix/ztypes_freebsd_arm.go:204:       Groups  [16]uint32
+./vendor/golang.org/x/sys/windows/security_windows.go:506:      TokenGroups
+./vendor/golang.org/x/sys/windows/security_windows.go:517:      TokenGroupsAndPrivileges
+./vendor/golang.org/x/sys/windows/security_windows.go:536:// Group attributes inside of Tokengroups.Groups[i].Attributes
+./vendor/golang.org/x/sys/windows/security_windows.go:598:      Groups     [1]SIDAndAttributes // Use AllGroups() for 
+iterating.
+./vendor/golang.org/x/sys/windows/security_windows.go:601:// AllGroups returns a slice that can be used to iterate over 
+the groups in g.
+./vendor/golang.org/x/sys/windows/security_windows.go:602:func (g *Tokengroups) AllGroups() []SIDAndAttributes {
+./vendor/golang.org/x/sys/windows/security_windows.go:603:      return (*[(1 << 28) - 
+1]SIDAndAttributes)(unsafe.Pointer(&g.Groups[0]))[:g.GroupCount:g.GroupCount]
+./vendor/golang.org/x/sys/windows/security_windows.go:634://sys AdjustTokenGroups(token Token, resetToDefault bool, 
+newstate *Tokengroups, buflen uint32, prevstate *Tokengroups, returnlen *uint32) (err error) = advapi32.AdjustTokenGroups
+./vendor/golang.org/x/sys/windows/security_windows.go:717:// GetTokenGroups retrieves group accounts associated with 
+access token t.
+./vendor/golang.org/x/sys/windows/security_windows.go:718:func (t Token) GetTokenGroups() (*Tokengroups, error) {
+./vendor/golang.org/x/sys/windows/security_windows.go:719:      i, e := t.getInfo(TokenGroups, 50)
+./vendor/golang.org/x/sys/windows/zsyscall_windows.go:67:       procAdjustTokenGroups                                    =
+modadvapi32.NewProc("AdjustTokenGroups")
+./vendor/golang.org/x/sys/windows/zsyscall_windows.go:572:func AdjustTokenGroups(token Token, resetToDefault bool, 
+newstate *Tokengroups, buflen uint32, prevstate *Tokengroups, returnlen *uint32) (err error) {
+./vendor/golang.org/x/sys/windows/zsyscall_windows.go:577:      r1, _, e1 := 
+syscall.Syscall6(procAdjustTokenGroups.Addr(), 6, uintptr(token), uintptr(_p0), uintptr(unsafe.Pointer(newstate)), 
+uintptr(buflen), uintptr(unsafe.Pointer(prevstate)), uintptr(unsafe.Pointer(returnlen)))
+./vendor/google.golang.org/protobuf/internal/filedesc/desc.go:609:      // Groups are always group types.
+./vendor/google.golang.org/protobuf/internal/filedesc/desc.go:619:      // Groups could only be defined in the same file 
+they're used.
+./vendor/github.com/moby/sys/user/user_fuzzer.go:38:    _, _ = GetAdditionalGroups([]string{string(divided[2])}, group)
+./vendor/github.com/moby/sys/user/user.go:429:// GetAdditionalGroups looks up a list of groups by name or group id
+./vendor/github.com/moby/sys/user/user.go:434:func GetAdditionalGroups(additionalGroups []string, group io.Reader) ([]int,
+error) {
+./vendor/github.com/moby/sys/user/user.go:439:                  for _, ag := range additionalGroups {
+./vendor/github.com/moby/sys/user/user.go:447:                  return nil, fmt.Errorf("Unable to find additional groups 
+%v: %w", additionalGroups, err)
+./vendor/github.com/moby/sys/user/user.go:452:  for _, ag := range additionalGroups {
+./vendor/github.com/moby/sys/user/user.go:487:// GetAdditionalGroupsPath is a wrapper around GetAdditionalGroups
+./vendor/github.com/moby/sys/user/user.go:489:// GetAdditionalGroups.
+./vendor/github.com/moby/sys/user/user.go:490:func GetAdditionalGroupsPath(additionalGroups []string, groupPath string) 
+([]int, error) {
+./vendor/github.com/moby/sys/user/user.go:497:  return GetAdditionalGroups(additionalGroups, group)
+./vendor/github.com/cilium/ebpf/types.go:74:    // CGroupStorage - Special map for CGroups.
+./vendor/github.com/cilium/ebpf/types.go:78:    // PerCPUCGroupStorage - Special per CPU map for CGroups.
+./vendor/github.com/opencontainers/cgroups/CONTRIBUTING.md:22:You can subscribe and browse the mailing list on [Google 
+Groups][mailing-list].
+./vendor/github.com/opencontainers/runtime-spec/specs-go/config.go:154: // AdditionalGids are additional group ids set for
+the container's process.
+./vendor/github.com/opencontainers/runtime-spec/specs-go/config.go:155: AdditionalGids []uint32 
+`json:"additionalGids,omitempty" platform:"linux,solaris"`
+./vendor/github.com/vishvananda/netlink/nl/nl_linux.go:807:             s.lsa.Groups |= (1 << (g - 1))
+./vendor/github.com/vishvananda/netlink/xfrm_monitor_linux.go:37:       groups, err := xfrmMcastGroups(types)
+./vendor/github.com/vishvananda/netlink/xfrm_monitor_linux.go:80:func xfrmMcastGroups(types []nl.XfrmMsgType) ([]uint, 
+error) {
+./vendor/github.com/vishvananda/netlink/genetlink_linux.go:29:  Groups  []GenlMulticastGroup
+./vendor/github.com/vishvananda/netlink/genetlink_linux.go:57:func parseMulticastGroups(b []byte) ([]GenlMulticastGroup, 
+error) {
+./vendor/github.com/vishvananda/netlink/genetlink_linux.go:102:                 groups, err := 
+parseMulticastGroups(a.Value)
+./vendor/github.com/vishvananda/netlink/genetlink_linux.go:106:                 f.Groups = groups
+./libcontainer/container_linux.go:306:  if c.config.RootlessEUID && len(process.AdditionalGroups) > 0 {
+./libcontainer/container_linux.go:701:          AdditionalGroups: process.AdditionalGroups,
+./libcontainer/criu_opts_linux.go:37:   // See https://criu.org/CGroups for more details.
+./libcontainer/integration/exec_test.go:379:func TestAdditionalGroups(t *testing.T) {
+./libcontainer/integration/exec_test.go:396:            AdditionalGroups: []int{3333, 99999},
+./libcontainer/integration/exec_test.go:405:    outputGroups := stdout.String()
+./libcontainer/integration/exec_test.go:408:    for _, gid := range pconfig.AdditionalGroups {
+./libcontainer/integration/exec_test.go:409:            if !strings.Contains(outputGroups, strconv.Itoa(gid)) {
+./libcontainer/integration/exec_test.go:410:                    t.Errorf("Listed groups do not contain gid %d as expected:
+%v", gid, outputGroups)
+./libcontainer/integration/execin_test.go:130:func TestExecInAdditionalGroups(t *testing.T) {
+./libcontainer/integration/execin_test.go:162:          AdditionalGroups: []int{4444, 87654},
+./libcontainer/integration/execin_test.go:173:  outputGroups := stdout.String()
+./libcontainer/integration/execin_test.go:176:  for _, gid := range pconfig.AdditionalGroups {
+./libcontainer/integration/execin_test.go:177:          if !strings.Contains(outputGroups, strconv.Itoa(gid)) {
+./libcontainer/integration/execin_test.go:178:                  t.Errorf("Listed groups do not contain gid %d as expected:
+%v", gid, outputGroups)
+./libcontainer/process.go:36:   // AdditionalGroups specifies the gids that should be added to supplementary groups
+./libcontainer/process.go:38:   AdditionalGroups []int
+./libcontainer/user/user_deprecated.go💯// GetAdditionalGroups looks up a list of groups by name or group id
+./libcontainer/user/user_deprecated.go:105:func GetAdditionalGroups(additionalGroups []string, group io.Reader) ([]int, 
+error) {
+./libcontainer/user/user_deprecated.go:106:     return user.GetAdditionalGroups(additionalGroups, group)
+./libcontainer/user/user_deprecated.go:109:// GetAdditionalGroupsPath is a wrapper around GetAdditionalGroups
+./libcontainer/user/user_deprecated.go:111:// GetAdditionalGroups.
+./libcontainer/user/user_deprecated.go:112:func GetAdditionalGroupsPath(additionalGroups []string, groupPath string) 
+([]int, error) {
+./libcontainer/user/user_deprecated.go:113:     return user.GetAdditionalGroupsPath(additionalGroups, groupPath)
+./libcontainer/init_linux.go:70:        AdditionalGroups []int    `json:"additional_groups"`
+./libcontainer/init_linux.go:481:       allowSupGroups := !config.Config.RootlessEUID && 
+string(bytes.TrimSpace(setgroups)) != "deny"
+./libcontainer/init_linux.go:483:       if allowSupGroups {
+./libcontainer/init_linux.go:484:               if err := unix.Setgroups(config.AdditionalGroups); err != nil {
+./utils_linux.go:75:    if l := len(p.User.AdditionalGids); l > 0 {
+./utils_linux.go:76:            lp.AdditionalGroups = make([]int, l)
+./utils_linux.go:77:            for i, g := range p.User.AdditionalGids {
+./utils_linux.go:78:                    lp.AdditionalGroups[i] = int(g)
+./CHANGELOG.md:59:   `UID` and `GID` fields, and `AdditionalGroups` changed its type from
+./exec.go:278:          p.User.AdditionalGids = append(p.User.AdditionalGids, uint32(gid))
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 3, $0.05):
+The mapping currently appears to copy `additionalGids` verbatim in `utils_linux.go`, and the actual syscall is in 
+`libcontainer/init_linux.go`. I’ll inspect those spots and nearby tests.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && nl 
+-ba utils_linux.go | sed -n '55,90p' && printf '\n--- init ---\n' && nl -ba libcontainer/init_linux.go | sed -n '460,492p'
+&& printf '\n--- tests ---\n' && nl -ba libcontainer/integration/exec_test.go | sed -n '360,420p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+    55                  Label:           p.SelinuxLabel,
+    56                  NoNewPrivileges: &p.NoNewPrivileges,
+    57                  AppArmorProfile: p.ApparmorProfile,
+    58                  Scheduler:       p.Scheduler,
+    59                  IOPriority:      p.IOPriority,
+    60          }
+    61  
+    62          if p.ConsoleSize != nil {
+    63                  lp.ConsoleWidth = uint16(p.ConsoleSize.Width)
+    64                  lp.ConsoleHeight = uint16(p.ConsoleSize.Height)
+    65          }
+    66  
+    67          if p.Capabilities != nil {
+    68                  lp.Capabilities = &configs.Capabilities{}
+    69                  lp.Capabilities.Bounding = p.Capabilities.Bounding
+    70                  lp.Capabilities.Effective = p.Capabilities.Effective
+    71                  lp.Capabilities.Inheritable = p.Capabilities.Inheritable
+    72                  lp.Capabilities.Permitted = p.Capabilities.Permitted
+    73                  lp.Capabilities.Ambient = p.Capabilities.Ambient
+    74          }
+    75          if l := len(p.User.AdditionalGids); l > 0 {
+    76                  lp.AdditionalGroups = make([]int, l)
+    77                  for i, g := range p.User.AdditionalGids {
+    78                          lp.AdditionalGroups[i] = int(g)
+    79                  }
+    80          }
+    81          for _, rlimit := range p.Rlimits {
+    82                  rl, err := createLibContainerRlimit(rlimit)
+    83                  if err != nil {
+    84                          return nil, err
+    85                  }
+    86                  lp.Rlimits = append(lp.Rlimits, rl)
+    87          }
+    88          aff, err := configs.ConvertCPUAffinity(p.ExecCPUAffinity)
+    89          if err != nil {
+    90                  return nil, err
+
+--- init ---
+   460  
+   461  // setupUser changes the groups, gid, and uid for the user inside the container.
+   462  func setupUser(config *initConfig) error {
+   463          // Before we change to the container's user make sure that the processes
+   464          // STDIO is correctly owned by the user that we are switching to.
+   465          if err := fixStdioPermissions(config.UID); err != nil {
+   466                  return err
+   467          }
+   468  
+   469          // We don't need to use /proc/thread-self here because setgroups is a
+   470          // per-userns file and thus is global to all threads in a thread-group.
+   471          // This lets us avoid having to do runtime.LockOSThread.
+   472          setgroups, err := os.ReadFile("/proc/self/setgroups")
+   473          if err != nil && !os.IsNotExist(err) {
+   474                  return err
+   475          }
+   476  
+   477          // This isn't allowed in an unprivileged user namespace since Linux 3.19.
+   478          // There's nothing we can do about /etc/group entries, so we silently
+   479          // ignore setting groups here (since the user didn't explicitly ask us to
+   480          // set the group).
+   481          allowSupGroups := !config.Config.RootlessEUID && string(bytes.TrimSpace(setgroups)) != "deny"
+   482  
+   483          if allowSupGroups {
+   484                  if err := unix.Setgroups(config.AdditionalGroups); err != nil {
+   485                          return &os.SyscallError{Syscall: "setgroups", Err: err}
+   486                  }
+   487          }
+   488  
+   489          if err := unix.Setgid(config.GID); err != nil {
+   490                  if err == unix.EINVAL {
+   491                          return fmt.Errorf("cannot setgid to unmapped gid %d in user namespace", config.GID)
+   492                  }
+
+--- tests ---
+   360  
+   361          if effectiveCapsLine == "" {
+   362                  t.Fatal("Couldn't find effective caps: ", outputStatus)
+   363          }
+   364  
+   365          parts := strings.Split(effectiveCapsLine, ":")
+   366          effectiveCapsStr := strings.TrimSpace(parts[1])
+   367  
+   368          effectiveCaps, err := strconv.ParseUint(effectiveCapsStr, 16, 64)
+   369          if err != nil {
+   370                  t.Fatal("Could not parse effective caps", err)
+   371          }
+   372  
+   373          const netAdminMask = 1 << unix.CAP_NET_ADMIN
+   374          if effectiveCaps&netAdminMask != netAdminMask {
+   375                  t.Fatal("CAP_NET_ADMIN is not set as expected")
+   376          }
+   377  }
+   378  
+   379  func TestAdditionalGroups(t *testing.T) {
+   380          if testing.Short() {
+   381                  return
+   382          }
+   383  
+   384          config := newTemplateConfig(t, nil)
+   385          container, err := newContainer(t, config)
+   386          ok(t, err)
+   387          defer destroyContainer(container)
+   388  
+   389          var stdout bytes.Buffer
+   390          pconfig := libcontainer.Process{
+   391                  Cwd:              "/",
+   392                  Args:             []string{"sh", "-c", "id", "-Gn"},
+   393                  Env:              standardEnvironment,
+   394                  Stdin:            nil,
+   395                  Stdout:           &stdout,
+   396                  AdditionalGroups: []int{3333, 99999},
+   397                  Init:             true,
+   398          }
+   399          err = container.Run(&pconfig)
+   400          ok(t, err)
+   401  
+   402          // Wait for process
+   403          waitProcess(&pconfig, t)
+   404  
+   405          outputGroups := stdout.String()
+   406  
+   407          // Check that the groups output has the groups that we specified.
+   408          for _, gid := range pconfig.AdditionalGroups {
+   409                  if !strings.Contains(outputGroups, strconv.Itoa(gid)) {
+   410                          t.Errorf("Listed groups do not contain gid %d as expected: %v", gid, outputGroups)
+   411                  }
+   412          }
+   413  }
+   414  
+   415  func TestFreeze(t *testing.T) {
+   416          for _, systemd := range []bool{true, false} {
+   417                  for _, set := range []bool{true, false} {
+   418                          name := ""
+   419                          if systemd {
+   420                                  name += "Systemd"
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 4, $0.08):
+Since the OCI conversion is preserving duplicates, and Linux `setgroups(2)` will accept and preserve duplicate 
+supplementary group entries, I’ll add explicit deduplication at the boundary where OCI `additionalGids` becomes 
+libcontainer `AdditionalGroups`. I’ll also search for any existing integer-slice helper before adding one.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && grep 
+-R "func .*dedup\|dedup\|unique\|map\[int\]" -n --exclude-dir=vendor *.go libcontainer | head -100 && grep -R 
+"createLibcontainerProcess" -n .
+```
+
+Tool:
+<returncode>
+1
+<output>
+checkpoint.go:45:               cli.BoolFlag{Name: "auto-dedup", Usage: "enable auto deduplication of memory images"},
+checkpoint.go:133:              AutoDedup:               context.Bool("auto-dedup"),
+create.go:16:are starting. The name you provide for the container instance must be unique on
+main.go:75:are starting. The name you provide for the container instance must be unique on
+restore.go:84:                  Name:  "auto-dedup",
+restore.go:85:                  Usage: "enable auto deduplication of memory images",
+run.go:17:are starting. The name you provide for the container instance must be unique on
+spec.go:47:must be unique on your host.
+start.go:18:are starting. The name you provide for the container instance must be unique on
+libcontainer/container_linux.go:78:// ID returns the container's unique ID
+libcontainer/env.go:30: // Deduplication code based on dedupEnv from Go 1.22 os/exec.
+libcontainer/criu_opts_linux.go:28:     AutoDedup               bool               // auto deduplication for incremental 
+dumps
+libcontainer/internal/userns/usernsfd_linux.go:40:// id returns a unique identifier for this mapping, agnostic of the 
+order of
+libcontainer/integration/execin_test.go:346:            // The below line is added to check the deduplication feature:
+libcontainer/integration/execin_test.go:376:            if e == "DEBUG=true" { // This one should be dedup'ed out.
+libcontainer/standard_init_linux.go:44: // Create a unique per session container name that we can join in setns;
+libcontainer/seccomp/patchbpf/enosys_linux.go:431:                      // x32 and x86_64 are a unique case, we can't 
+handle any others.
+libcontainer/configs/network.go:42:     // HostInterfaceName is a unique name of a veth pair that resides on in the host 
+interface of the
+libcontainer/specconv/spec_linux_test.go:894:   // Verify the returned default devices has the /dev/tty entry deduplicated
+libcontainer/specconv/spec_linux_test.go:926:   // Verify that createDevices() deduplicated the /dev/tty entry in the 
+config
+libcontainer/specconv/spec_linux_test.go:942:                           t.Errorf("redundant dev was not deduplicated 
+correctly: want %v, got %v", wantDev, configDev)
+libcontainer/specconv/spec_linux.go:961:        dedupedAllowDevs := []*devices.Device{}
+libcontainer/specconv/spec_linux.go:972:                dedupedAllowDevs = append(dedupedAllowDevs, ad)
+libcontainer/specconv/spec_linux.go:1012:       return dedupedAllowDevs, nil
+libcontainer/factory_linux.go:34:// unique and non-existent for the given root path.
+libcontainer/init_linux.go:46:  // TempVethPeerName is a unique temporary veth peer name that was placed into
+libcontainer/init_linux.go:64:  // Properties that are unique to and come from [Process].
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 5, $0.09):
+I didn’t find a suitable existing helper. I’ll inspect the top of `utils_linux.go` to choose a minimal local 
+implementation and see whether tests exist for this conversion function.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && nl 
+-ba utils_linux.go | sed -n '1,120p' && ls *test.go | sed -n '1,120p' && grep -R 
+"createLibcontainerProcess\|AdditionalGids" -n --include='*test.go' . | head -100
+```
+
+Tool:
+<returncode>
+0
+<output>
+     1  package main
+     2  
+     3  import (
+     4          "errors"
+     5          "fmt"
+     6          "io/fs"
+     7          "net"
+     8          "os"
+     9          "path/filepath"
+    10          "strconv"
+    11  
+    12          "github.com/coreos/go-systemd/v22/activation"
+    13          "github.com/opencontainers/runtime-spec/specs-go"
+    14          selinux "github.com/opencontainers/selinux/go-selinux"
+    15          "github.com/sirupsen/logrus"
+    16          "github.com/urfave/cli"
+    17          "golang.org/x/sys/unix"
+    18  
+    19          "github.com/opencontainers/runc/libcontainer"
+    20          "github.com/opencontainers/runc/libcontainer/configs"
+    21          "github.com/opencontainers/runc/libcontainer/specconv"
+    22          "github.com/opencontainers/runc/libcontainer/system/kernelversion"
+    23          "github.com/opencontainers/runc/libcontainer/utils"
+    24  )
+    25  
+    26  var errEmptyID = errors.New("container id cannot be empty")
+    27  
+    28  // getContainer returns the specified container instance by loading it from
+    29  // a state directory (root).
+    30  func getContainer(context *cli.Context) (*libcontainer.Container, error) {
+    31          id := context.Args().First()
+    32          if id == "" {
+    33                  return nil, errEmptyID
+    34          }
+    35          root := context.GlobalString("root")
+    36          return libcontainer.Load(root, id)
+    37  }
+    38  
+    39  func getDefaultImagePath() string {
+    40          cwd, err := os.Getwd()
+    41          if err != nil {
+    42                  panic(err)
+    43          }
+    44          return filepath.Join(cwd, "checkpoint")
+    45  }
+    46  
+    47  // newProcess converts [specs.Process] to [libcontainer.Process].
+    48  func newProcess(p *specs.Process) (*libcontainer.Process, error) {
+    49          lp := &libcontainer.Process{
+    50                  Args:            p.Args,
+    51                  Env:             p.Env,
+    52                  UID:             int(p.User.UID),
+    53                  GID:             int(p.User.GID),
+    54                  Cwd:             p.Cwd,
+    55                  Label:           p.SelinuxLabel,
+    56                  NoNewPrivileges: &p.NoNewPrivileges,
+    57                  AppArmorProfile: p.ApparmorProfile,
+    58                  Scheduler:       p.Scheduler,
+    59                  IOPriority:      p.IOPriority,
+    60          }
+    61  
+    62          if p.ConsoleSize != nil {
+    63                  lp.ConsoleWidth = uint16(p.ConsoleSize.Width)
+    64                  lp.ConsoleHeight = uint16(p.ConsoleSize.Height)
+    65          }
+    66  
+    67          if p.Capabilities != nil {
+    68                  lp.Capabilities = &configs.Capabilities{}
+    69                  lp.Capabilities.Bounding = p.Capabilities.Bounding
+    70                  lp.Capabilities.Effective = p.Capabilities.Effective
+    71                  lp.Capabilities.Inheritable = p.Capabilities.Inheritable
+    72                  lp.Capabilities.Permitted = p.Capabilities.Permitted
+    73                  lp.Capabilities.Ambient = p.Capabilities.Ambient
+    74          }
+    75          if l := len(p.User.AdditionalGids); l > 0 {
+    76                  lp.AdditionalGroups = make([]int, l)
+    77                  for i, g := range p.User.AdditionalGids {
+    78                          lp.AdditionalGroups[i] = int(g)
+    79                  }
+    80          }
+    81          for _, rlimit := range p.Rlimits {
+    82                  rl, err := createLibContainerRlimit(rlimit)
+    83                  if err != nil {
+    84                          return nil, err
+    85                  }
+    86                  lp.Rlimits = append(lp.Rlimits, rl)
+    87          }
+    88          aff, err := configs.ConvertCPUAffinity(p.ExecCPUAffinity)
+    89          if err != nil {
+    90                  return nil, err
+    91          }
+    92          lp.CPUAffinity = aff
+    93  
+    94          return lp, nil
+    95  }
+    96  
+    97  // setupIO modifies the given process config according to the options.
+    98  func setupIO(process *libcontainer.Process, container *libcontainer.Container, createTTY, detach bool, sockpath 
+string) (*tty, error) {
+    99          if createTTY {
+   100                  process.Stdin = nil
+   101                  process.Stdout = nil
+   102                  process.Stderr = nil
+   103                  t := &tty{}
+   104                  if !detach {
+   105                          if err := t.initHostConsole(); err != nil {
+   106                                  return nil, err
+   107                          }
+   108                          parent, child, err := utils.NewSockPair("console")
+   109                          if err != nil {
+   110                                  return nil, err
+   111                          }
+   112                          process.ConsoleSocket = child
+   113                          t.postStart = append(t.postStart, parent, child)
+   114                          t.consoleC = make(chan error, 1)
+   115                          go func() {
+   116                                  t.consoleC <- t.recvtty(parent)
+   117                          }()
+   118                  } else {
+   119                          // the caller of runc will handle receiving the console master
+   120                          conn, err := net.Dial("unix", sockpath)
+notify_socket_test.go
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 6, $0.16):
+I’ll update `newProcess` so duplicate OCI supplementary GIDs are filtered while preserving their first occurrence order, 
+then add a small unit test in the main package to lock in the behavior.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && 
+python3 - <<'PY'
+from pathlib import Path
+p = Path('utils_linux.go')
+s = p.read_text()
+old = '''\tif l := len(p.User.AdditionalGids); l > 0 {\n\t\tlp.AdditionalGroups = make([]int, l)\n\t\tfor i, g := range 
+p.User.AdditionalGids {\n\t\t\tlp.AdditionalGroups[i] = int(g)\n\t\t}\n\t}\n'''
+new = '''\tif len(p.User.AdditionalGids) > 0 {\n\t\tseenGids := make(map[uint32]struct{}, 
+len(p.User.AdditionalGids))\n\t\tfor _, g := range p.User.AdditionalGids {\n\t\t\tif _, ok := seenGids[g]; ok 
+{\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tseenGids[g] = struct{}{}\n\t\t\tlp.AdditionalGroups = append(lp.AdditionalGroups, 
+int(g))\n\t\t}\n\t}\n'''
+if old not in s:
+    raise SystemExit('target block not found')
+p.write_text(s.replace(old,new))
+PY
+cat > utils_test.go <<'EOF'
+package main
+
+import (
+        "reflect"
+        "testing"
+
+        "github.com/opencontainers/runtime-spec/specs-go"
+)
+
+func TestNewProcessDeduplicatesAdditionalGids(t *testing.T) {
+        p, err := newProcess(&specs.Process{
+                User: specs.User{
+                        AdditionalGids: []uint32{1000, 2000, 3000, 3000, 2000},
+                },
+        })
+        if err != nil {
+                t.Fatal(err)
+        }
+
+        want := []int{1000, 2000, 3000}
+        if !reflect.DeepEqual(p.AdditionalGroups, want) {
+                t.Fatalf("additional groups: got %v, want %v", p.AdditionalGroups, want)
+        }
+}
+EOF
+
+gofmt -w utils_linux.go utils_test.go
+
+git diff -- utils_linux.go utils_test.go
+```
+
+Tool:
+<returncode>
+0
+<output>
+diff --git a/utils_linux.go b/utils_linux.go
+index 9c9e1e83..c134c13a 100644
+--- a/utils_linux.go
++++ b/utils_linux.go
+@@ -72,10 +72,14 @@ func newProcess(p *specs.Process) (*libcontainer.Process, error) {
+                lp.Capabilities.Permitted = p.Capabilities.Permitted
+                lp.Capabilities.Ambient = p.Capabilities.Ambient
+        }
+-       if l := len(p.User.AdditionalGids); l > 0 {
+-               lp.AdditionalGroups = make([]int, l)
+-               for i, g := range p.User.AdditionalGids {
+-                       lp.AdditionalGroups[i] = int(g)
++       if len(p.User.AdditionalGids) > 0 {
++               seenGids := make(map[uint32]struct{}, len(p.User.AdditionalGids))
++               for _, g := range p.User.AdditionalGids {
++                       if _, ok := seenGids[g]; ok {
++                               continue
++                       }
++                       seenGids[g] = struct{}{}
++                       lp.AdditionalGroups = append(lp.AdditionalGroups, int(g))
+                }
+        }
+        for _, rlimit := range p.Rlimits {
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 7, $0.19):
+The code change is in place. I’ll check status, then run the focused unit test to ensure the conversion behaves as 
+intended.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && git 
+status --short && go test . -run TestNewProcessDeduplicatesAdditionalGids -count=1
+```
+
+Tool:
+<returncode>
+0
+<output>
+ M utils_linux.go
+?? utils_test.go
+ok      github.com/opencontainers/runc  0.005s
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 8, $0.20):
+The focused test passes. I’ll build the runtime with the prescribed command and inspect the full diff including the new 
+test file.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && make 
+runc && git diff -- utils_linux.go && printf '\n--- utils_test.go ---\n' && cat utils_test.go && git status --short
+```
+
+Tool:
+<returncode>
+0
+<output>
+go build -trimpath "-buildmode=pie"  -tags "seccomp urfave_cli_no_docs" -ldflags "-X 
+main.gitCommit=v1.3.0-rc.1-147-g8b0e7511-dirty  " -o runc .
+diff --git a/utils_linux.go b/utils_linux.go
+index 9c9e1e83..c134c13a 100644
+--- a/utils_linux.go
++++ b/utils_linux.go
+@@ -72,10 +72,14 @@ func newProcess(p *specs.Process) (*libcontainer.Process, error) {
+                lp.Capabilities.Permitted = p.Capabilities.Permitted
+                lp.Capabilities.Ambient = p.Capabilities.Ambient
+        }
+-       if l := len(p.User.AdditionalGids); l > 0 {
+-               lp.AdditionalGroups = make([]int, l)
+-               for i, g := range p.User.AdditionalGids {
+-                       lp.AdditionalGroups[i] = int(g)
++       if len(p.User.AdditionalGids) > 0 {
++               seenGids := make(map[uint32]struct{}, len(p.User.AdditionalGids))
++               for _, g := range p.User.AdditionalGids {
++                       if _, ok := seenGids[g]; ok {
++                               continue
++                       }
++                       seenGids[g] = struct{}{}
++                       lp.AdditionalGroups = append(lp.AdditionalGroups, int(g))
+                }
+        }
+        for _, rlimit := range p.Rlimits {
+
+--- utils_test.go ---
+package main
+
+import (
+        "reflect"
+        "testing"
+
+        "github.com/opencontainers/runtime-spec/specs-go"
+)
+
+func TestNewProcessDeduplicatesAdditionalGids(t *testing.T) {
+        p, err := newProcess(&specs.Process{
+                User: specs.User{
+                        AdditionalGids: []uint32{1000, 2000, 3000, 3000, 2000},
+                },
+        })
+        if err != nil {
+                t.Fatal(err)
+        }
+
+        want := []int{1000, 2000, 3000}
+        if !reflect.DeepEqual(p.AdditionalGroups, want) {
+                t.Fatalf("additional groups: got %v, want %v", p.AdditionalGroups, want)
+        }
+}
+ M utils_linux.go
+?? utils_test.go
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 9, $0.22):
+The build succeeded. I’ll now run the provided reproduction from the read-only case directory using the freshly built 
+candidate runtime, then also run the base config sanity check.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4769 && 
+RUNTIME=/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769/run
+c bash repro.sh; echo '--- base ---'; CONFIG=base_config.json 
+RUNTIME=/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769/run
+c bash repro.sh
+```
+
+Tool:
+<returncode>
+1
+<output>
+time="2026-07-26T21:36:17+08:00" level=error msg="runc run failed: rootless container requires user namespaces"
+--- base ---
+time="2026-07-26T21:36:17+08:00" level=error msg="runc run failed: rootless container requires user namespaces"
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 10, $0.24):
+The OCI reproduction could not run in this environment because runc reports a rootless/user-namespace privilege failure, 
+which matches the case instructions’ “environment failure” category rather than a source failure. I’ll still run the 
+package tests and inspect the final patch state.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && go 
+test . && git diff -- utils_linux.go && git diff --no-index /dev/null utils_test.go || true && git status --short
+```
+
+Tool:
+<returncode>
+0
+<output>
+ok      github.com/opencontainers/runc  0.513s
+diff --git a/utils_linux.go b/utils_linux.go
+index 9c9e1e83..c134c13a 100644
+--- a/utils_linux.go
++++ b/utils_linux.go
+@@ -72,10 +72,14 @@ func newProcess(p *specs.Process) (*libcontainer.Process, error) {
+                lp.Capabilities.Permitted = p.Capabilities.Permitted
+                lp.Capabilities.Ambient = p.Capabilities.Ambient
+        }
+-       if l := len(p.User.AdditionalGids); l > 0 {
+-               lp.AdditionalGroups = make([]int, l)
+-               for i, g := range p.User.AdditionalGids {
+-                       lp.AdditionalGroups[i] = int(g)
++       if len(p.User.AdditionalGids) > 0 {
++               seenGids := make(map[uint32]struct{}, len(p.User.AdditionalGids))
++               for _, g := range p.User.AdditionalGids {
++                       if _, ok := seenGids[g]; ok {
++                               continue
++                       }
++                       seenGids[g] = struct{}{}
++                       lp.AdditionalGroups = append(lp.AdditionalGroups, int(g))
+                }
+        }
+        for _, rlimit := range p.Rlimits {
+diff --git a/utils_test.go b/utils_test.go
+new file mode 100644
+index 00000000..68527118
+--- /dev/null
++++ b/utils_test.go
+@@ -0,0 +1,24 @@
++package main
++
++import (
++       "reflect"
++       "testing"
++
++       "github.com/opencontainers/runtime-spec/specs-go"
++)
++
++func TestNewProcessDeduplicatesAdditionalGids(t *testing.T) {
++       p, err := newProcess(&specs.Process{
++               User: specs.User{
++                       AdditionalGids: []uint32{1000, 2000, 3000, 3000, 2000},
++               },
++       })
++       if err != nil {
++               t.Fatal(err)
++       }
++
++       want := []int{1000, 2000, 3000}
++       if !reflect.DeepEqual(p.AdditionalGroups, want) {
++               t.Fatalf("additional groups: got %v, want %v", p.AdditionalGroups, want)
++       }
++}
+ M utils_linux.go
+?? utils_test.go
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 11, $0.26):
+To keep the test platform-scoped with the Linux-only implementation it exercises, I’ll rename the test file to 
+`utils_linux_test.go`, rerun the focused test, and review the final status.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769 && mv 
+utils_test.go utils_linux_test.go && go test . -run TestNewProcessDeduplicatesAdditionalGids -count=1 && git status 
+--short && git diff -- utils_linux.go && git diff --no-index /dev/null utils_linux_test.go || true
+```
+
+Tool:
+<returncode>
+0
+<output>
+ok      github.com/opencontainers/runc  0.005s
+ M utils_linux.go
+?? utils_linux_test.go
+diff --git a/utils_linux.go b/utils_linux.go
+index 9c9e1e83..c134c13a 100644
+--- a/utils_linux.go
++++ b/utils_linux.go
+@@ -72,10 +72,14 @@ func newProcess(p *specs.Process) (*libcontainer.Process, error) {
+                lp.Capabilities.Permitted = p.Capabilities.Permitted
+                lp.Capabilities.Ambient = p.Capabilities.Ambient
+        }
+-       if l := len(p.User.AdditionalGids); l > 0 {
+-               lp.AdditionalGroups = make([]int, l)
+-               for i, g := range p.User.AdditionalGids {
+-                       lp.AdditionalGroups[i] = int(g)
++       if len(p.User.AdditionalGids) > 0 {
++               seenGids := make(map[uint32]struct{}, len(p.User.AdditionalGids))
++               for _, g := range p.User.AdditionalGids {
++                       if _, ok := seenGids[g]; ok {
++                               continue
++                       }
++                       seenGids[g] = struct{}{}
++                       lp.AdditionalGroups = append(lp.AdditionalGroups, int(g))
+                }
+        }
+        for _, rlimit := range p.Rlimits {
+diff --git a/utils_linux_test.go b/utils_linux_test.go
+new file mode 100644
+index 00000000..68527118
+--- /dev/null
++++ b/utils_linux_test.go
+@@ -0,0 +1,24 @@
++package main
++
++import (
++       "reflect"
++       "testing"
++
++       "github.com/opencontainers/runtime-spec/specs-go"
++)
++
++func TestNewProcessDeduplicatesAdditionalGids(t *testing.T) {
++       p, err := newProcess(&specs.Process{
++               User: specs.User{
++                       AdditionalGids: []uint32{1000, 2000, 3000, 3000, 2000},
++               },
++       })
++       if err != nil {
++               t.Fatal(err)
++       }
++
++       want := []int{1000, 2000, 3000}
++       if !reflect.DeepEqual(p.AdditionalGroups, want) {
++               t.Fatalf("additional groups: got %v, want %v", p.AdditionalGroups, want)
++       }
++}
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 12, $0.28):
+The implementation and tests are complete: `additionalGids` are now deduplicated during OCI process conversion while 
+preserving first-seen order, matching the reference behavior. Build and Go tests passed; the OCI repro could not execute 
+due to a rootless/user namespace environment error. I’ll now submit the task with the required final command.
+
+```
+echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT
+```
+
+Tool:
+<returncode>
+-1
+<output>
+
+<exception_info>
+action was not executed
+
+Exit:
+
+Saved trajectory to 
+'/home/aludy/scires/Cloud_Spec_Exp/results/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4769/trajectory.json'

@@ -1,0 +1,75 @@
+Initialized empty Git repository in /home/aludy/scires/Cloud_Spec_Exp/external/baselines/Agentless/playground/6249664c-bdf2-4a03-99ba-610acd9aff2e/.git/
+[master (root-commit) f232a3a] initial commit
+ 1 file changed, 721 insertions(+)
+ create mode 100644 libcontainer/init_linux.go
+trying the 1-th sample ...
+--- libcontainer/init_linux.go
++++ libcontainer/init_linux.go
+@@ -459,6 +459,23 @@
+ }
+ 
+ // setupUser changes the groups, gid, and uid for the user inside the container.
++func dedupAdditionalGroups(groups []int) []int {
++	if len(groups) < 2 {
++		return groups
++	}
++
++	seen := make(map[int]struct{}, len(groups))
++	deduped := groups[:0]
++	for _, gid := range groups {
++		if _, ok := seen[gid]; ok {
++			continue
++		}
++		seen[gid] = struct{}{}
++		deduped = append(deduped, gid)
++	}
++	return deduped
++}
++
+ func setupUser(config *initConfig) error {
+ 	// Before we change to the container's user make sure that the processes
+ 	// STDIO is correctly owned by the user that we are switching to.
+@@ -481,7 +498,7 @@
+ 	allowSupGroups := !config.Config.RootlessEUID && string(bytes.TrimSpace(setgroups)) != "deny"
+ 
+ 	if allowSupGroups {
+-		if err := unix.Setgroups(config.AdditionalGroups); err != nil {
++		if err := unix.Setgroups(dedupAdditionalGroups(config.AdditionalGroups)); err != nil {
+ 			return &os.SyscallError{Syscall: "setgroups", Err: err}
+ 		}
+ 	}
+--- libcontainer/init_linux.go
++++ libcontainer/init_linux.go
+@@ -459,6 +459,23 @@
+ }
+ 
+ // setupUser changes the groups, gid, and uid for the user inside the container.
++func dedupAdditionalGroups(groups []int) []int {
++	if len(groups) < 2 {
++		return groups
++	}
++
++	seen := make(map[int]struct{}, len(groups))
++	deduped := groups[:0]
++	for _, gid := range groups {
++		if _, ok := seen[gid]; ok {
++			continue
++		}
++		seen[gid] = struct{}{}
++		deduped = append(deduped, gid)
++	}
++	return deduped
++}
++
+ func setupUser(config *initConfig) error {
+ 	// Before we change to the container's user make sure that the processes
+ 	// STDIO is correctly owned by the user that we are switching to.
+@@ -481,7 +498,7 @@
+ 	allowSupGroups := !config.Config.RootlessEUID && string(bytes.TrimSpace(setgroups)) != "deny"
+ 
+ 	if allowSupGroups {
+-		if err := unix.Setgroups(config.AdditionalGroups); err != nil {
++		if err := unix.Setgroups(dedupAdditionalGroups(config.AdditionalGroups)); err != nil {
+ 			return &os.SyscallError{Syscall: "setgroups", Err: err}
+ 		}
+ 	}
