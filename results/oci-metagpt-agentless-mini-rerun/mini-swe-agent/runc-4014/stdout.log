@@ -1,0 +1,2886 @@
+👋 This is mini-swe-agent version 2.4.2.
+Check the v2 migration guide at https://klieret.short.gy/mini-v2-migration
+Loading global config from '/home/aludy/.config/mini-swe-agent/.env'
+Building agent config from specs: 
+['/home/aludy/scires/Cloud_Spec_Exp/external/baselines/mini-swe-agent/src/minisweagent/config/mini.yaml']
+
+System:
+You are a helpful assistant that can interact with a computer.
+
+User:
+Please solve this issue: Fix OCI runtime bug case runc-4014.
+
+Target runtime: runc
+Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+Upstream issue: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Goal:
+Modify the runtime source code so the candidate runtime behavior matches the configured reference runtime for the OCI 
+reproduction case.
+Do not edit the dataset, generated worktree metadata, or oracle scripts.
+
+Writable target repository (the only location where source changes are allowed):
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014
+
+Required first command:
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && git 
+rev-parse HEAD && git status --short
+
+Inspect, edit, build, and collect git diff only in the writable target repository.
+Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.
+Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.
+
+Reproduction bundle absolute path (read-only):
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4014
+
+Rootfs tar absolute path:
+/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz
+
+Run reproduction commands from the reproduction bundle directory.
+
+Build command that will be used after your changes:
+make runc
+
+Candidate runtime path after build:
+runc
+
+Expected differential behavior and validation notes:
+Issue ID: runc-4014
+Upstream URL: https://github.com/opencontainers/runc/issues/4014
+Category: Linux-specific Configuration
+
+Payload under test:
+process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 
+2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Expected differential behavior:
+Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or 
+otherwise undefined.
+
+Validation procedure:
+1. Run this case with a known-good or reference runtime.
+2. Run the same `buggy_config.json` with the runtime version suspected to contain the historical issue.
+3. Compare exit status, stdout, stderr, and documented side effects.
+4. Treat missing host features, missing cgroup controllers, missing seccomp support, missing runtime binaries, or 
+insufficient privileges as environment failures rather than successful reproductions.
+
+Case README:
+# runc-4014
+
+## Upstream Issue Summary
+- Title: Undefined (and potentially incorrect) behavior when pids limit is set to 0
+- URL: https://github.com/opencontainers/runc/issues/4014
+- Category: Linux-specific Configuration
+- Summary: This case reduces the upstream issue to a small OCI bundle that can be used for differential runtime testing.
+
+## Runtime Version Assessment
+Use the runtime version discussed in the upstream issue as the affected implementation and compare it with a fixed or 
+reference runtime. Some cases require specific host support such as cgroup v1, cgroup v2, seccomp, eBPF device filtering, 
+user namespaces, or hook execution support.
+
+## Buggy Version Identification
+Issue text does not name a release. Git log matched the pids.limit fix series, including `3b75374cc797` (`runtime-spec: 
+update pids.limit handling to match new guidance`); use parent `eec1f7e34b33` as the pre-fix baseline.
+
+## Local Reproduction Files
+- `base_config.json`: clean OCI configuration before injecting the issue-specific payload.
+- `buggy_config.json`: modified OCI configuration containing the payload.
+- `repro.sh`: helper script that prepares a temporary OCI bundle, extracts `../../alpine-base.tar.gz`, copies the selected
+config to `config.json`, and invokes the runtime.
+- `expected_diff.txt`: expected behavioral difference and validation oracle.
+- `README.md`: this case description.
+
+## Reproduction Prerequisites
+- Linux host with permission to run OCI runtimes.
+- `alpine-base.tar.gz` present in the repository root.
+- Runtime binary available on `PATH` or passed with `RUNTIME=/path/to/runtime`.
+- Case-specific kernel or cgroup features available when required by `expected_diff.txt`.
+
+## Reproduction Steps
+1. Change into `cases/runc-4014`.
+2. Run `bash repro.sh` with the default runtime.
+3. Compare implementations by rerunning with explicit binaries, for example `RUNTIME=/path/to/reference-runtime bash 
+repro.sh` and `RUNTIME=/path/to/buggy-runtime bash repro.sh`.
+4. Check the clean baseline with `CONFIG=base_config.json bash repro.sh` when useful.
+5. Compare exit code, stdout, stderr, and side effects against `expected_diff.txt`.
+
+## Result Validation
+Payload: process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 
+2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
+
+Oracle: Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, 
+inherited, or otherwise undefined.
+
+
+You can execute bash commands and edit files to implement the necessary changes.
+
+## Recommended Workflow
+
+This workflow should be done step-by-step so that you can iterate on your changes and any possible problems.
+
+1. Analyze the codebase by finding and reading relevant files
+2. Create a script to reproduce the issue
+3. Edit the source code to resolve the issue
+4. Verify your fix works by running your script again
+5. Test edge cases to ensure your fix is robust
+6. Submit your changes and finish your work by issuing the following command: `echo 
+COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+   Do not combine it with any other command. <important>After this command, you cannot continue working on this 
+task.</important>
+
+## Command Execution Rules
+
+You are operating in an environment where
+
+1. You issue at least one command
+2. The system executes the command(s) in a subshell
+3. You see the result(s)
+4. You write your next command(s)
+
+Each response should include:
+
+1. **Reasoning text** where you explain your analysis and plan
+2. At least one tool call with your command
+
+**CRITICAL REQUIREMENTS:**
+
+- Your response SHOULD include reasoning text explaining what you're doing
+- Your response MUST include AT LEAST ONE bash tool call
+- Directory or environment variable changes are not persistent. Every action is executed in a new subshell.
+- However, you can prefix any action with `MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...` or write/load environment 
+variables from files
+- Submit your changes and finish your work by issuing the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+  Do not combine it with any other command. <important>After this command, you cannot continue working on this 
+task.</important>
+
+Example of a CORRECT response:
+<example_response>
+I need to understand the structure of the repository first. Let me check what files are in the current directory to get a 
+better understanding of the codebase.
+
+[Makes bash tool call with {"command": "ls -la"} as arguments]
+</example_response>
+
+<system_information>
+Linux 6.6.114.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025 x86_64
+</system_information>
+
+## Useful command examples
+
+### Create a new file:
+
+```bash
+cat <<'EOF' > newfile.py
+import numpy as np
+hello = "world"
+print(hello)
+EOF
+```
+
+### Edit files with sed:```bash
+# Replace all occurrences
+sed -i 's/old_string/new_string/g' filename.py
+
+# Replace only first occurrence
+sed -i 's/old_string/new_string/' filename.py
+
+# Replace first occurrence on line 1
+sed -i '1s/old_string/new_string/' filename.py
+
+# Replace all occurrences in lines 1-10
+sed -i '1,10s/old_string/new_string/g' filename.py
+```
+
+### View file content:
+
+```bash
+# View specific lines with numbers
+nl -ba filename.py | sed -n '10,20p'
+```
+
+### Any other command you want to run
+
+```bash
+anything
+```
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 1, $0.01):
+I’ll start by running the required repository status command in the writable worktree, then inspect the code paths 
+handling OCI pids limits and cgroup pids.max writing.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && git 
+rev-parse HEAD && git status --short
+```
+
+Tool:
+<returncode>
+0
+<output>
+a3a0ec48c464fe6458d2ba067f6707c027e5384e
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 2, $0.03):
+Next I’ll search for the pids resource handling in the runc/libcontainer code to see how a zero limit is currently 
+translated into cgroup settings.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && grep 
+-R "Pids\|pids\|pids.max" -n libcontainer | head -100
+```
+
+Tool:
+<returncode>
+0
+<output>
+libcontainer/container_linux.go:129:    pids, err := c.cgroupManager.GetAllPids()
+libcontainer/container_linux.go:131:            return nil, fmt.Errorf("unable to get all container pids: %w", err)
+libcontainer/container_linux.go:133:    return pids, nil
+libcontainer/container_linux.go:379:    // OTOH, if PID namespace is shared, we should kill all pids to avoid
+libcontainer/intelrdt/intelrdt_test.go:120:     pids, err := getIntelRdtParamString(intelrdt.GetPath(), "tasks")
+libcontainer/intelrdt/intelrdt_test.go:124:     if pids != "1235" {
+libcontainer/intelrdt/intelrdt_test.go:125:             t.Fatalf("unexpected tasks file, expected '1235', got %q", pids)
+libcontainer/system/proc_test.go:179:   b.Logf("N: %d, parsed %d pids, last stat: %+v, err: %v", b.N, total, st, err)
+libcontainer/integration/exec_test.go:521:func TestPids(t *testing.T) {
+libcontainer/integration/exec_test.go:522:      testPids(t, false)
+libcontainer/integration/exec_test.go:525:func TestPidsSystemd(t *testing.T) {
+libcontainer/integration/exec_test.go:529:      testPids(t, true)
+libcontainer/integration/exec_test.go:532:func testPids(t *testing.T, systemd bool) {
+libcontainer/integration/exec_test.go:538:      config.Cgroups.Resources.PidsLimit = -1
+libcontainer/integration/exec_test.go:540:      // Running multiple processes, expecting it to succeed with no pids limit.
+libcontainer/integration/exec_test.go:544:      // issues with running Go binaries with pids restrictions (see below).
+libcontainer/integration/exec_test.go:545:      config.Cgroups.Resources.PidsLimit = 64
+libcontainer/integration/exec_test.go:554:      config.Cgroups.Resources.PidsLimit = 64
+libcontainer/integration/exec_test.go:569:              t.Fatal("expected fork() to fail with restrictive pids limit")
+libcontainer/integration/exec_test.go:574:      // late setting cgroup values, it's just too unreliable with very small 
+pids.max.
+libcontainer/integration/exec_test.go:678:                      cfg:      map[string]string{"pids.current": "42"},
+libcontainer/README.md:250:// return all the pids for all processes running inside the container.
+libcontainer/cgroups/utils_test.go:141:175 120 0:39 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:55 - 
+cgroup cgroup rw,pids
+libcontainer/cgroups/utils_test.go:142:179 124 0:39 / /bedrock/strata/arch/sys/fs/cgroup/pids 
+rw,nosuid,nodev,noexec,relatime shared:55 - cgroup cgroup rw,pids
+libcontainer/cgroups/utils_test.go:143:178 123 0:39 / /bedrock/strata/fallback/sys/fs/cgroup/pids 
+rw,nosuid,nodev,noexec,relatime shared:55 - cgroup cgroup rw,pids
+libcontainer/cgroups/utils_test.go:144:177 122 0:39 / /bedrock/strata/gentoo/sys/fs/cgroup/pids 
+rw,nosuid,nodev,noexec,relatime shared:55 - cgroup cgroup rw,pids
+libcontainer/cgroups/utils_test.go:145:176 121 0:39 / /bedrock/strata/kde/sys/fs/cgroup/pids 
+rw,nosuid,nodev,noexec,relatime shared:55 - cgroup cgroup rw,pids
+libcontainer/cgroups/utils_test.go:172:38 25 0:36 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:19 - cgroup
+cgroup rw,pids
+libcontainer/cgroups/utils_test.go:240:                         "pids":         false,
+libcontainer/cgroups/utils_test.go:401:         "pids":         false,
+libcontainer/cgroups/stats.go:126:type PidsStats struct {
+libcontainer/cgroups/stats.go:127:      // number of pids in the cgroup
+libcontainer/cgroups/stats.go:129:      // active pids hard limit
+libcontainer/cgroups/stats.go:177:      PidsStats   PidsStats   `json:"pids_stats,omitempty"`
+libcontainer/cgroups/fs2/fs2.go:87:func (m *Manager) GetPids() ([]int, error) {
+libcontainer/cgroups/fs2/fs2.go:88:     return cgroups.GetPids(m.dirPath)
+libcontainer/cgroups/fs2/fs2.go:91:func (m *Manager) GetAllPids() ([]int, error) {
+libcontainer/cgroups/fs2/fs2.go:92:     return cgroups.GetAllPids(m.dirPath)
+libcontainer/cgroups/fs2/fs2.go💯       // pids (since kernel 4.5)
+libcontainer/cgroups/fs2/fs2.go:101:    if err := statPids(m.dirPath, st); err != nil {
+libcontainer/cgroups/fs2/fs2.go:168:    // pids (since kernel 4.5)
+libcontainer/cgroups/fs2/fs2.go:169:    if err := setPids(m.dirPath, r); err != nil {
+libcontainer/cgroups/fs2/pids.go:16:func isPidsSet(r *configs.Resources) bool {
+libcontainer/cgroups/fs2/pids.go:17:    return r.PidsLimit != 0
+libcontainer/cgroups/fs2/pids.go:20:func setPids(dirPath string, r *configs.Resources) error {
+libcontainer/cgroups/fs2/pids.go:21:    if !isPidsSet(r) {
+libcontainer/cgroups/fs2/pids.go:24:    if val := numToStr(r.PidsLimit); val != "" {
+libcontainer/cgroups/fs2/pids.go:25:            if err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil {
+libcontainer/cgroups/fs2/pids.go:33:func statPidsFromCgroupProcs(dirPath string, stats *cgroups.Stats) error {
+libcontainer/cgroups/fs2/pids.go:43:    pids := strings.Count(contents, "\n")
+libcontainer/cgroups/fs2/pids.go:44:    stats.PidsStats.Current = uint64(pids)
+libcontainer/cgroups/fs2/pids.go:45:    stats.PidsStats.Limit = 0
+libcontainer/cgroups/fs2/pids.go:49:func statPids(dirPath string, stats *cgroups.Stats) error {
+libcontainer/cgroups/fs2/pids.go:50:    current, err := fscommon.GetCgroupParamUint(dirPath, "pids.current")
+libcontainer/cgroups/fs2/pids.go:53:                    return statPidsFromCgroupProcs(dirPath, stats)
+libcontainer/cgroups/fs2/pids.go:58:    max, err := fscommon.GetCgroupParamUint(dirPath, "pids.max")
+libcontainer/cgroups/fs2/pids.go:62:    // If no limit is set, read from pids.max returns "max", which is
+libcontainer/cgroups/fs2/pids.go:64:    // represent "no limit" for pids as 0, thus this conversion.
+libcontainer/cgroups/fs2/pids.go:69:    stats.PidsStats.Current = current
+libcontainer/cgroups/fs2/pids.go:70:    stats.PidsStats.Limit = max
+libcontainer/cgroups/fs2/create.go:42:  if isPidsSet(r) && have("pids") {
+libcontainer/cgroups/fs2/create.go:66:// As at Linux 4.19, the following controllers are threaded: cpu, perf_event, and 
+pids.
+libcontainer/cgroups/systemd/v1.go:63:  &fs.PidsGroup{},
+libcontainer/cgroups/systemd/v1.go:101: if r.PidsLimit > 0 || r.PidsLimit == -1 {
+libcontainer/cgroups/systemd/v1.go:103:                 newProp("TasksMax", uint64(r.PidsLimit)))
+libcontainer/cgroups/systemd/v1.go:298:func (m *LegacyManager) GetPids() ([]int, error) {
+libcontainer/cgroups/systemd/v1.go:303: return cgroups.GetPids(path)
+libcontainer/cgroups/systemd/v1.go:306:func (m *LegacyManager) GetAllPids() ([]int, error) {
+libcontainer/cgroups/systemd/v1.go:311: return cgroups.GetAllPids(path)
+libcontainer/cgroups/systemd/v2.go:171:         case "pids.max":
+libcontainer/cgroups/systemd/v2.go:260: if r.PidsLimit > 0 || r.PidsLimit == -1 {
+libcontainer/cgroups/systemd/v2.go:262:                 newProp("TasksMax", uint64(r.PidsLimit)))
+libcontainer/cgroups/systemd/v2.go:468:func (m *UnifiedManager) GetPids() ([]int, error) {
+libcontainer/cgroups/systemd/v2.go:469: return cgroups.GetPids(m.path)
+libcontainer/cgroups/systemd/v2.go:472:func (m *UnifiedManager) GetAllPids() ([]int, error) {
+libcontainer/cgroups/systemd/v2.go:473: return cgroups.GetAllPids(m.path)
+libcontainer/cgroups/getallpids_test.go:7:func BenchmarkGetAllPids(b *testing.B) {
+libcontainer/cgroups/getallpids_test.go:10:             i, err := GetAllPids("/sys/fs/cgroup")
+libcontainer/cgroups/fs/pids.go:12:type PidsGroup struct{}
+libcontainer/cgroups/fs/pids.go:14:func (s *PidsGroup) Name() string {
+libcontainer/cgroups/fs/pids.go:15:     return "pids"
+libcontainer/cgroups/fs/pids.go:18:func (s *PidsGroup) Apply(path string, _ *configs.Resources, pid int) error {
+libcontainer/cgroups/fs/pids.go:22:func (s *PidsGroup) Set(path string, r *configs.Resources) error {
+libcontainer/cgroups/fs/pids.go:23:     if r.PidsLimit != 0 {
+libcontainer/cgroups/fs/pids.go:27:             if r.PidsLimit > 0 {
+libcontainer/cgroups/fs/pids.go:28:                     limit = strconv.FormatInt(r.PidsLimit, 10)
+libcontainer/cgroups/fs/pids.go:31:             if err := cgroups.WriteFile(path, "pids.max", limit); err != nil {
+libcontainer/cgroups/fs/pids.go:39:func (s *PidsGroup) GetStats(path string, stats *cgroups.Stats) error {
+libcontainer/cgroups/fs/pids.go:43:     current, err := fscommon.GetCgroupParamUint(path, "pids.current")
+libcontainer/cgroups/fs/pids.go:48:     max, err := fscommon.GetCgroupParamUint(path, "pids.max")
+libcontainer/cgroups/fs/pids.go:52:     // If no limit is set, read from pids.max returns "max", which is
+libcontainer/cgroups/fs/pids.go:54:     // represent "no limit" for pids as 0, thus this conversion.
+libcontainer/cgroups/fs/pids.go:59:     stats.PidsStats.Current = current
+libcontainer/cgroups/fs/pids.go:60:     stats.PidsStats.Limit = max
+libcontainer/cgroups/fs/fs.go:22:       &PidsGroup{},
+libcontainer/cgroups/fs/fs.go:221:func (m *Manager) GetPids() ([]int, error) {
+libcontainer/cgroups/fs/fs.go:222:      return cgroups.GetPids(m.Path("devices"))
+libcontainer/cgroups/fs/fs.go:225:func (m *Manager) GetAllPids() ([]int, error) {
+libcontainer/cgroups/fs/fs.go:226:      return cgroups.GetAllPids(m.Path("devices"))
+libcontainer/cgroups/fs/pids_test.go:17:func TestPidsSetMax(t *testing.T) {
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 3, $0.05):
+I found pids limit checks that currently treat 0 as unset. Since the issue mentions the spec fix series, I’ll inspect 
+relevant structs/config conversion and existing tests to determine expected semantics: likely pids.limit=0 should write 
+"max" (unlimited), while absent should leave unchanged.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && grep 
+-R "PidsLimit" -n | head -120 && echo '--- fs pids' && nl -ba libcontainer/cgroups/fs/pids.go | sed -n '1,90p' && echo 
+'--- fs2 pids' && nl -ba libcontainer/cgroups/fs2/pids.go | sed -n '1,90p' && echo '--- systemd snippets' && nl -ba 
+libcontainer/cgroups/systemd/v1.go | sed -n '85,110p' && nl -ba libcontainer/cgroups/systemd/v2.go | sed -n '250,270p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+libcontainer/integration/exec_test.go:538:      config.Cgroups.Resources.PidsLimit = -1
+libcontainer/integration/exec_test.go:545:      config.Cgroups.Resources.PidsLimit = 64
+libcontainer/integration/exec_test.go:554:      config.Cgroups.Resources.PidsLimit = 64
+libcontainer/cgroups/fs2/pids.go:17:    return r.PidsLimit != 0
+libcontainer/cgroups/fs2/pids.go:24:    if val := numToStr(r.PidsLimit); val != "" {
+libcontainer/cgroups/systemd/v1.go:101: if r.PidsLimit > 0 || r.PidsLimit == -1 {
+libcontainer/cgroups/systemd/v1.go:103:                 newProp("TasksMax", uint64(r.PidsLimit)))
+libcontainer/cgroups/systemd/v2.go:260: if r.PidsLimit > 0 || r.PidsLimit == -1 {
+libcontainer/cgroups/systemd/v2.go:262:                 newProp("TasksMax", uint64(r.PidsLimit)))
+libcontainer/cgroups/fs/pids.go:23:     if r.PidsLimit != 0 {
+libcontainer/cgroups/fs/pids.go:27:             if r.PidsLimit > 0 {
+libcontainer/cgroups/fs/pids.go:28:                     limit = strconv.FormatInt(r.PidsLimit, 10)
+libcontainer/cgroups/fs/pids_test.go:25:                PidsLimit: maxLimited,
+libcontainer/cgroups/fs/pids_test.go:49:                PidsLimit: maxUnlimited,
+libcontainer/cgroups/devices/systemd_test.go:36:                        PidsLimit:   42,
+libcontainer/cgroups/devices/systemd_test.go💯          podConfig.Resources.PidsLimit++
+libcontainer/configs/cgroup_linux.go:94:        PidsLimit int64 `json:"pids_limit"`
+libcontainer/specconv/spec_linux.go:775:                                c.Resources.PidsLimit = r.Pids.Limit
+update.go:322:          config.Cgroups.Resources.PidsLimit = r.Pids.Limit
+--- fs pids
+     1  package fs
+     2  
+     3  import (
+     4          "math"
+     5          "strconv"
+     6  
+     7          "github.com/opencontainers/runc/libcontainer/cgroups"
+     8          "github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
+     9          "github.com/opencontainers/runc/libcontainer/configs"
+    10  )
+    11  
+    12  type PidsGroup struct{}
+    13  
+    14  func (s *PidsGroup) Name() string {
+    15          return "pids"
+    16  }
+    17  
+    18  func (s *PidsGroup) Apply(path string, _ *configs.Resources, pid int) error {
+    19          return apply(path, pid)
+    20  }
+    21  
+    22  func (s *PidsGroup) Set(path string, r *configs.Resources) error {
+    23          if r.PidsLimit != 0 {
+    24                  // "max" is the fallback value.
+    25                  limit := "max"
+    26  
+    27                  if r.PidsLimit > 0 {
+    28                          limit = strconv.FormatInt(r.PidsLimit, 10)
+    29                  }
+    30  
+    31                  if err := cgroups.WriteFile(path, "pids.max", limit); err != nil {
+    32                          return err
+    33                  }
+    34          }
+    35  
+    36          return nil
+    37  }
+    38  
+    39  func (s *PidsGroup) GetStats(path string, stats *cgroups.Stats) error {
+    40          if !cgroups.PathExists(path) {
+    41                  return nil
+    42          }
+    43          current, err := fscommon.GetCgroupParamUint(path, "pids.current")
+    44          if err != nil {
+    45                  return err
+    46          }
+    47  
+    48          max, err := fscommon.GetCgroupParamUint(path, "pids.max")
+    49          if err != nil {
+    50                  return err
+    51          }
+    52          // If no limit is set, read from pids.max returns "max", which is
+    53          // converted to MaxUint64 by GetCgroupParamUint. Historically, we
+    54          // represent "no limit" for pids as 0, thus this conversion.
+    55          if max == math.MaxUint64 {
+    56                  max = 0
+    57          }
+    58  
+    59          stats.PidsStats.Current = current
+    60          stats.PidsStats.Limit = max
+    61          return nil
+    62  }
+--- fs2 pids
+     1  package fs2
+     2  
+     3  import (
+     4          "errors"
+     5          "math"
+     6          "os"
+     7          "strings"
+     8  
+     9          "golang.org/x/sys/unix"
+    10  
+    11          "github.com/opencontainers/runc/libcontainer/cgroups"
+    12          "github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
+    13          "github.com/opencontainers/runc/libcontainer/configs"
+    14  )
+    15  
+    16  func isPidsSet(r *configs.Resources) bool {
+    17          return r.PidsLimit != 0
+    18  }
+    19  
+    20  func setPids(dirPath string, r *configs.Resources) error {
+    21          if !isPidsSet(r) {
+    22                  return nil
+    23          }
+    24          if val := numToStr(r.PidsLimit); val != "" {
+    25                  if err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil {
+    26                          return err
+    27                  }
+    28          }
+    29  
+    30          return nil
+    31  }
+    32  
+    33  func statPidsFromCgroupProcs(dirPath string, stats *cgroups.Stats) error {
+    34          // if the controller is not enabled, let's read PIDS from cgroups.procs
+    35          // (or threads if cgroup.threads is enabled)
+    36          contents, err := cgroups.ReadFile(dirPath, "cgroup.procs")
+    37          if errors.Is(err, unix.ENOTSUP) {
+    38                  contents, err = cgroups.ReadFile(dirPath, "cgroup.threads")
+    39          }
+    40          if err != nil {
+    41                  return err
+    42          }
+    43          pids := strings.Count(contents, "\n")
+    44          stats.PidsStats.Current = uint64(pids)
+    45          stats.PidsStats.Limit = 0
+    46          return nil
+    47  }
+    48  
+    49  func statPids(dirPath string, stats *cgroups.Stats) error {
+    50          current, err := fscommon.GetCgroupParamUint(dirPath, "pids.current")
+    51          if err != nil {
+    52                  if os.IsNotExist(err) {
+    53                          return statPidsFromCgroupProcs(dirPath, stats)
+    54                  }
+    55                  return err
+    56          }
+    57  
+    58          max, err := fscommon.GetCgroupParamUint(dirPath, "pids.max")
+    59          if err != nil {
+    60                  return err
+    61          }
+    62          // If no limit is set, read from pids.max returns "max", which is
+    63          // converted to MaxUint64 by GetCgroupParamUint. Historically, we
+    64          // represent "no limit" for pids as 0, thus this conversion.
+    65          if max == math.MaxUint64 {
+    66                  max = 0
+    67          }
+    68  
+    69          stats.PidsStats.Current = current
+    70          stats.PidsStats.Limit = max
+    71          return nil
+    72  }
+--- systemd snippets
+    85                  properties = append(properties,
+    86                          newProp("MemoryLimit", uint64(r.Memory)))
+    87          }
+    88  
+    89          if r.CpuShares != 0 {
+    90                  properties = append(properties,
+    91                          newProp("CPUShares", r.CpuShares))
+    92          }
+    93  
+    94          addCpuQuota(cm, &properties, r.CpuQuota, r.CpuPeriod)
+    95  
+    96          if r.BlkioWeight != 0 {
+    97                  properties = append(properties,
+    98                          newProp("BlockIOWeight", uint64(r.BlkioWeight)))
+    99          }
+   100  
+   101          if r.PidsLimit > 0 || r.PidsLimit == -1 {
+   102                  properties = append(properties,
+   103                          newProp("TasksMax", uint64(r.PidsLimit)))
+   104          }
+   105  
+   106          err = addCpuset(cm, &properties, r.CpusetCpus, r.CpusetMems)
+   107          if err != nil {
+   108                  return nil, err
+   109          }
+   110  
+   250                          // Ignore CpuWeight if CPUIdle is already set.
+   251                          logrus.Warn("unable to apply both CPUWeight and CpuIdle to systemd, ignoring CPUWeight")
+   252                  } else {
+   253                          properties = append(properties,
+   254                                  newProp("CPUWeight", r.CpuWeight))
+   255                  }
+   256          }
+   257  
+   258          addCpuQuota(cm, &properties, r.CpuQuota, r.CpuPeriod)
+   259  
+   260          if r.PidsLimit > 0 || r.PidsLimit == -1 {
+   261                  properties = append(properties,
+   262                          newProp("TasksMax", uint64(r.PidsLimit)))
+   263          }
+   264  
+   265          err = addCpuset(cm, &properties, r.CpusetCpus, r.CpusetMems)
+   266          if err != nil {
+   267                  return nil, err
+   268          }
+   269  
+   270          // ignore r.KernelMemory
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 4, $0.08):
+The core ambiguity is that `configs.Resources.PidsLimit` is an `int64`, so both “unspecified” and “specified as 0” become 
+0. I’ll inspect the config conversion and tests to see how invasive a nullable representation would be and how other 
+fields handle this distinction.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && nl 
+-ba libcontainer/configs/cgroup_linux.go | sed -n '70,110p' && nl -ba libcontainer/specconv/spec_linux.go | sed -n 
+'740,790p' && nl -ba update.go | sed -n '300,335p' && nl -ba libcontainer/cgroups/fs/pids_test.go | sed -n '1,120p' && 
+grep -R "numToStr" -n libcontainer/cgroups
+```
+
+Tool:
+<returncode>
+0
+<output>
+    70          CpuQuota int64 `json:"cpu_quota"`
+    71  
+    72          // CPU hardcap burst limit (in usecs). Allowed accumulated cpu time additionally for burst in a given 
+period.
+    73          CpuBurst *uint64 `json:"cpu_burst"` //nolint:revive
+    74  
+    75          // CPU period to be used for hardcapping (in usecs). 0 to use system default.
+    76          CpuPeriod uint64 `json:"cpu_period"`
+    77  
+    78          // How many time CPU will use in realtime scheduling (in usecs).
+    79          CpuRtRuntime int64 `json:"cpu_rt_quota"`
+    80  
+    81          // CPU period to be used for realtime scheduling (in usecs).
+    82          CpuRtPeriod uint64 `json:"cpu_rt_period"`
+    83  
+    84          // CPU to use
+    85          CpusetCpus string `json:"cpuset_cpus"`
+    86  
+    87          // MEM to use
+    88          CpusetMems string `json:"cpuset_mems"`
+    89  
+    90          // cgroup SCHED_IDLE
+    91          CPUIdle *int64 `json:"cpu_idle,omitempty"`
+    92  
+    93          // Process limit; set <= `0' to disable limit.
+    94          PidsLimit int64 `json:"pids_limit"`
+    95  
+    96          // Specifies per cgroup weight, range is from 10 to 1000.
+    97          BlkioWeight uint16 `json:"blkio_weight"`
+    98  
+    99          // Specifies tasks' weight in the given cgroup while competing with the cgroup's child cgroups, range is 
+from 10 to 1000, cfq scheduler only
+   100          BlkioLeafWeight uint16 `json:"blkio_leaf_weight"`
+   101  
+   102          // Weight per cgroup per device, can override BlkioWeight.
+   103          BlkioWeightDevice []*WeightDevice `json:"blkio_weight_device"`
+   104  
+   105          // IO read rate limit per cgroup per device, bytes per second.
+   106          BlkioThrottleReadBpsDevice []*ThrottleDevice `json:"blkio_throttle_read_bps_device"`
+   107  
+   108          // IO write rate limit per cgroup per device, bytes per second.
+   109          BlkioThrottleWriteBpsDevice []*ThrottleDevice `json:"blkio_throttle_write_bps_device"`
+   110  
+   740                                  }
+   741                                  if r.Memory.DisableOOMKiller != nil {
+   742                                          c.Resources.OomKillDisable = *r.Memory.DisableOOMKiller
+   743                                  }
+   744                                  if r.Memory.CheckBeforeUpdate != nil {
+   745                                          c.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+   746                                  }
+   747                          }
+   748                          if r.CPU != nil {
+   749                                  if r.CPU.Shares != nil {
+   750                                          c.Resources.CpuShares = *r.CPU.Shares
+   751  
+   752                                          // CpuWeight is used for cgroupv2 and should be converted
+   753                                          c.Resources.CpuWeight = 
+cgroups.ConvertCPUSharesToCgroupV2Value(c.Resources.CpuShares)
+   754                                  }
+   755                                  if r.CPU.Quota != nil {
+   756                                          c.Resources.CpuQuota = *r.CPU.Quota
+   757                                  }
+   758                                  if r.CPU.Burst != nil {
+   759                                          c.Resources.CpuBurst = r.CPU.Burst
+   760                                  }
+   761                                  if r.CPU.Period != nil {
+   762                                          c.Resources.CpuPeriod = *r.CPU.Period
+   763                                  }
+   764                                  if r.CPU.RealtimeRuntime != nil {
+   765                                          c.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+   766                                  }
+   767                                  if r.CPU.RealtimePeriod != nil {
+   768                                          c.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+   769                                  }
+   770                                  c.Resources.CpusetCpus = r.CPU.Cpus
+   771                                  c.Resources.CpusetMems = r.CPU.Mems
+   772                                  c.Resources.CPUIdle = r.CPU.Idle
+   773                          }
+   774                          if r.Pids != nil {
+   775                                  c.Resources.PidsLimit = r.Pids.Limit
+   776                          }
+   777                          if r.BlockIO != nil {
+   778                                  if r.BlockIO.Weight != nil {
+   779                                          c.Resources.BlkioWeight = *r.BlockIO.Weight
+   780                                  }
+   781                                  if r.BlockIO.LeafWeight != nil {
+   782                                          c.Resources.BlkioLeafWeight = *r.BlockIO.LeafWeight
+   783                                  }
+   784                                  for _, wd := range r.BlockIO.WeightDevice {
+   785                                          var weight, leafWeight uint16
+   786                                          if wd.Weight != nil {
+   787                                                  weight = *wd.Weight
+   788                                          }
+   789                                          if wd.LeafWeight != nil {
+   790                                                  leafWeight = *wd.LeafWeight
+   300                          if p != 0 {
+   301                                  // set new period, leave quota at old value
+   302                                  config.Cgroups.Resources.CpuPeriod = p
+   303                          } else if q != 0 {
+   304                                  // set new quota, leave period at old value
+   305                                  config.Cgroups.Resources.CpuQuota = q
+   306                          }
+   307                  }
+   308  
+   309                  config.Cgroups.Resources.CpuBurst = r.CPU.Burst
+   310                  config.Cgroups.Resources.CpuShares = *r.CPU.Shares
+   311                  // CpuWeight is used for cgroupv2 and should be converted
+   312                  config.Cgroups.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(*r.CPU.Shares)
+   313                  config.Cgroups.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+   314                  config.Cgroups.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+   315                  config.Cgroups.Resources.CpusetCpus = r.CPU.Cpus
+   316                  config.Cgroups.Resources.CpusetMems = r.CPU.Mems
+   317                  config.Cgroups.Resources.Memory = *r.Memory.Limit
+   318                  config.Cgroups.Resources.CPUIdle = r.CPU.Idle
+   319                  config.Cgroups.Resources.MemoryReservation = *r.Memory.Reservation
+   320                  config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+   321                  config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+   322                  config.Cgroups.Resources.PidsLimit = r.Pids.Limit
+   323                  config.Cgroups.Resources.Unified = r.Unified
+   324  
+   325                  // Update Intel RDT
+   326                  l3CacheSchema := context.String("l3-cache-schema")
+   327                  memBwSchema := context.String("mem-bw-schema")
+   328                  if l3CacheSchema != "" && !intelrdt.IsCATEnabled() {
+   329                          return errors.New("Intel RDT/CAT: l3 cache schema is not enabled")
+   330                  }
+   331  
+   332                  if memBwSchema != "" && !intelrdt.IsMBAEnabled() {
+   333                          return errors.New("Intel RDT/MBA: memory bandwidth schema is not enabled")
+   334                  }
+   335  
+     1  package fs
+     2  
+     3  import (
+     4          "strconv"
+     5          "testing"
+     6  
+     7          "github.com/opencontainers/runc/libcontainer/cgroups"
+     8          "github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
+     9          "github.com/opencontainers/runc/libcontainer/configs"
+    10  )
+    11  
+    12  const (
+    13          maxUnlimited = -1
+    14          maxLimited   = 1024
+    15  )
+    16  
+    17  func TestPidsSetMax(t *testing.T) {
+    18          path := tempDir(t, "pids")
+    19  
+    20          writeFileContents(t, path, map[string]string{
+    21                  "pids.max": "max",
+    22          })
+    23  
+    24          r := &configs.Resources{
+    25                  PidsLimit: maxLimited,
+    26          }
+    27          pids := &PidsGroup{}
+    28          if err := pids.Set(path, r); err != nil {
+    29                  t.Fatal(err)
+    30          }
+    31  
+    32          value, err := fscommon.GetCgroupParamUint(path, "pids.max")
+    33          if err != nil {
+    34                  t.Fatal(err)
+    35          }
+    36          if value != maxLimited {
+    37                  t.Fatalf("Expected %d, got %d for setting pids.max - limited", maxLimited, value)
+    38          }
+    39  }
+    40  
+    41  func TestPidsSetUnlimited(t *testing.T) {
+    42          path := tempDir(t, "pids")
+    43  
+    44          writeFileContents(t, path, map[string]string{
+    45                  "pids.max": strconv.Itoa(maxLimited),
+    46          })
+    47  
+    48          r := &configs.Resources{
+    49                  PidsLimit: maxUnlimited,
+    50          }
+    51          pids := &PidsGroup{}
+    52          if err := pids.Set(path, r); err != nil {
+    53                  t.Fatal(err)
+    54          }
+    55  
+    56          value, err := fscommon.GetCgroupParamString(path, "pids.max")
+    57          if err != nil {
+    58                  t.Fatal(err)
+    59          }
+    60          if value != "max" {
+    61                  t.Fatalf("Expected %s, got %s for setting pids.max - unlimited", "max", value)
+    62          }
+    63  }
+    64  
+    65  func TestPidsStats(t *testing.T) {
+    66          path := tempDir(t, "pids")
+    67  
+    68          writeFileContents(t, path, map[string]string{
+    69                  "pids.current": strconv.Itoa(1337),
+    70                  "pids.max":     strconv.Itoa(maxLimited),
+    71          })
+    72  
+    73          pids := &PidsGroup{}
+    74          stats := *cgroups.NewStats()
+    75          if err := pids.GetStats(path, &stats); err != nil {
+    76                  t.Fatal(err)
+    77          }
+    78  
+    79          if stats.PidsStats.Current != 1337 {
+    80                  t.Fatalf("Expected %d, got %d for pids.current", 1337, stats.PidsStats.Current)
+    81          }
+    82  
+    83          if stats.PidsStats.Limit != maxLimited {
+    84                  t.Fatalf("Expected %d, got %d for pids.max", maxLimited, stats.PidsStats.Limit)
+    85          }
+    86  }
+    87  
+    88  func TestPidsStatsUnlimited(t *testing.T) {
+    89          path := tempDir(t, "pids")
+    90  
+    91          writeFileContents(t, path, map[string]string{
+    92                  "pids.current": strconv.Itoa(4096),
+    93                  "pids.max":     "max",
+    94          })
+    95  
+    96          pids := &PidsGroup{}
+    97          stats := *cgroups.NewStats()
+    98          if err := pids.GetStats(path, &stats); err != nil {
+    99                  t.Fatal(err)
+   100          }
+   101  
+   102          if stats.PidsStats.Current != 4096 {
+   103                  t.Fatalf("Expected %d, got %d for pids.current", 4096, stats.PidsStats.Current)
+   104          }
+   105  
+   106          if stats.PidsStats.Limit != 0 {
+   107                  t.Fatalf("Expected %d, got %d for pids.max", 0, stats.PidsStats.Limit)
+   108          }
+   109  }
+libcontainer/cgroups/fs2/pids.go:24:    if val := numToStr(r.PidsLimit); val != "" {
+libcontainer/cgroups/fs2/memory.go:18:// numToStr converts an int64 value to a string for writing to a
+libcontainer/cgroups/fs2/memory.go:22:func numToStr(value int64) (ret string) {
+libcontainer/cgroups/fs2/memory.go:52:  swapStr := numToStr(swap)
+libcontainer/cgroups/fs2/memory.go:64:  if val := numToStr(r.Memory); val != "" {
+libcontainer/cgroups/fs2/memory.go:72:  if val := numToStr(r.MemoryReservation); val != "" {
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 5, $0.12):
+Upstream likely added a separate boolean to track whether the pids limit was explicitly set, so 0 can mean unlimited while
+missing remains unset. I’ll inspect vendored runtime-spec type to confirm `LinuxPids` has `Limit int64` and then implement
+a `PidsLimitSet` flag in internal resources, propagated from spec/update, used by cgroupfs/fs2/systemd.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && grep 
+-R "type LinuxPids" -n vendor $(go env GOPATH 2>/dev/null)/pkg/mod/github.com/opencontainers/runtime-spec* 2>/dev/null | 
+head && grep -R "PidsLimitSet\|Resources{" -n libcontainer | head -80
+```
+
+Tool:
+<returncode>
+0
+<output>
+vendor/github.com/opencontainers/runtime-spec/specs-go/config.go:413:type LinuxPids struct {
+/home/aludy/go/pkg/mod/github.com/opencontainers/runtime-spec@v1.0.3-0.20210326190908-1c3f411f0417/specs-go/config.go:334:
+type LinuxPids struct {
+/home/aludy/go/pkg/mod/github.com/opencontainers/runtime-spec@v1.2.1/specs-go/config.go:431:type LinuxPids struct {
+libcontainer/integration/template_test.go:120:                  Resources: &configs.Resources{
+libcontainer/README.md:119:             Resources: &configs.Resources{
+libcontainer/cgroups/fscommon/rdma_test.go:30:  rdmaStubResource := &configs.Resources{
+libcontainer/cgroups/systemd/systemd_test.go:88:                Resources: &configs.Resources{},
+libcontainer/cgroups/systemd/v1.go:294: resources := &configs.Resources{Freezer: state}
+libcontainer/cgroups/systemd/freeze_test.go:36:                         Resources: &configs.Resources{
+libcontainer/cgroups/systemd/freeze_test.go:55:                         Resources: &configs.Resources{
+libcontainer/cgroups/systemd/freeze_test.go:71:                         Resources: &configs.Resources{
+libcontainer/cgroups/systemd/freeze_test.go:87:                         Resources: &configs.Resources{
+libcontainer/cgroups/systemd/freeze_test.go:105:                                Resources: &configs.Resources{
+libcontainer/cgroups/systemd/freeze_test.go:123:                                Resources:   &configs.Resources{},
+libcontainer/cgroups/systemd/freeze_test.go:233:                Resources: &configs.Resources{
+libcontainer/cgroups/systemd/freeze_test.go:264:                Resources:   &configs.Resources{},
+libcontainer/cgroups/fs/net_cls_test.go:23:     r := &configs.Resources{
+libcontainer/cgroups/fs/cpu_test.go:25: r := &configs.Resources{
+libcontainer/cgroups/fs/cpu_test.go:66: r := &configs.Resources{
+libcontainer/cgroups/fs/cpu_test.go:194:        r := &configs.Resources{
+libcontainer/cgroups/fs/memory_test.go:56:      r := &configs.Resources{
+libcontainer/cgroups/fs/memory_test.go:94:      r := &configs.Resources{
+libcontainer/cgroups/fs/memory_test.go:131:     r := &configs.Resources{
+libcontainer/cgroups/fs/memory_test.go:172:     r := &configs.Resources{
+libcontainer/cgroups/fs/memory_test.go:208:     r := &configs.Resources{
+libcontainer/cgroups/fs/memory_test.go:420:     r := &configs.Resources{}
+libcontainer/cgroups/fs/cpuset_test.go:52:      r := &configs.Resources{
+libcontainer/cgroups/fs/cpuset_test.go:81:      r := &configs.Resources{
+libcontainer/cgroups/fs/fs_test.go:24:          Resources: &configs.Resources{},
+libcontainer/cgroups/fs/hugetlb_test.go:40:     r := &configs.Resources{}
+libcontainer/cgroups/fs/net_prio_test.go:21:    r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:188:              r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:230:              r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:276:      r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:756:      r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:787:      r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:818:      r := &configs.Resources{
+libcontainer/cgroups/fs/blkio_test.go:849:      r := &configs.Resources{
+libcontainer/cgroups/fs/freezer_test.go:17:     r := &configs.Resources{
+libcontainer/cgroups/fs/freezer_test.go:39:     r := &configs.Resources{
+libcontainer/cgroups/fs/pids_test.go:24:        r := &configs.Resources{
+libcontainer/cgroups/fs/pids_test.go:48:        r := &configs.Resources{
+libcontainer/cgroups/manager/manager_test.go:37:                cg.Resources = &configs.Resources{}
+libcontainer/cgroups/devices/v1_test.go:33:     r := &configs.Resources{
+libcontainer/cgroups/devices/systemd_test.go:35:                Resources: &configs.Resources{
+libcontainer/cgroups/devices/systemd_test.go:54:                Resources: &configs.Resources{
+libcontainer/cgroups/devices/systemd_test.go:135:               Resources: &configs.Resources{
+libcontainer/cgroups/devices/systemd_test.go:152:               Resources: &configs.Resources{
+libcontainer/factory_linux_test.go:47:                          Resources: &configs.Resources{},
+libcontainer/specconv/spec_linux_test.go:360:   resources := &specs.LinuxResources{
+libcontainer/specconv/example.go:128:                   Resources: &specs.LinuxResources{
+libcontainer/specconv/spec_linux.go:648:                Resources: &configs.Resources{},
+libcontainer/container_linux_test.go:247:                               Resources: &configs.Resources{
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 6, $0.16):
+I’ll patch the internal config to add the explicit-set flag, update conversions, cgroup v1/v2 writers, and systemd 
+TasksMax handling. For direct internal users that set positive or -1 PidsLimit without the flag, I’ll preserve legacy 
+behavior by treating non-zero as set as well.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+root=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014'
+)
+# cgroup config
+p=root/'libcontainer/configs/cgroup_linux.go'
+s=p.read_text()
+s=s.replace('// Process limit; set <= `0\' to disable limit.\n\t\tPidsLimit int64 `json:"pids_limit"`', '// Process limit;
+set <= `0\' to disable limit.\n\t\tPidsLimit int64 `json:"pids_limit"`\n\n\t\t// Whether PidsLimit was explicitly 
+configured. This distinguishes\n\t\t// an omitted OCI linux.resources.pids from a configured limit of 0\n\t\t// (which 
+means unlimited).\n\t\tPidsLimitSet bool `json:"pids_limit_set,omitempty"`')
+p.write_text(s)
+# specconv
+p=root/'libcontainer/specconv/spec_linux.go'
+s=p.read_text().replace('if r.Pids != nil {\n\t\t\t\t\tc.Resources.PidsLimit = r.Pids.Limit\n\t\t\t\t}', 'if r.Pids != nil
+{\n\t\t\t\t\tc.Resources.PidsLimit = r.Pids.Limit\n\t\t\t\t\tc.Resources.PidsLimitSet = true\n\t\t\t\t}')
+p.write_text(s)
+# update.go
+p=root/'update.go'
+s=p.read_text().replace('config.Cgroups.Resources.PidsLimit = r.Pids.Limit', 'config.Cgroups.Resources.PidsLimit = 
+r.Pids.Limit\n\t\t\tconfig.Cgroups.Resources.PidsLimitSet = true')
+p.write_text(s)
+# fs pids
+p=root/'libcontainer/cgroups/fs/pids.go'
+s=p.read_text().replace('if r.PidsLimit != 0 {', 'if r.PidsLimitSet || r.PidsLimit != 0 {')
+p.write_text(s)
+# fs2 pids
+p=root/'libcontainer/cgroups/fs2/pids.go'
+s=p.read_text().replace('return r.PidsLimit != 0', 'return r.PidsLimitSet || r.PidsLimit != 0')
+p.write_text(s)
+# systemd v1/v2
+for rel in ['libcontainer/cgroups/systemd/v1.go','libcontainer/cgroups/systemd/v2.go']:
+    p=root/rel
+    s=p.read_text().replace('if r.PidsLimit > 0 || r.PidsLimit == -1 {', 'if r.PidsLimitSet || r.PidsLimit > 0 || 
+r.PidsLimit == -1 {')
+    p.write_text(s)
+PY
+
+gofmt -w libcontainer/configs/cgroup_linux.go libcontainer/specconv/spec_linux.go update.go 
+libcontainer/cgroups/fs/pids.go libcontainer/cgroups/fs2/pids.go libcontainer/cgroups/systemd/v1.go 
+libcontainer/cgroups/systemd/v2.go
+
+git diff -- libcontainer/configs/cgroup_linux.go libcontainer/specconv/spec_linux.go update.go 
+libcontainer/cgroups/fs/pids.go libcontainer/cgroups/fs2/pids.go libcontainer/cgroups/systemd/v1.go 
+libcontainer/cgroups/systemd/v2.go
+```
+
+Tool:
+<returncode>
+0
+<output>
+diff --git a/libcontainer/cgroups/fs/pids.go b/libcontainer/cgroups/fs/pids.go
+index 1f13532a..a5954a4b 100644
+--- a/libcontainer/cgroups/fs/pids.go
++++ b/libcontainer/cgroups/fs/pids.go
+@@ -20,7 +20,7 @@ func (s *PidsGroup) Apply(path string, _ *configs.Resources, pid int) error {
+ }
+ 
+ func (s *PidsGroup) Set(path string, r *configs.Resources) error {
+-       if r.PidsLimit != 0 {
++       if r.PidsLimitSet || r.PidsLimit != 0 {
+                // "max" is the fallback value.
+                limit := "max"
+ 
+diff --git a/libcontainer/cgroups/fs2/pids.go b/libcontainer/cgroups/fs2/pids.go
+index c8c4a365..3cab6ebe 100644
+--- a/libcontainer/cgroups/fs2/pids.go
++++ b/libcontainer/cgroups/fs2/pids.go
+@@ -14,7 +14,7 @@ import (
+ )
+ 
+ func isPidsSet(r *configs.Resources) bool {
+-       return r.PidsLimit != 0
++       return r.PidsLimitSet || r.PidsLimit != 0
+ }
+ 
+ func setPids(dirPath string, r *configs.Resources) error {
+diff --git a/libcontainer/cgroups/systemd/v1.go b/libcontainer/cgroups/systemd/v1.go
+index 8c64a588..c586abbc 100644
+--- a/libcontainer/cgroups/systemd/v1.go
++++ b/libcontainer/cgroups/systemd/v1.go
+@@ -98,7 +98,7 @@ func genV1ResourcesProperties(r *configs.Resources, cm *dbusConnManager) ([]syst
+                        newProp("BlockIOWeight", uint64(r.BlkioWeight)))
+        }
+ 
+-       if r.PidsLimit > 0 || r.PidsLimit == -1 {
++       if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
+                properties = append(properties,
+                        newProp("TasksMax", uint64(r.PidsLimit)))
+        }
+diff --git a/libcontainer/cgroups/systemd/v2.go b/libcontainer/cgroups/systemd/v2.go
+index b28ec6b2..b35a89cf 100644
+--- a/libcontainer/cgroups/systemd/v2.go
++++ b/libcontainer/cgroups/systemd/v2.go
+@@ -257,7 +257,7 @@ func genV2ResourcesProperties(dirPath string, r *configs.Resources, cm *dbusConn
+ 
+        addCpuQuota(cm, &properties, r.CpuQuota, r.CpuPeriod)
+ 
+-       if r.PidsLimit > 0 || r.PidsLimit == -1 {
++       if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
+                properties = append(properties,
+                        newProp("TasksMax", uint64(r.PidsLimit)))
+        }
+diff --git a/update.go b/update.go
+index fc2d656a..f53828a5 100644
+--- a/update.go
++++ b/update.go
+@@ -320,6 +320,7 @@ other options are ignored.
+                config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+                config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+                config.Cgroups.Resources.PidsLimit = r.Pids.Limit
++               config.Cgroups.Resources.PidsLimitSet = true
+                config.Cgroups.Resources.Unified = r.Unified
+ 
+                // Update Intel RDT
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 7, $0.19):
+The first patch didn’t include the config/spec conversion changes, so I’ll inspect why and also verify how `numToStr(0)` 
+behaves for cgroup v2 and how systemd expects unlimited TasksMax to be represented.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && nl 
+-ba libcontainer/configs/cgroup_linux.go | sed -n '88,105p' && nl -ba libcontainer/specconv/spec_linux.go | sed -n 
+'770,778p' && nl -ba libcontainer/cgroups/fs2/memory.go | sed -n '1,35p' && grep -R "TasksMax" -n 
+libcontainer/cgroups/systemd
+```
+
+Tool:
+<returncode>
+0
+<output>
+    88          CpusetMems string `json:"cpuset_mems"`
+    89  
+    90          // cgroup SCHED_IDLE
+    91          CPUIdle *int64 `json:"cpu_idle,omitempty"`
+    92  
+    93          // Process limit; set <= `0' to disable limit.
+    94          PidsLimit int64 `json:"pids_limit"`
+    95  
+    96          // Specifies per cgroup weight, range is from 10 to 1000.
+    97          BlkioWeight uint16 `json:"blkio_weight"`
+    98  
+    99          // Specifies tasks' weight in the given cgroup while competing with the cgroup's child cgroups, range is 
+from 10 to 1000, cfq scheduler only
+   100          BlkioLeafWeight uint16 `json:"blkio_leaf_weight"`
+   101  
+   102          // Weight per cgroup per device, can override BlkioWeight.
+   103          BlkioWeightDevice []*WeightDevice `json:"blkio_weight_device"`
+   104  
+   105          // IO read rate limit per cgroup per device, bytes per second.
+   770                                  c.Resources.CpusetCpus = r.CPU.Cpus
+   771                                  c.Resources.CpusetMems = r.CPU.Mems
+   772                                  c.Resources.CPUIdle = r.CPU.Idle
+   773                          }
+   774                          if r.Pids != nil {
+   775                                  c.Resources.PidsLimit = r.Pids.Limit
+   776                          }
+   777                          if r.BlockIO != nil {
+   778                                  if r.BlockIO.Weight != nil {
+     1  package fs2
+     2  
+     3  import (
+     4          "bufio"
+     5          "errors"
+     6          "math"
+     7          "os"
+     8          "strconv"
+     9          "strings"
+    10  
+    11          "golang.org/x/sys/unix"
+    12  
+    13          "github.com/opencontainers/runc/libcontainer/cgroups"
+    14          "github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
+    15          "github.com/opencontainers/runc/libcontainer/configs"
+    16  )
+    17  
+    18  // numToStr converts an int64 value to a string for writing to a
+    19  // cgroupv2 files with .min, .max, .low, or .high suffix.
+    20  // The value of -1 is converted to "max" for cgroupv1 compatibility
+    21  // (which used to write -1 to remove the limit).
+    22  func numToStr(value int64) (ret string) {
+    23          switch {
+    24          case value == 0:
+    25                  ret = ""
+    26          case value == -1:
+    27                  ret = "max"
+    28          default:
+    29                  ret = strconv.FormatInt(value, 10)
+    30          }
+    31  
+    32          return ret
+    33  }
+    34  
+    35  func isMemorySet(r *configs.Resources) bool {
+libcontainer/cgroups/systemd/v1.go:103:                 newProp("TasksMax", uint64(r.PidsLimit)))
+libcontainer/cgroups/systemd/v2.go:181:                         newProp("TasksMax", num))
+libcontainer/cgroups/systemd/v2.go:262:                 newProp("TasksMax", uint64(r.PidsLimit)))
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 8, $0.21):
+I see the config/spec replacement didn’t match exactly, and cgroup v2 still skips writing for explicit 0 because 
+`numToStr(0)` returns empty for memory semantics. I’ll add a pids-specific formatter where explicit `0` maps to `"max"`, 
+and ensure systemd maps non-positive explicit pids limits to `uint64(-1)` (unlimited) rather than `0`.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && sed 
+-n '1,20p' libcontainer/cgroups/systemd/v1.go && sed -n '1,25p' libcontainer/cgroups/systemd/v2.go && nl -ba 
+libcontainer/cgroups/systemd/v2.go | sed -n '165,185p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+package systemd
+
+import (
+        "errors"
+        "os"
+        "path/filepath"
+        "strings"
+        "sync"
+
+        systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+        "github.com/sirupsen/logrus"
+
+        "github.com/opencontainers/runc/libcontainer/cgroups"
+        "github.com/opencontainers/runc/libcontainer/cgroups/fs"
+        "github.com/opencontainers/runc/libcontainer/configs"
+)
+
+type LegacyManager struct {
+        mu      sync.Mutex
+        cgroups *configs.Cgroup
+package systemd
+
+import (
+        "bufio"
+        "errors"
+        "fmt"
+        "math"
+        "os"
+        "path/filepath"
+        "strconv"
+        "strings"
+        "sync"
+
+        systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+        securejoin "github.com/cyphar/filepath-securejoin"
+        "github.com/sirupsen/logrus"
+
+        "github.com/opencontainers/runc/libcontainer/cgroups"
+        "github.com/opencontainers/runc/libcontainer/cgroups/fs2"
+        "github.com/opencontainers/runc/libcontainer/configs"
+)
+
+const (
+        cpuIdleSupportedVersion = 252
+)
+   165                                  "memory.max":      "MemoryMax",
+   166                                  "memory.swap.max": "MemorySwapMax",
+   167                          }
+   168                          props = append(props,
+   169                                  newProp(m[k], num))
+   170  
+   171                  case "pids.max":
+   172                          num := uint64(math.MaxUint64)
+   173                          if v != "max" {
+   174                                  var err error
+   175                                  num, err = strconv.ParseUint(v, 10, 64)
+   176                                  if err != nil {
+   177                                          return nil, fmt.Errorf("unified resource %q value conversion error: %w", 
+k, err)
+   178                                  }
+   179                          }
+   180                          props = append(props,
+   181                                  newProp("TasksMax", num))
+   182  
+   183                  case "memory.oom.group":
+   184                          // Setting this to 1 is roughly equivalent to OOMPolicy=kill
+   185                          // (as per systemd.service(5) and
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 9, $0.27):
+Systemd v2 already uses `math.MaxUint64` for unified `pids.max=max`. I’ll import math in v1, adjust both TasksMax property
+generation paths, and update cgroup v2 pids formatting.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+root=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014'
+)
+# config add field
+p=root/'libcontainer/configs/cgroup_linux.go'
+s=p.read_text()
+s=s.replace('\t\t// Process limit; set <= `0\' to disable limit.\n\t\tPidsLimit int64 `json:"pids_limit"`', '\t\t// 
+Process limit; set <= `0\' to disable limit.\n\t\tPidsLimit int64 `json:"pids_limit"`\n\n\t\t// Whether PidsLimit was 
+explicitly configured. This distinguishes\n\t\t// an omitted OCI linux.resources.pids from a configured limit of 0\n\t\t//
+(which means unlimited).\n\t\tPidsLimitSet bool `json:"pids_limit_set,omitempty"`')
+p.write_text(s)
+# specconv add flag
+p=root/'libcontainer/specconv/spec_linux.go'
+s=p.read_text().replace('\t\t\t\tif r.Pids != nil {\n\t\t\t\t\tc.Resources.PidsLimit = r.Pids.Limit\n\t\t\t\t}', 
+'\t\t\t\tif r.Pids != nil {\n\t\t\t\t\tc.Resources.PidsLimit = r.Pids.Limit\n\t\t\t\t\tc.Resources.PidsLimitSet = 
+true\n\t\t\t\t}')
+p.write_text(s)
+# fs2 pids formatter
+p=root/'libcontainer/cgroups/fs2/pids.go'
+s=p.read_text()
+s=s.replace('func setPids(dirPath string, r *configs.Resources) error {\n\tif !isPidsSet(r) {\n\t\treturn nil\n\t}\n\tif 
+val := numToStr(r.PidsLimit); val != "" {\n\t\tif err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil 
+{\n\t\t\treturn err\n\t\t}\n\t}\n\n\treturn nil\n}', 'func pidsLimitStr(limit int64) string {\n\tif limit <= 0 
+{\n\t\treturn "max"\n\t}\n\treturn numToStr(limit)\n}\n\nfunc setPids(dirPath string, r *configs.Resources) error {\n\tif 
+!isPidsSet(r) {\n\t\treturn nil\n\t}\n\tif err := cgroups.WriteFile(dirPath, "pids.max", pidsLimitStr(r.PidsLimit)); err 
+!= nil {\n\t\treturn err\n\t}\n\n\treturn nil\n}')
+p.write_text(s)
+# systemd v1 import math and helper logic inline
+p=root/'libcontainer/cgroups/systemd/v1.go'
+s=p.read_text()
+s=s.replace('import (\n\t"errors"', 'import (\n\t"errors"\n\t"math"')
+s=s.replace('\tif r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {\n\t\tproperties = 
+append(properties,\n\t\t\tnewProp("TasksMax", uint64(r.PidsLimit)))\n\t}', '\tif r.PidsLimitSet || r.PidsLimit > 0 || 
+r.PidsLimit == -1 {\n\t\ttasksMax := uint64(math.MaxUint64)\n\t\tif r.PidsLimit > 0 {\n\t\t\ttasksMax = 
+uint64(r.PidsLimit)\n\t\t}\n\t\tproperties = append(properties,\n\t\t\tnewProp("TasksMax", tasksMax))\n\t}')
+p.write_text(s)
+# systemd v2 logic
+p=root/'libcontainer/cgroups/systemd/v2.go'
+s=p.read_text().replace('\tif r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {\n\t\tproperties = 
+append(properties,\n\t\t\tnewProp("TasksMax", uint64(r.PidsLimit)))\n\t}', '\tif r.PidsLimitSet || r.PidsLimit > 0 || 
+r.PidsLimit == -1 {\n\t\ttasksMax := uint64(math.MaxUint64)\n\t\tif r.PidsLimit > 0 {\n\t\t\ttasksMax = 
+uint64(r.PidsLimit)\n\t\t}\n\t\tproperties = append(properties,\n\t\t\tnewProp("TasksMax", tasksMax))\n\t}')
+p.write_text(s)
+PY
+
+gofmt -w libcontainer/configs/cgroup_linux.go libcontainer/specconv/spec_linux.go libcontainer/cgroups/fs2/pids.go 
+libcontainer/cgroups/systemd/v1.go libcontainer/cgroups/systemd/v2.go
+
+git diff --stat && git diff -- libcontainer/configs/cgroup_linux.go libcontainer/specconv/spec_linux.go 
+libcontainer/cgroups/fs2/pids.go libcontainer/cgroups/systemd/v1.go libcontainer/cgroups/systemd/v2.go | sed -n '1,220p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+ libcontainer/cgroups/fs/pids.go    |  2 +-
+ libcontainer/cgroups/fs2/pids.go   | 15 ++++++++++-----
+ libcontainer/cgroups/systemd/v1.go |  9 +++++++--
+ libcontainer/cgroups/systemd/v2.go |  8 ++++++--
+ update.go                          |  1 +
+ 5 files changed, 25 insertions(+), 10 deletions(-)
+diff --git a/libcontainer/cgroups/fs2/pids.go b/libcontainer/cgroups/fs2/pids.go
+index c8c4a365..fe55b073 100644
+--- a/libcontainer/cgroups/fs2/pids.go
++++ b/libcontainer/cgroups/fs2/pids.go
+@@ -14,17 +14,22 @@ import (
+ )
+ 
+ func isPidsSet(r *configs.Resources) bool {
+-       return r.PidsLimit != 0
++       return r.PidsLimitSet || r.PidsLimit != 0
++}
++
++func pidsLimitStr(limit int64) string {
++       if limit <= 0 {
++               return "max"
++       }
++       return numToStr(limit)
+ }
+ 
+ func setPids(dirPath string, r *configs.Resources) error {
+        if !isPidsSet(r) {
+                return nil
+        }
+-       if val := numToStr(r.PidsLimit); val != "" {
+-               if err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil {
+-                       return err
+-               }
++       if err := cgroups.WriteFile(dirPath, "pids.max", pidsLimitStr(r.PidsLimit)); err != nil {
++               return err
+        }
+ 
+        return nil
+diff --git a/libcontainer/cgroups/systemd/v1.go b/libcontainer/cgroups/systemd/v1.go
+index 8c64a588..84a65f91 100644
+--- a/libcontainer/cgroups/systemd/v1.go
++++ b/libcontainer/cgroups/systemd/v1.go
+@@ -2,6 +2,7 @@ package systemd
+ 
+ import (
+        "errors"
++       "math"
+        "os"
+        "path/filepath"
+        "strings"
+@@ -98,9 +99,13 @@ func genV1ResourcesProperties(r *configs.Resources, cm *dbusConnManager) ([]syst
+                        newProp("BlockIOWeight", uint64(r.BlkioWeight)))
+        }
+ 
+-       if r.PidsLimit > 0 || r.PidsLimit == -1 {
++       if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
++               tasksMax := uint64(math.MaxUint64)
++               if r.PidsLimit > 0 {
++                       tasksMax = uint64(r.PidsLimit)
++               }
+                properties = append(properties,
+-                       newProp("TasksMax", uint64(r.PidsLimit)))
++                       newProp("TasksMax", tasksMax))
+        }
+ 
+        err = addCpuset(cm, &properties, r.CpusetCpus, r.CpusetMems)
+diff --git a/libcontainer/cgroups/systemd/v2.go b/libcontainer/cgroups/systemd/v2.go
+index b28ec6b2..788b4c8a 100644
+--- a/libcontainer/cgroups/systemd/v2.go
++++ b/libcontainer/cgroups/systemd/v2.go
+@@ -257,9 +257,13 @@ func genV2ResourcesProperties(dirPath string, r *configs.Resources, cm *dbusConn
+ 
+        addCpuQuota(cm, &properties, r.CpuQuota, r.CpuPeriod)
+ 
+-       if r.PidsLimit > 0 || r.PidsLimit == -1 {
++       if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
++               tasksMax := uint64(math.MaxUint64)
++               if r.PidsLimit > 0 {
++                       tasksMax = uint64(r.PidsLimit)
++               }
+                properties = append(properties,
+-                       newProp("TasksMax", uint64(r.PidsLimit)))
++                       newProp("TasksMax", tasksMax))
+        }
+ 
+        err = addCpuset(cm, &properties, r.CpusetCpus, r.CpusetMems)
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 10, $0.31):
+The config/spec files are still unchanged due to my string replacement missing the exact source text. I’ll apply a more 
+targeted line-based edit and then inspect the full diff again.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+root=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014'
+)
+p=root/'libcontainer/configs/cgroup_linux.go'
+lines=p.read_text().splitlines()
+out=[]
+for line in lines:
+    out.append(line)
+    if line.strip() == 'PidsLimit int64 `json:"pids_limit"`':
+        out.extend([
+            '',
+            '\t\t// Whether PidsLimit was explicitly configured. This distinguishes',
+            '\t\t// an omitted OCI linux.resources.pids from a configured limit of 0',
+            '\t\t// (which means unlimited).',
+            '\t\tPidsLimitSet bool `json:"pids_limit_set,omitempty"`',
+        ])
+p.write_text('\n'.join(out)+'\n')
+
+p=root/'libcontainer/specconv/spec_linux.go'
+lines=p.read_text().splitlines()
+out=[]
+for line in lines:
+    out.append(line)
+    if line.strip() == 'c.Resources.PidsLimit = r.Pids.Limit':
+        out.append('\t\t\t\t\tc.Resources.PidsLimitSet = true')
+p.write_text('\n'.join(out)+'\n')
+PY
+
+gofmt -w libcontainer/configs/cgroup_linux.go libcontainer/specconv/spec_linux.go
+
+git diff --stat && git diff -- libcontainer/configs/cgroup_linux.go libcontainer/specconv/spec_linux.go | sed -n '1,160p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+ libcontainer/cgroups/fs/pids.go      |  2 +-
+ libcontainer/cgroups/fs2/pids.go     | 15 ++++++++++-----
+ libcontainer/cgroups/systemd/v1.go   |  9 +++++++--
+ libcontainer/cgroups/systemd/v2.go   |  8 ++++++--
+ libcontainer/configs/cgroup_linux.go |  5 +++++
+ libcontainer/specconv/spec_linux.go  |  1 +
+ update.go                            |  1 +
+ 7 files changed, 31 insertions(+), 10 deletions(-)
+diff --git a/libcontainer/configs/cgroup_linux.go b/libcontainer/configs/cgroup_linux.go
+index 4a34cf76..e7fd5dd3 100644
+--- a/libcontainer/configs/cgroup_linux.go
++++ b/libcontainer/configs/cgroup_linux.go
+@@ -93,6 +93,11 @@ type Resources struct {
+        // Process limit; set <= `0' to disable limit.
+        PidsLimit int64 `json:"pids_limit"`
+ 
++       // Whether PidsLimit was explicitly configured. This distinguishes
++       // an omitted OCI linux.resources.pids from a configured limit of 0
++       // (which means unlimited).
++       PidsLimitSet bool `json:"pids_limit_set,omitempty"`
++
+        // Specifies per cgroup weight, range is from 10 to 1000.
+        BlkioWeight uint16 `json:"blkio_weight"`
+ 
+diff --git a/libcontainer/specconv/spec_linux.go b/libcontainer/specconv/spec_linux.go
+index cc4e3d25..08a7864b 100644
+--- a/libcontainer/specconv/spec_linux.go
++++ b/libcontainer/specconv/spec_linux.go
+@@ -773,6 +773,7 @@ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*confi
+                        }
+                        if r.Pids != nil {
+                                c.Resources.PidsLimit = r.Pids.Limit
++                               c.Resources.PidsLimitSet = true
+                        }
+                        if r.BlockIO != nil {
+                                if r.BlockIO.Weight != nil {
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 11, $0.33):
+Now I’ll inspect update handling and add focused unit tests for v1/v2 pids limit 0 to make sure explicit zero writes `max`
+rather than being skipped.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && grep 
+-R "PidsLimit" -n libcontainer configs update.go | cat && nl -ba update.go | sed -n '240,330p' && ls 
+libcontainer/cgroups/fs2/*test.go
+```
+
+Tool:
+<returncode>
+0
+<output>
+grep: libcontainer/integration/exec_test.go:538:        config.Cgroups.Resources.PidsLimit = -1
+libcontainer/integration/exec_test.go:545:      config.Cgroups.Resources.PidsLimit = 64
+libcontainer/integration/exec_test.go:554:      config.Cgroups.Resources.PidsLimit = 64
+libcontainer/cgroups/fs2/pids.go:17:    return r.PidsLimitSet || r.PidsLimit != 0
+libcontainer/cgroups/fs2/pids.go:31:    if err := cgroups.WriteFile(dirPath, "pids.max", pidsLimitStr(r.PidsLimit)); err 
+!= nil {
+libcontainer/cgroups/systemd/v1.go:102: if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
+libcontainer/cgroups/systemd/v1.go:104:         if r.PidsLimit > 0 {
+libcontainer/cgroups/systemd/v1.go:105:                 tasksMax = uint64(r.PidsLimit)
+libcontainer/cgroups/systemd/v2.go:260: if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
+libcontainer/cgroups/systemd/v2.go:262:         if r.PidsLimit > 0 {
+libcontainer/cgroups/systemd/v2.go:263:                 tasksMax = uint64(r.PidsLimit)
+libcontainer/cgroups/fs/pids.go:23:     if r.PidsLimitSet || r.PidsLimit != 0 {
+libcontainer/cgroups/fs/pids.go:27:             if r.PidsLimit > 0 {
+libcontainer/cgroups/fs/pids.go:28:                     limit = strconv.FormatInt(r.PidsLimit, 10)
+libcontainer/cgroups/fs/pids_test.go:25:                PidsLimit: maxLimited,
+libcontainer/cgroups/fs/pids_test.go:49:                PidsLimit: maxUnlimited,
+libcontainer/cgroups/devices/systemd_test.go:36:                        PidsLimit:   42,
+libcontainer/cgroups/devices/systemd_test.go💯          podConfig.Resources.PidsLimit++
+libcontainer/configs/cgroup_linux.go:94:        PidsLimit int64 `json:"pids_limit"`
+libcontainer/configs/cgroup_linux.go:96:        // Whether PidsLimit was explicitly configured. This distinguishes
+libcontainer/configs/cgroup_linux.go:99:        PidsLimitSet bool `json:"pids_limit_set,omitempty"`
+libcontainer/specconv/spec_linux.go:775:                                c.Resources.PidsLimit = r.Pids.Limit
+libcontainer/specconv/spec_linux.go:776:                                c.Resources.PidsLimitSet = true
+configs: No such file or directory
+update.go:322:          config.Cgroups.Resources.PidsLimit = r.Pids.Limit
+update.go:323:          config.Cgroups.Resources.PidsLimitSet = true
+   240                                          var err error
+   241                                          *pair.dest, err = strconv.ParseInt(val, 10, 64)
+   242                                          if err != nil {
+   243                                                  return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
+   244                                          }
+   245                                  }
+   246                          }
+   247                          for _, pair := range []struct {
+   248                                  opt  string
+   249                                  dest *int64
+   250                          }{
+   251                                  {"memory", r.Memory.Limit},
+   252                                  {"memory-swap", r.Memory.Swap},
+   253                                  {"kernel-memory", r.Memory.Kernel},
+   254                                  {"kernel-memory-tcp", r.Memory.KernelTCP},
+   255                                  {"memory-reservation", r.Memory.Reservation},
+   256                          } {
+   257                                  if val := context.String(pair.opt); val != "" {
+   258                                          var v int64
+   259  
+   260                                          if val != "-1" {
+   261                                                  v, err = units.RAMInBytes(val)
+   262                                                  if err != nil {
+   263                                                          return fmt.Errorf("invalid value for %s: %w", pair.opt, 
+err)
+   264                                                  }
+   265                                          } else {
+   266                                                  v = -1
+   267                                          }
+   268                                          *pair.dest = v
+   269                                  }
+   270                          }
+   271  
+   272                          r.Pids.Limit = int64(context.Int("pids-limit"))
+   273                  }
+   274  
+   275                  if *r.Memory.Kernel != 0 || *r.Memory.KernelTCP != 0 {
+   276                          logrus.Warn("Kernel memory settings are ignored and will be removed")
+   277                  }
+   278  
+   279                  // Update the values
+   280                  config.Cgroups.Resources.BlkioWeight = *r.BlockIO.Weight
+   281  
+   282                  // Setting CPU quota and period independently does not make much sense,
+   283                  // but historically runc allowed it and this needs to be supported
+   284                  // to not break compatibility.
+   285                  //
+   286                  // For systemd cgroup drivers to set CPU quota/period correctly,
+   287                  // it needs to know both values. For fs2 cgroup driver to be compatible
+   288                  // with the fs driver, it also needs to know both values.
+   289                  //
+   290                  // Here in update, previously set values are available from config.
+   291                  // If only one of {quota,period} is set and the other is not, leave
+   292                  // the unset parameter at the old value (don't overwrite config).
+   293                  p, q := *r.CPU.Period, *r.CPU.Quota
+   294                  if (p == 0 && q == 0) || (p != 0 && q != 0) {
+   295                          // both values are either set or unset (0)
+   296                          config.Cgroups.Resources.CpuPeriod = p
+   297                          config.Cgroups.Resources.CpuQuota = q
+   298                  } else {
+   299                          // one is set and the other is not
+   300                          if p != 0 {
+   301                                  // set new period, leave quota at old value
+   302                                  config.Cgroups.Resources.CpuPeriod = p
+   303                          } else if q != 0 {
+   304                                  // set new quota, leave period at old value
+   305                                  config.Cgroups.Resources.CpuQuota = q
+   306                          }
+   307                  }
+   308  
+   309                  config.Cgroups.Resources.CpuBurst = r.CPU.Burst
+   310                  config.Cgroups.Resources.CpuShares = *r.CPU.Shares
+   311                  // CpuWeight is used for cgroupv2 and should be converted
+   312                  config.Cgroups.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(*r.CPU.Shares)
+   313                  config.Cgroups.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+   314                  config.Cgroups.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+   315                  config.Cgroups.Resources.CpusetCpus = r.CPU.Cpus
+   316                  config.Cgroups.Resources.CpusetMems = r.CPU.Mems
+   317                  config.Cgroups.Resources.Memory = *r.Memory.Limit
+   318                  config.Cgroups.Resources.CPUIdle = r.CPU.Idle
+   319                  config.Cgroups.Resources.MemoryReservation = *r.Memory.Reservation
+   320                  config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+   321                  config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+   322                  config.Cgroups.Resources.PidsLimit = r.Pids.Limit
+   323                  config.Cgroups.Resources.PidsLimitSet = true
+   324                  config.Cgroups.Resources.Unified = r.Unified
+   325  
+   326                  // Update Intel RDT
+   327                  l3CacheSchema := context.String("l3-cache-schema")
+   328                  memBwSchema := context.String("mem-bw-schema")
+   329                  if l3CacheSchema != "" && !intelrdt.IsCATEnabled() {
+   330                          return errors.New("Intel RDT/CAT: l3 cache schema is not enabled")
+libcontainer/cgroups/fs2/defaultpath_test.go
+libcontainer/cgroups/fs2/io_test.go
+libcontainer/cgroups/fs2/memory_test.go
+libcontainer/cgroups/fs2/psi_test.go
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 12, $0.37):
+I noticed update currently always sets the pids limit from the CLI default, so marking it set unconditionally may 
+unintentionally change updates that didn’t specify pids. I’ll inspect the `--pids-limit` flag default and then add tests.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && grep 
+-n "pids-limit" -n update.go *.go && nl -ba update.go | sed -n '30,90p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+update.go:128:                  Name:  "pids-limit",
+update.go:272:                  r.Pids.Limit = int64(context.Int("pids-limit"))
+update.go:128:                  Name:  "pids-limit",
+update.go:272:                  r.Pids.Limit = int64(context.Int("pids-limit"))
+    30                  cli.StringFlag{
+    31                          Name:  "resources, r",
+    32                          Value: "",
+    33                          Usage: `path to the file containing the resources to update or '-' to read from the 
+standard input
+    34  
+    35  The accepted format is as follow (unchanged values can be omitted):
+    36  
+    37  {
+    38    "memory": {
+    39      "limit": 0,
+    40      "reservation": 0,
+    41      "swap": 0,
+    42      "checkBeforeUpdate": true
+    43    },
+    44    "cpu": {
+    45      "shares": 0,
+    46      "quota": 0,
+    47      "burst": 0,
+    48      "period": 0,
+    49      "realtimeRuntime": 0,
+    50      "realtimePeriod": 0,
+    51      "cpus": "",
+    52      "mems": "",
+    53      "idle": 0
+    54    },
+    55    "blockIO": {
+    56      "weight": 0
+    57    }
+    58  }
+    59  
+    60  Note: if data is to be read from a file or the standard input, all
+    61  other options are ignored.
+    62  `,
+    63                  },
+    64  
+    65                  cli.IntFlag{
+    66                          Name:  "blkio-weight",
+    67                          Usage: "Specifies per cgroup weight, range is from 10 to 1000",
+    68                  },
+    69                  cli.StringFlag{
+    70                          Name:  "cpu-period",
+    71                          Usage: "CPU CFS period to be used for hardcapping (in usecs). 0 to use system default",
+    72                  },
+    73                  cli.StringFlag{
+    74                          Name:  "cpu-quota",
+    75                          Usage: "CPU CFS hardcap limit (in usecs). Allowed cpu time in a given period",
+    76                  },
+    77                  cli.StringFlag{
+    78                          Name:  "cpu-burst",
+    79                          Usage: "CPU CFS hardcap burst limit (in usecs). Allowed accumulated cpu time additionally 
+for burst a given period",
+    80                  },
+    81                  cli.StringFlag{
+    82                          Name:  "cpu-share",
+    83                          Usage: "CPU shares (relative weight vs. other containers)",
+    84                  },
+    85                  cli.StringFlag{
+    86                          Name:  "cpu-rt-period",
+    87                          Usage: "CPU realtime period to be used for hardcapping (in usecs). 0 to use system 
+default",
+    88                  },
+    89                  cli.StringFlag{
+    90                          Name:  "cpu-rt-runtime",
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 13, $0.39):
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && nl 
+-ba update.go | sed -n '118,138p' && grep -R "IsSet(.*pids\|pids-limit" -n . | head -20
+```
+
+Tool:
+<returncode>
+0
+<output>
+   118                  },
+   119                  cli.StringFlag{
+   120                          Name:  "memory-reservation",
+   121                          Usage: "Memory reservation or soft_limit (in bytes)",
+   122                  },
+   123                  cli.StringFlag{
+   124                          Name:  "memory-swap",
+   125                          Usage: "Total memory usage (memory + swap); set '-1' to enable unlimited swap",
+   126                  },
+   127                  cli.IntFlag{
+   128                          Name:  "pids-limit",
+   129                          Usage: "Maximum number of pids allowed in the container",
+   130                  },
+   131                  cli.StringFlag{
+   132                          Name:  "l3-cache-schema",
+   133                          Usage: "The string of Intel RDT/CAT L3 cache schema",
+   134                  },
+   135                  cli.StringFlag{
+   136                          Name:  "mem-bw-schema",
+   137                          Usage: "The string of Intel RDT/MBA memory bandwidth schema",
+   138                  },
+./tests/integration/dev.bats:59:        runc update test_deny --pids-limit 42
+./tests/integration/update.bats:136:    runc update test_update --pids-limit 10
+./tests/integration/update.bats:142:    runc update test_update --pids-limit -1
+./tests/integration/update.bats:181:            --pids-limit 10
+./tests/integration/update.bats:790:            runc update --pids-limit 30 test_update
+./tests/integration/update.bats:815:    runc update --pids-limit 30 test_update
+./man/runc-update.8.md:87:**--pids-limit** _num_
+./update.go:128:                        Name:  "pids-limit",
+./update.go:272:                        r.Pids.Limit = int64(context.Int("pids-limit"))
+./contrib/completions/bash/runc:747:       --pids-limit
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 14, $0.41):
+Because the update command’s CLI flag defaults to 0, I’ll avoid marking pids set unless it was supplied in a resources 
+file or via `--pids-limit`. I’ll check the CLI version supports `IsSet`, patch update accordingly, then add tests.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && grep 
+-R "func (.*IsSet" -n vendor/github.com/urfave/cli* | head && nl -ba update.go | sed -n '180,235p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+vendor/github.com/urfave/cli/context.go:55:func (c *Context) IsSet(name string) bool {
+vendor/github.com/urfave/cli/context.go:134:func (c *Context) GlobalIsSet(name string) bool {
+   180                                  f   *os.File
+   181                                  err error
+   182                          )
+   183                          switch in {
+   184                          case "-":
+   185                                  f = os.Stdin
+   186                          default:
+   187                                  f, err = os.Open(in)
+   188                                  if err != nil {
+   189                                          return err
+   190                                  }
+   191                                  defer f.Close()
+   192                          }
+   193                          err = json.NewDecoder(f).Decode(&r)
+   194                          if err != nil {
+   195                                  return err
+   196                          }
+   197                  } else {
+   198                          if val := context.Int("blkio-weight"); val != 0 {
+   199                                  r.BlockIO.Weight = u16Ptr(uint16(val))
+   200                          }
+   201                          if val := context.String("cpuset-cpus"); val != "" {
+   202                                  r.CPU.Cpus = val
+   203                          }
+   204                          if val := context.String("cpuset-mems"); val != "" {
+   205                                  r.CPU.Mems = val
+   206                          }
+   207                          if val := context.String("cpu-idle"); val != "" {
+   208                                  idle, err := strconv.ParseInt(val, 10, 64)
+   209                                  if err != nil {
+   210                                          return fmt.Errorf("invalid value for cpu-idle: %w", err)
+   211                                  }
+   212                                  r.CPU.Idle = i64Ptr(idle)
+   213                          }
+   214  
+   215                          for _, pair := range []struct {
+   216                                  opt  string
+   217                                  dest *uint64
+   218                          }{
+   219                                  {"cpu-burst", r.CPU.Burst},
+   220                                  {"cpu-period", r.CPU.Period},
+   221                                  {"cpu-rt-period", r.CPU.RealtimePeriod},
+   222                                  {"cpu-share", r.CPU.Shares},
+   223                          } {
+   224                                  if val := context.String(pair.opt); val != "" {
+   225                                          var err error
+   226                                          *pair.dest, err = strconv.ParseUint(val, 10, 64)
+   227                                          if err != nil {
+   228                                                  return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
+   229                                          }
+   230                                  }
+   231                          }
+   232                          for _, pair := range []struct {
+   233                                  opt  string
+   234                                  dest *int64
+   235                          }{
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 15, $0.48):
+To preserve update semantics I’ll set the internal flag only when resources JSON is used (where `r.Pids` is explicit in 
+the update resource object) or when the CLI pids flag is set. Then I’ll add unit tests for cgroupfs and fs2 pids zero 
+behavior.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+root=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014'
+)
+# update conditional flag
+p=root/'update.go'
+s=p.read_text()
+s=s.replace('\t\t\tif in := context.String("resources"); in != "" {', '\t\t\tpidsLimitSet := false\n\t\t\tif in := 
+context.String("resources"); in != "" {')
+s=s.replace('\t\t\t\terr = json.NewDecoder(f).Decode(&r)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn 
+err\n\t\t\t\t}\n\t\t\t} else {', '\t\t\t\terr = json.NewDecoder(f).Decode(&r)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn 
+err\n\t\t\t\t}\n\t\t\t\tpidsLimitSet = true\n\t\t\t} else {')
+s=s.replace('\t\t\t\tr.Pids.Limit = int64(context.Int("pids-limit"))', '\t\t\t\tif context.IsSet("pids-limit") 
+{\n\t\t\t\t\tr.Pids.Limit = int64(context.Int("pids-limit"))\n\t\t\t\t\tpidsLimitSet = true\n\t\t\t\t}')
+s=s.replace('\t\tconfig.Cgroups.Resources.PidsLimit = r.Pids.Limit\n\t\tconfig.Cgroups.Resources.PidsLimitSet = true', 
+'\t\t\tconfig.Cgroups.Resources.PidsLimit = r.Pids.Limit\n\t\t\tconfig.Cgroups.Resources.PidsLimitSet = pidsLimitSet')
+p.write_text(s)
+# add fs test
+p=root/'libcontainer/cgroups/fs/pids_test.go'
+s=p.read_text()
+insert='''\nfunc TestPidsSetZeroUnlimited(t *testing.T) {\n\tpath := tempDir(t, "pids")\n\n\twriteFileContents(t, path, 
+map[string]string{\n\t\t"pids.max": strconv.Itoa(maxLimited),\n\t})\n\n\tr := &configs.Resources{\n\t\tPidsLimit:    
+0,\n\t\tPidsLimitSet: true,\n\t}\n\tpids := &PidsGroup{}\n\tif err := pids.Set(path, r); err != nil 
+{\n\t\tt.Fatal(err)\n\t}\n\n\tvalue, err := fscommon.GetCgroupParamString(path, "pids.max")\n\tif err != nil 
+{\n\t\tt.Fatal(err)\n\t}\n\tif value != "max" {\n\t\tt.Fatalf("Expected %s, got %s for setting pids.max - zero unlimited",
+"max", value)\n\t}\n}\n'''
+s=s.replace('\nfunc TestPidsStats(t *testing.T) {', insert+'\nfunc TestPidsStats(t *testing.T) {')
+p.write_text(s)
+# create fs2 test using same package helpers? inspect memory_test names maybe tempDir not available in fs2 package. use 
+os.MkdirTemp.
+p=root/'libcontainer/cgroups/fs2/pids_test.go'
+p.write_text('''package fs2\n\nimport 
+(\n\t"os"\n\t"path/filepath"\n\t"testing"\n\n\t"github.com/opencontainers/runc/libcontainer/configs"\n)\n\nfunc 
+TestPidsSetZeroUnlimited(t *testing.T) {\n\tdir := t.TempDir()\n\tif err := os.WriteFile(filepath.Join(dir, "pids.max"), 
+[]byte("1024"), 0o644); err != nil {\n\t\tt.Fatal(err)\n\t}\n\n\tr := &configs.Resources{\n\t\tPidsLimit:    
+0,\n\t\tPidsLimitSet: true,\n\t}\n\tif err := setPids(dir, r); err != nil {\n\t\tt.Fatal(err)\n\t}\n\n\tvalue, err := 
+os.ReadFile(filepath.Join(dir, "pids.max"))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif string(value) != "max" 
+{\n\t\tt.Fatalf("expected pids.max to be %q, got %q", "max", string(value))\n\t}\n}\n\nfunc TestPidsUnsetDoesNotWrite(t 
+*testing.T) {\n\tdir := t.TempDir()\n\tif err := os.WriteFile(filepath.Join(dir, "pids.max"), []byte("1024"), 0o644); err 
+!= nil {\n\t\tt.Fatal(err)\n\t}\n\n\tif err := setPids(dir, &configs.Resources{}); err != nil 
+{\n\t\tt.Fatal(err)\n\t}\n\n\tvalue, err := os.ReadFile(filepath.Join(dir, "pids.max"))\n\tif err != nil 
+{\n\t\tt.Fatal(err)\n\t}\n\tif string(value) != "1024" {\n\t\tt.Fatalf("expected unset pids limit not to change pids.max, 
+got %q", string(value))\n\t}\n}\n''')
+PY
+
+gofmt -w update.go libcontainer/cgroups/fs/pids_test.go libcontainer/cgroups/fs2/pids_test.go
+
+git diff -- update.go libcontainer/cgroups/fs/pids_test.go libcontainer/cgroups/fs2/pids_test.go | sed -n '1,240p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+diff --git a/libcontainer/cgroups/fs/pids_test.go b/libcontainer/cgroups/fs/pids_test.go
+index 9d9a7ce8..0c3b5d97 100644
+--- a/libcontainer/cgroups/fs/pids_test.go
++++ b/libcontainer/cgroups/fs/pids_test.go
+@@ -62,6 +62,31 @@ func TestPidsSetUnlimited(t *testing.T) {
+        }
+ }
+ 
++func TestPidsSetZeroUnlimited(t *testing.T) {
++       path := tempDir(t, "pids")
++
++       writeFileContents(t, path, map[string]string{
++               "pids.max": strconv.Itoa(maxLimited),
++       })
++
++       r := &configs.Resources{
++               PidsLimit:    0,
++               PidsLimitSet: true,
++       }
++       pids := &PidsGroup{}
++       if err := pids.Set(path, r); err != nil {
++               t.Fatal(err)
++       }
++
++       value, err := fscommon.GetCgroupParamString(path, "pids.max")
++       if err != nil {
++               t.Fatal(err)
++       }
++       if value != "max" {
++               t.Fatalf("Expected %s, got %s for setting pids.max - zero unlimited", "max", value)
++       }
++}
++
+ func TestPidsStats(t *testing.T) {
+        path := tempDir(t, "pids")
+ 
+diff --git a/update.go b/update.go
+index fc2d656a..7d57ed3c 100644
+--- a/update.go
++++ b/update.go
+@@ -320,6 +320,7 @@ other options are ignored.
+                config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+                config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+                config.Cgroups.Resources.PidsLimit = r.Pids.Limit
++               config.Cgroups.Resources.PidsLimitSet = pidsLimitSet
+                config.Cgroups.Resources.Unified = r.Unified
+ 
+                // Update Intel RDT
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 16, $0.51):
+It looks like only part of the update patch applied, so I’ll inspect the relevant section and fix any missing variable 
+initialization or CLI flag handling before running tests.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && nl 
+-ba update.go | sed -n '170,280p' && nl -ba update.go | sed -n '315,326p' && git diff -- 
+libcontainer/cgroups/fs2/pids_test.go | sed -n '1,200p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+   170                          },
+   171                          Pids: &specs.LinuxPids{
+   172                                  Limit: 0,
+   173                          },
+   174                  }
+   175  
+   176                  config := container.Config()
+   177  
+   178                  if in := context.String("resources"); in != "" {
+   179                          var (
+   180                                  f   *os.File
+   181                                  err error
+   182                          )
+   183                          switch in {
+   184                          case "-":
+   185                                  f = os.Stdin
+   186                          default:
+   187                                  f, err = os.Open(in)
+   188                                  if err != nil {
+   189                                          return err
+   190                                  }
+   191                                  defer f.Close()
+   192                          }
+   193                          err = json.NewDecoder(f).Decode(&r)
+   194                          if err != nil {
+   195                                  return err
+   196                          }
+   197                  } else {
+   198                          if val := context.Int("blkio-weight"); val != 0 {
+   199                                  r.BlockIO.Weight = u16Ptr(uint16(val))
+   200                          }
+   201                          if val := context.String("cpuset-cpus"); val != "" {
+   202                                  r.CPU.Cpus = val
+   203                          }
+   204                          if val := context.String("cpuset-mems"); val != "" {
+   205                                  r.CPU.Mems = val
+   206                          }
+   207                          if val := context.String("cpu-idle"); val != "" {
+   208                                  idle, err := strconv.ParseInt(val, 10, 64)
+   209                                  if err != nil {
+   210                                          return fmt.Errorf("invalid value for cpu-idle: %w", err)
+   211                                  }
+   212                                  r.CPU.Idle = i64Ptr(idle)
+   213                          }
+   214  
+   215                          for _, pair := range []struct {
+   216                                  opt  string
+   217                                  dest *uint64
+   218                          }{
+   219                                  {"cpu-burst", r.CPU.Burst},
+   220                                  {"cpu-period", r.CPU.Period},
+   221                                  {"cpu-rt-period", r.CPU.RealtimePeriod},
+   222                                  {"cpu-share", r.CPU.Shares},
+   223                          } {
+   224                                  if val := context.String(pair.opt); val != "" {
+   225                                          var err error
+   226                                          *pair.dest, err = strconv.ParseUint(val, 10, 64)
+   227                                          if err != nil {
+   228                                                  return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
+   229                                          }
+   230                                  }
+   231                          }
+   232                          for _, pair := range []struct {
+   233                                  opt  string
+   234                                  dest *int64
+   235                          }{
+   236                                  {"cpu-quota", r.CPU.Quota},
+   237                                  {"cpu-rt-runtime", r.CPU.RealtimeRuntime},
+   238                          } {
+   239                                  if val := context.String(pair.opt); val != "" {
+   240                                          var err error
+   241                                          *pair.dest, err = strconv.ParseInt(val, 10, 64)
+   242                                          if err != nil {
+   243                                                  return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
+   244                                          }
+   245                                  }
+   246                          }
+   247                          for _, pair := range []struct {
+   248                                  opt  string
+   249                                  dest *int64
+   250                          }{
+   251                                  {"memory", r.Memory.Limit},
+   252                                  {"memory-swap", r.Memory.Swap},
+   253                                  {"kernel-memory", r.Memory.Kernel},
+   254                                  {"kernel-memory-tcp", r.Memory.KernelTCP},
+   255                                  {"memory-reservation", r.Memory.Reservation},
+   256                          } {
+   257                                  if val := context.String(pair.opt); val != "" {
+   258                                          var v int64
+   259  
+   260                                          if val != "-1" {
+   261                                                  v, err = units.RAMInBytes(val)
+   262                                                  if err != nil {
+   263                                                          return fmt.Errorf("invalid value for %s: %w", pair.opt, 
+err)
+   264                                                  }
+   265                                          } else {
+   266                                                  v = -1
+   267                                          }
+   268                                          *pair.dest = v
+   269                                  }
+   270                          }
+   271  
+   272                          r.Pids.Limit = int64(context.Int("pids-limit"))
+   273                  }
+   274  
+   275                  if *r.Memory.Kernel != 0 || *r.Memory.KernelTCP != 0 {
+   276                          logrus.Warn("Kernel memory settings are ignored and will be removed")
+   277                  }
+   278  
+   279                  // Update the values
+   280                  config.Cgroups.Resources.BlkioWeight = *r.BlockIO.Weight
+   315                  config.Cgroups.Resources.CpusetCpus = r.CPU.Cpus
+   316                  config.Cgroups.Resources.CpusetMems = r.CPU.Mems
+   317                  config.Cgroups.Resources.Memory = *r.Memory.Limit
+   318                  config.Cgroups.Resources.CPUIdle = r.CPU.Idle
+   319                  config.Cgroups.Resources.MemoryReservation = *r.Memory.Reservation
+   320                  config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+   321                  config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+   322                  config.Cgroups.Resources.PidsLimit = r.Pids.Limit
+   323                  config.Cgroups.Resources.PidsLimitSet = pidsLimitSet
+   324                  config.Cgroups.Resources.Unified = r.Unified
+   325  
+   326                  // Update Intel RDT
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 17, $0.55):
+`pidsLimitSet` is currently undefined; I’ll insert it and conditional assignment explicitly. Also the fs2 test file is 
+untracked, so diff didn’t show it; I’ll verify status after patching.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+p=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014/upd
+ate.go')
+s=p.read_text()
+s=s.replace('\t\t\tconfig := container.Config()\n\n\t\t\tif in := context.String("resources"); in != "" {', '\t\t\tconfig 
+:= container.Config()\n\t\t\tpidsLimitSet := false\n\n\t\t\tif in := context.String("resources"); in != "" {')
+s=s.replace('\t\t\t\terr = json.NewDecoder(f).Decode(&r)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn 
+err\n\t\t\t\t}\n\t\t\t} else {', '\t\t\t\terr = json.NewDecoder(f).Decode(&r)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn 
+err\n\t\t\t\t}\n\t\t\t\tpidsLimitSet = true\n\t\t\t} else {')
+s=s.replace('\t\t\t\tr.Pids.Limit = int64(context.Int("pids-limit"))', '\t\t\t\tif context.IsSet("pids-limit") 
+{\n\t\t\t\t\tr.Pids.Limit = int64(context.Int("pids-limit"))\n\t\t\t\t\tpidsLimitSet = true\n\t\t\t\t}')
+p.write_text(s)
+PY
+
+gofmt -w update.go
+
+git status --short && git diff -- update.go | sed -n '1,160p' && echo '--- fs2 test' && sed -n '1,120p' 
+libcontainer/cgroups/fs2/pids_test.go
+```
+
+Tool:
+<returncode>
+0
+<output>
+ M libcontainer/cgroups/fs/pids.go
+ M libcontainer/cgroups/fs/pids_test.go
+ M libcontainer/cgroups/fs2/pids.go
+ M libcontainer/cgroups/systemd/v1.go
+ M libcontainer/cgroups/systemd/v2.go
+ M libcontainer/configs/cgroup_linux.go
+ M libcontainer/specconv/spec_linux.go
+ M update.go
+?? libcontainer/cgroups/fs2/pids_test.go
+diff --git a/update.go b/update.go
+index fc2d656a..7d57ed3c 100644
+--- a/update.go
++++ b/update.go
+@@ -320,6 +320,7 @@ other options are ignored.
+                config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+                config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+                config.Cgroups.Resources.PidsLimit = r.Pids.Limit
++               config.Cgroups.Resources.PidsLimitSet = pidsLimitSet
+                config.Cgroups.Resources.Unified = r.Unified
+ 
+                // Update Intel RDT
+--- fs2 test
+package fs2
+
+import (
+        "os"
+        "path/filepath"
+        "testing"
+
+        "github.com/opencontainers/runc/libcontainer/configs"
+)
+
+func TestPidsSetZeroUnlimited(t *testing.T) {
+        dir := t.TempDir()
+        if err := os.WriteFile(filepath.Join(dir, "pids.max"), []byte("1024"), 0o644); err != nil {
+                t.Fatal(err)
+        }
+
+        r := &configs.Resources{
+                PidsLimit:    0,
+                PidsLimitSet: true,
+        }
+        if err := setPids(dir, r); err != nil {
+                t.Fatal(err)
+        }
+
+        value, err := os.ReadFile(filepath.Join(dir, "pids.max"))
+        if err != nil {
+                t.Fatal(err)
+        }
+        if string(value) != "max" {
+                t.Fatalf("expected pids.max to be %q, got %q", "max", string(value))
+        }
+}
+
+func TestPidsUnsetDoesNotWrite(t *testing.T) {
+        dir := t.TempDir()
+        if err := os.WriteFile(filepath.Join(dir, "pids.max"), []byte("1024"), 0o644); err != nil {
+                t.Fatal(err)
+        }
+
+        if err := setPids(dir, &configs.Resources{}); err != nil {
+                t.Fatal(err)
+        }
+
+        value, err := os.ReadFile(filepath.Join(dir, "pids.max"))
+        if err != nil {
+                t.Fatal(err)
+        }
+        if string(value) != "1024" {
+                t.Fatalf("expected unset pids limit not to change pids.max, got %q", string(value))
+        }
+}
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 18, $0.59):
+The replacement still didn’t take for the earlier update lines, likely because the exact whitespace differs. I’ll use a 
+small line-oriented script keyed to line contents to insert the variable and conditional pids flag handling.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+p=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014/upd
+ate.go')
+lines=p.read_text().splitlines()
+out=[]
+for line in lines:
+    out.append(line)
+    if line.strip() == 'config := container.Config()':
+        out.append('\t\t\tpidsLimitSet := false')
+    if line.strip() == '}' and len(out) >= 4 and out[-2].strip() == 'return err' and any(x.strip() == 'err = 
+json.NewDecoder(f).Decode(&r)' for x in out[-6:]):
+        out.append('\t\t\tpidsLimitSet = true')
+# replace standalone assignment line with if block
+new=[]
+for line in out:
+    if line.strip() == 'r.Pids.Limit = int64(context.Int("pids-limit"))':
+        indent=line[:len(line)-len(line.lstrip())]
+        new.append(indent+'if context.IsSet("pids-limit") {')
+        new.append(indent+'\tr.Pids.Limit = int64(context.Int("pids-limit"))')
+        new.append(indent+'\tpidsLimitSet = true')
+        new.append(indent+'}')
+    else:
+        new.append(line)
+p.write_text('\n'.join(new)+'\n')
+PY
+
+gofmt -w update.go
+nl -ba update.go | sed -n '176,276p' && git diff -- update.go | sed -n '1,180p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+   176                  config := container.Config()
+   177                  pidsLimitSet := false
+   178  
+   179                  if in := context.String("resources"); in != "" {
+   180                          var (
+   181                                  f   *os.File
+   182                                  err error
+   183                          )
+   184                          switch in {
+   185                          case "-":
+   186                                  f = os.Stdin
+   187                          default:
+   188                                  f, err = os.Open(in)
+   189                                  if err != nil {
+   190                                          return err
+   191                                  }
+   192                                  defer f.Close()
+   193                          }
+   194                          err = json.NewDecoder(f).Decode(&r)
+   195                          if err != nil {
+   196                                  return err
+   197                          }
+   198                          pidsLimitSet = true
+   199                  } else {
+   200                          if val := context.Int("blkio-weight"); val != 0 {
+   201                                  r.BlockIO.Weight = u16Ptr(uint16(val))
+   202                          }
+   203                          if val := context.String("cpuset-cpus"); val != "" {
+   204                                  r.CPU.Cpus = val
+   205                          }
+   206                          if val := context.String("cpuset-mems"); val != "" {
+   207                                  r.CPU.Mems = val
+   208                          }
+   209                          if val := context.String("cpu-idle"); val != "" {
+   210                                  idle, err := strconv.ParseInt(val, 10, 64)
+   211                                  if err != nil {
+   212                                          return fmt.Errorf("invalid value for cpu-idle: %w", err)
+   213                                  }
+   214                                  r.CPU.Idle = i64Ptr(idle)
+   215                          }
+   216  
+   217                          for _, pair := range []struct {
+   218                                  opt  string
+   219                                  dest *uint64
+   220                          }{
+   221                                  {"cpu-burst", r.CPU.Burst},
+   222                                  {"cpu-period", r.CPU.Period},
+   223                                  {"cpu-rt-period", r.CPU.RealtimePeriod},
+   224                                  {"cpu-share", r.CPU.Shares},
+   225                          } {
+   226                                  if val := context.String(pair.opt); val != "" {
+   227                                          var err error
+   228                                          *pair.dest, err = strconv.ParseUint(val, 10, 64)
+   229                                          if err != nil {
+   230                                                  return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
+   231                                          }
+   232                                  }
+   233                          }
+   234                          for _, pair := range []struct {
+   235                                  opt  string
+   236                                  dest *int64
+   237                          }{
+   238                                  {"cpu-quota", r.CPU.Quota},
+   239                                  {"cpu-rt-runtime", r.CPU.RealtimeRuntime},
+   240                          } {
+   241                                  if val := context.String(pair.opt); val != "" {
+   242                                          var err error
+   243                                          *pair.dest, err = strconv.ParseInt(val, 10, 64)
+   244                                          if err != nil {
+   245                                                  return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
+   246                                          }
+   247                                  }
+   248                          }
+   249                          for _, pair := range []struct {
+   250                                  opt  string
+   251                                  dest *int64
+   252                          }{
+   253                                  {"memory", r.Memory.Limit},
+   254                                  {"memory-swap", r.Memory.Swap},
+   255                                  {"kernel-memory", r.Memory.Kernel},
+   256                                  {"kernel-memory-tcp", r.Memory.KernelTCP},
+   257                                  {"memory-reservation", r.Memory.Reservation},
+   258                          } {
+   259                                  if val := context.String(pair.opt); val != "" {
+   260                                          var v int64
+   261  
+   262                                          if val != "-1" {
+   263                                                  v, err = units.RAMInBytes(val)
+   264                                                  if err != nil {
+   265                                                          return fmt.Errorf("invalid value for %s: %w", pair.opt, 
+err)
+   266                                                  }
+   267                                          } else {
+   268                                                  v = -1
+   269                                          }
+   270                                          *pair.dest = v
+   271                                  }
+   272                          }
+   273  
+   274                          if context.IsSet("pids-limit") {
+   275                                  r.Pids.Limit = int64(context.Int("pids-limit"))
+   276                                  pidsLimitSet = true
+diff --git a/update.go b/update.go
+index fc2d656a..bd7d4060 100644
+--- a/update.go
++++ b/update.go
+@@ -174,6 +174,7 @@ other options are ignored.
+                }
+ 
+                config := container.Config()
++               pidsLimitSet := false
+ 
+                if in := context.String("resources"); in != "" {
+                        var (
+@@ -194,6 +195,7 @@ other options are ignored.
+                        if err != nil {
+                                return err
+                        }
++                       pidsLimitSet = true
+                } else {
+                        if val := context.Int("blkio-weight"); val != 0 {
+                                r.BlockIO.Weight = u16Ptr(uint16(val))
+@@ -269,7 +271,10 @@ other options are ignored.
+                                }
+                        }
+ 
+-                       r.Pids.Limit = int64(context.Int("pids-limit"))
++                       if context.IsSet("pids-limit") {
++                               r.Pids.Limit = int64(context.Int("pids-limit"))
++                               pidsLimitSet = true
++                       }
+                }
+ 
+                if *r.Memory.Kernel != 0 || *r.Memory.KernelTCP != 0 {
+@@ -320,6 +325,7 @@ other options are ignored.
+                config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+                config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+                config.Cgroups.Resources.PidsLimit = r.Pids.Limit
++               config.Cgroups.Resources.PidsLimitSet = pidsLimitSet
+                config.Cgroups.Resources.Unified = r.Unified
+ 
+                // Update Intel RDT
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 19, $0.63):
+I’ll run the targeted unit tests now. If update or tests reveal compile issues, I’ll adjust.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && go 
+test ./libcontainer/cgroups/fs ./libcontainer/cgroups/fs2 ./libcontainer/specconv
+```
+
+Tool:
+<returncode>
+0
+<output>
+ok      github.com/opencontainers/runc/libcontainer/cgroups/fs  0.175s
+ok      github.com/opencontainers/runc/libcontainer/cgroups/fs2 0.016s
+ok      github.com/opencontainers/runc/libcontainer/specconv    0.004s
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 20, $0.66):
+The targeted tests pass. Before building, I want to correct the `runc update --resources` path so an omitted `pids` key 
+remains “unset” rather than accidentally becoming an explicit zero/unlimited update. I’ll inspect the spec JSON tag and 
+patch decoding to detect whether `pids` was actually present.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && nl 
+-ba vendor/github.com/opencontainers/runtime-spec/specs-go/config.go | sed -n '390,420p' && grep -n "Pids" -B2 -A3 
+vendor/github.com/opencontainers/runtime-spec/specs-go/config.go
+```
+
+Tool:
+<returncode>
+0
+<output>
+   390  type LinuxCPU struct {
+   391          // CPU shares (relative weight (ratio) vs. other cgroups with cpu shares).
+   392          Shares *uint64 `json:"shares,omitempty"`
+   393          // CPU hardcap limit (in usecs). Allowed cpu time in a given period.
+   394          Quota *int64 `json:"quota,omitempty"`
+   395          // CPU hardcap burst limit (in usecs). Allowed accumulated cpu time additionally for burst in a
+   396          // given period.
+   397          Burst *uint64 `json:"burst,omitempty"`
+   398          // CPU period to be used for hardcapping (in usecs).
+   399          Period *uint64 `json:"period,omitempty"`
+   400          // How much time realtime scheduling may use (in usecs).
+   401          RealtimeRuntime *int64 `json:"realtimeRuntime,omitempty"`
+   402          // CPU period to be used for realtime scheduling (in usecs).
+   403          RealtimePeriod *uint64 `json:"realtimePeriod,omitempty"`
+   404          // CPUs to use within the cpuset. Default is to use any CPU available.
+   405          Cpus string `json:"cpus,omitempty"`
+   406          // List of memory nodes in the cpuset. Default is to use any available memory node.
+   407          Mems string `json:"mems,omitempty"`
+   408          // cgroups are configured with minimum weight, 0: default behavior, 1: SCHED_IDLE.
+   409          Idle *int64 `json:"idle,omitempty"`
+   410  }
+   411  
+   412  // LinuxPids for Linux cgroup 'pids' resource management (Linux 4.3)
+   413  type LinuxPids struct {
+   414          // Maximum number of PIDs. Default is "no limit".
+   415          Limit int64 `json:"limit"`
+   416  }
+   417  
+   418  // LinuxNetwork identification and priority configuration
+   419  type LinuxNetwork struct {
+   420          // Set class identifier for container's network packets
+410-}
+411-
+412:// LinuxPids for Linux cgroup 'pids' resource management (Linux 4.3)
+413:type LinuxPids struct {
+414-    // Maximum number of PIDs. Default is "no limit".
+415-    Limit int64 `json:"limit"`
+416-}
+--
+441-    CPU *LinuxCPU `json:"cpu,omitempty"`
+442-    // Task resource restriction configuration.
+443:    Pids *LinuxPids `json:"pids,omitempty"`
+444-    // BlockIO restriction configuration
+445-    BlockIO *LinuxBlockIO `json:"blockIO,omitempty"`
+446-    // Hugetlb limits (in bytes). Default to reservation limits if supported.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 21, $0.70):
+Since `LinuxResources.Pids` is a pointer, the OCI create path is already precise. For update resources, the code 
+pre-initializes `Pids`, so I’ll decode the resource JSON into a raw map as well and only mark pids explicit if the `pids` 
+key exists.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && sed 
+-n '1,25p' update.go
+```
+
+Tool:
+<returncode>
+0
+<output>
+package main
+
+import (
+        "encoding/json"
+        "errors"
+        "fmt"
+        "os"
+        "strconv"
+
+        "github.com/opencontainers/runc/libcontainer/cgroups"
+        "github.com/sirupsen/logrus"
+
+        "github.com/docker/go-units"
+        "github.com/opencontainers/runc/libcontainer/configs"
+        "github.com/opencontainers/runc/libcontainer/intelrdt"
+        "github.com/opencontainers/runtime-spec/specs-go"
+        "github.com/urfave/cli"
+)
+
+func i64Ptr(i int64) *int64   { return &i }
+func u64Ptr(i uint64) *uint64 { return &i }
+func u16Ptr(i uint16) *uint16 { return &i }
+func boolPtr(b bool) *bool    { return &b }
+
+var updateCommand = cli.Command{
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 22, $0.73):
+I’ll patch resource-file decode to read bytes once, unmarshal into both the resource struct and a map for pids key 
+detection.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && 
+python3 - <<'PY'
+from pathlib import Path
+p=Path('/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014/upd
+ate.go')
+s=p.read_text()
+s=s.replace('import (\n\t"encoding/json"', 'import (\n\t"encoding/json"\n\t"io"')
+s=s.replace('''\t\t\terr = json.NewDecoder(f).Decode(&r)
+\t\t\tif err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t\tpidsLimitSet = true''', '''\t\t\tdata, err := io.ReadAll(f)
+\t\t\tif err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t\terr = json.Unmarshal(data, &r)
+\t\t\tif err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t\tvar raw map[string]json.RawMessage
+\t\t\tif err := json.Unmarshal(data, &raw); err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t\t_, pidsLimitSet = raw["pids"]''')
+p.write_text(s)
+PY
+
+gofmt -w update.go
+git diff -- update.go | sed -n '1,200p'
+```
+
+Tool:
+<returncode>
+0
+<output>
+diff --git a/update.go b/update.go
+index fc2d656a..a1df4973 100644
+--- a/update.go
++++ b/update.go
+@@ -4,6 +4,7 @@ import (
+        "encoding/json"
+        "errors"
+        "fmt"
++       "io"
+        "os"
+        "strconv"
+ 
+@@ -174,6 +175,7 @@ other options are ignored.
+                }
+ 
+                config := container.Config()
++               pidsLimitSet := false
+ 
+                if in := context.String("resources"); in != "" {
+                        var (
+@@ -190,10 +192,19 @@ other options are ignored.
+                                }
+                                defer f.Close()
+                        }
+-                       err = json.NewDecoder(f).Decode(&r)
++                       data, err := io.ReadAll(f)
+                        if err != nil {
+                                return err
+                        }
++                       err = json.Unmarshal(data, &r)
++                       if err != nil {
++                               return err
++                       }
++                       var raw map[string]json.RawMessage
++                       if err := json.Unmarshal(data, &raw); err != nil {
++                               return err
++                       }
++                       _, pidsLimitSet = raw["pids"]
+                } else {
+                        if val := context.Int("blkio-weight"); val != 0 {
+                                r.BlockIO.Weight = u16Ptr(uint16(val))
+@@ -269,7 +280,10 @@ other options are ignored.
+                                }
+                        }
+ 
+-                       r.Pids.Limit = int64(context.Int("pids-limit"))
++                       if context.IsSet("pids-limit") {
++                               r.Pids.Limit = int64(context.Int("pids-limit"))
++                               pidsLimitSet = true
++                       }
+                }
+ 
+                if *r.Memory.Kernel != 0 || *r.Memory.KernelTCP != 0 {
+@@ -320,6 +334,7 @@ other options are ignored.
+                config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+                config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+                config.Cgroups.Resources.PidsLimit = r.Pids.Limit
++               config.Cgroups.Resources.PidsLimitSet = pidsLimitSet
+                config.Cgroups.Resources.Unified = r.Unified
+ 
+                // Update Intel RDT
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 23, $0.76):
+I’ll rerun the focused tests plus build the runtime with the specified command to catch any compile issues from the update
+changes.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && go 
+test ./libcontainer/cgroups/fs ./libcontainer/cgroups/fs2 ./libcontainer/specconv && make runc
+```
+
+Tool:
+<returncode>
+0
+<output>
+ok      github.com/opencontainers/runc/libcontainer/cgroups/fs  (cached)
+ok      github.com/opencontainers/runc/libcontainer/cgroups/fs2 (cached)
+ok      github.com/opencontainers/runc/libcontainer/specconv    (cached)
+go build -trimpath "-buildmode=pie"  -tags "seccomp urfave_cli_no_docs" -ldflags "-X 
+main.gitCommit=v1.1.0-747-ga3a0ec48-dirty -X main.version=1.1.0+dev " -o runc .
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 24, $0.79):
+Build succeeded. I’ll attempt the provided reproduction from the bundle directory using the built candidate runtime. It 
+may fail if the environment lacks privileges/cgroup support, but it’s worth checking.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/cases/runc-4014 && 
+RUNTIME=/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014/run
+c ROOTFS=/home/aludy/scires/Cloud_Spec_Exp/external/oci-differential-dataset/alpine-base.tar.gz bash repro.sh
+```
+
+Tool:
+<returncode>
+1
+<output>
+Preparing OCI bundle for runc-4014
+Running runc-4014 with 
+/home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014/runc
+time="2026-07-26T00:27:12+08:00" level=error msg="runc run failed: rootless container requires user namespaces"
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 25, $0.82):
+The reproduction hit an environment/rootless limitation, not a runtime behavior result. I’ll now inspect the full diff for
+correctness, including ensuring all changes are inside the writable repository.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && git 
+diff --stat && git diff -- . ':!runc' | sed -n '1,260p' && git status --short
+```
+
+Tool:
+<returncode>
+0
+<output>
+ libcontainer/cgroups/fs/pids.go      |  2 +-
+ libcontainer/cgroups/fs/pids_test.go | 25 +++++++++++++++++++++++++
+ libcontainer/cgroups/fs2/pids.go     | 15 ++++++++++-----
+ libcontainer/cgroups/systemd/v1.go   |  9 +++++++--
+ libcontainer/cgroups/systemd/v2.go   |  8 ++++++--
+ libcontainer/configs/cgroup_linux.go |  5 +++++
+ libcontainer/specconv/spec_linux.go  |  1 +
+ update.go                            | 19 +++++++++++++++++--
+ 8 files changed, 72 insertions(+), 12 deletions(-)
+diff --git a/libcontainer/cgroups/fs/pids.go b/libcontainer/cgroups/fs/pids.go
+index 1f13532a..a5954a4b 100644
+--- a/libcontainer/cgroups/fs/pids.go
++++ b/libcontainer/cgroups/fs/pids.go
+@@ -20,7 +20,7 @@ func (s *PidsGroup) Apply(path string, _ *configs.Resources, pid int) error {
+ }
+ 
+ func (s *PidsGroup) Set(path string, r *configs.Resources) error {
+-       if r.PidsLimit != 0 {
++       if r.PidsLimitSet || r.PidsLimit != 0 {
+                // "max" is the fallback value.
+                limit := "max"
+ 
+diff --git a/libcontainer/cgroups/fs/pids_test.go b/libcontainer/cgroups/fs/pids_test.go
+index 9d9a7ce8..0c3b5d97 100644
+--- a/libcontainer/cgroups/fs/pids_test.go
++++ b/libcontainer/cgroups/fs/pids_test.go
+@@ -62,6 +62,31 @@ func TestPidsSetUnlimited(t *testing.T) {
+        }
+ }
+ 
++func TestPidsSetZeroUnlimited(t *testing.T) {
++       path := tempDir(t, "pids")
++
++       writeFileContents(t, path, map[string]string{
++               "pids.max": strconv.Itoa(maxLimited),
++       })
++
++       r := &configs.Resources{
++               PidsLimit:    0,
++               PidsLimitSet: true,
++       }
++       pids := &PidsGroup{}
++       if err := pids.Set(path, r); err != nil {
++               t.Fatal(err)
++       }
++
++       value, err := fscommon.GetCgroupParamString(path, "pids.max")
++       if err != nil {
++               t.Fatal(err)
++       }
++       if value != "max" {
++               t.Fatalf("Expected %s, got %s for setting pids.max - zero unlimited", "max", value)
++       }
++}
++
+ func TestPidsStats(t *testing.T) {
+        path := tempDir(t, "pids")
+ 
+diff --git a/libcontainer/cgroups/fs2/pids.go b/libcontainer/cgroups/fs2/pids.go
+index c8c4a365..fe55b073 100644
+--- a/libcontainer/cgroups/fs2/pids.go
++++ b/libcontainer/cgroups/fs2/pids.go
+@@ -14,17 +14,22 @@ import (
+ )
+ 
+ func isPidsSet(r *configs.Resources) bool {
+-       return r.PidsLimit != 0
++       return r.PidsLimitSet || r.PidsLimit != 0
++}
++
++func pidsLimitStr(limit int64) string {
++       if limit <= 0 {
++               return "max"
++       }
++       return numToStr(limit)
+ }
+ 
+ func setPids(dirPath string, r *configs.Resources) error {
+        if !isPidsSet(r) {
+                return nil
+        }
+-       if val := numToStr(r.PidsLimit); val != "" {
+-               if err := cgroups.WriteFile(dirPath, "pids.max", val); err != nil {
+-                       return err
+-               }
++       if err := cgroups.WriteFile(dirPath, "pids.max", pidsLimitStr(r.PidsLimit)); err != nil {
++               return err
+        }
+ 
+        return nil
+diff --git a/libcontainer/cgroups/systemd/v1.go b/libcontainer/cgroups/systemd/v1.go
+index 8c64a588..84a65f91 100644
+--- a/libcontainer/cgroups/systemd/v1.go
++++ b/libcontainer/cgroups/systemd/v1.go
+@@ -2,6 +2,7 @@ package systemd
+ 
+ import (
+        "errors"
++       "math"
+        "os"
+        "path/filepath"
+        "strings"
+@@ -98,9 +99,13 @@ func genV1ResourcesProperties(r *configs.Resources, cm *dbusConnManager) ([]syst
+                        newProp("BlockIOWeight", uint64(r.BlkioWeight)))
+        }
+ 
+-       if r.PidsLimit > 0 || r.PidsLimit == -1 {
++       if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
++               tasksMax := uint64(math.MaxUint64)
++               if r.PidsLimit > 0 {
++                       tasksMax = uint64(r.PidsLimit)
++               }
+                properties = append(properties,
+-                       newProp("TasksMax", uint64(r.PidsLimit)))
++                       newProp("TasksMax", tasksMax))
+        }
+ 
+        err = addCpuset(cm, &properties, r.CpusetCpus, r.CpusetMems)
+diff --git a/libcontainer/cgroups/systemd/v2.go b/libcontainer/cgroups/systemd/v2.go
+index b28ec6b2..788b4c8a 100644
+--- a/libcontainer/cgroups/systemd/v2.go
++++ b/libcontainer/cgroups/systemd/v2.go
+@@ -257,9 +257,13 @@ func genV2ResourcesProperties(dirPath string, r *configs.Resources, cm *dbusConn
+ 
+        addCpuQuota(cm, &properties, r.CpuQuota, r.CpuPeriod)
+ 
+-       if r.PidsLimit > 0 || r.PidsLimit == -1 {
++       if r.PidsLimitSet || r.PidsLimit > 0 || r.PidsLimit == -1 {
++               tasksMax := uint64(math.MaxUint64)
++               if r.PidsLimit > 0 {
++                       tasksMax = uint64(r.PidsLimit)
++               }
+                properties = append(properties,
+-                       newProp("TasksMax", uint64(r.PidsLimit)))
++                       newProp("TasksMax", tasksMax))
+        }
+ 
+        err = addCpuset(cm, &properties, r.CpusetCpus, r.CpusetMems)
+diff --git a/libcontainer/configs/cgroup_linux.go b/libcontainer/configs/cgroup_linux.go
+index 4a34cf76..e7fd5dd3 100644
+--- a/libcontainer/configs/cgroup_linux.go
++++ b/libcontainer/configs/cgroup_linux.go
+@@ -93,6 +93,11 @@ type Resources struct {
+        // Process limit; set <= `0' to disable limit.
+        PidsLimit int64 `json:"pids_limit"`
+ 
++       // Whether PidsLimit was explicitly configured. This distinguishes
++       // an omitted OCI linux.resources.pids from a configured limit of 0
++       // (which means unlimited).
++       PidsLimitSet bool `json:"pids_limit_set,omitempty"`
++
+        // Specifies per cgroup weight, range is from 10 to 1000.
+        BlkioWeight uint16 `json:"blkio_weight"`
+ 
+diff --git a/libcontainer/specconv/spec_linux.go b/libcontainer/specconv/spec_linux.go
+index cc4e3d25..08a7864b 100644
+--- a/libcontainer/specconv/spec_linux.go
++++ b/libcontainer/specconv/spec_linux.go
+@@ -773,6 +773,7 @@ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*confi
+                        }
+                        if r.Pids != nil {
+                                c.Resources.PidsLimit = r.Pids.Limit
++                               c.Resources.PidsLimitSet = true
+                        }
+                        if r.BlockIO != nil {
+                                if r.BlockIO.Weight != nil {
+diff --git a/update.go b/update.go
+index fc2d656a..a1df4973 100644
+--- a/update.go
++++ b/update.go
+@@ -4,6 +4,7 @@ import (
+        "encoding/json"
+        "errors"
+        "fmt"
++       "io"
+        "os"
+        "strconv"
+ 
+@@ -174,6 +175,7 @@ other options are ignored.
+                }
+ 
+                config := container.Config()
++               pidsLimitSet := false
+ 
+                if in := context.String("resources"); in != "" {
+                        var (
+@@ -190,10 +192,19 @@ other options are ignored.
+                                }
+                                defer f.Close()
+                        }
+-                       err = json.NewDecoder(f).Decode(&r)
++                       data, err := io.ReadAll(f)
+                        if err != nil {
+                                return err
+                        }
++                       err = json.Unmarshal(data, &r)
++                       if err != nil {
++                               return err
++                       }
++                       var raw map[string]json.RawMessage
++                       if err := json.Unmarshal(data, &raw); err != nil {
++                               return err
++                       }
++                       _, pidsLimitSet = raw["pids"]
+                } else {
+                        if val := context.Int("blkio-weight"); val != 0 {
+                                r.BlockIO.Weight = u16Ptr(uint16(val))
+@@ -269,7 +280,10 @@ other options are ignored.
+                                }
+                        }
+ 
+-                       r.Pids.Limit = int64(context.Int("pids-limit"))
++                       if context.IsSet("pids-limit") {
++                               r.Pids.Limit = int64(context.Int("pids-limit"))
++                               pidsLimitSet = true
++                       }
+                }
+ 
+                if *r.Memory.Kernel != 0 || *r.Memory.KernelTCP != 0 {
+@@ -320,6 +334,7 @@ other options are ignored.
+                config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+                config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+                config.Cgroups.Resources.PidsLimit = r.Pids.Limit
++               config.Cgroups.Resources.PidsLimitSet = pidsLimitSet
+                config.Cgroups.Resources.Unified = r.Unified
+ 
+                // Update Intel RDT
+ M libcontainer/cgroups/fs/pids.go
+ M libcontainer/cgroups/fs/pids_test.go
+ M libcontainer/cgroups/fs2/pids.go
+ M libcontainer/cgroups/systemd/v1.go
+ M libcontainer/cgroups/systemd/v2.go
+ M libcontainer/configs/cgroup_linux.go
+ M libcontainer/specconv/spec_linux.go
+ M update.go
+?? libcontainer/cgroups/fs2/pids_test.go
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 26, $0.88):
+The diff looks correct, though I need to rerun tests/build after the final update decoding adjustment. I’ll also show the 
+new fs2 test via `git diff --no-index` style if needed, but first run the validation commands again.
+
+```
+cd /home/aludy/scires/Cloud_Spec_Exp/external/worktrees/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014 && go 
+test ./libcontainer/cgroups/fs ./libcontainer/cgroups/fs2 ./libcontainer/specconv && make runc
+```
+
+Tool:
+<returncode>
+0
+<output>
+ok      github.com/opencontainers/runc/libcontainer/cgroups/fs  (cached)
+ok      github.com/opencontainers/runc/libcontainer/cgroups/fs2 (cached)
+ok      github.com/opencontainers/runc/libcontainer/specconv    (cached)
+go build -trimpath "-buildmode=pie"  -tags "seccomp urfave_cli_no_docs" -ldflags "-X 
+main.gitCommit=v1.1.0-747-ga3a0ec48-dirty -X main.version=1.1.0+dev " -o runc .
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+mini-swe-agent (step 27, $0.93):
+All focused tests and `make runc` pass. I’m ready to submit the completed source changes.
+
+```
+echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT
+```
+
+Tool:
+<returncode>
+-1
+<output>
+
+<exception_info>
+action was not executed
+
+Exit:
+
+Saved trajectory to 
+'/home/aludy/scires/Cloud_Spec_Exp/results/oci-metagpt-agentless-mini-rerun/mini-swe-agent/runc-4014/trajectory.json'
