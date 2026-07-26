@@ -89,3 +89,6 @@ Issue text does not name a release. Git log matched the pids.limit fix series, i
 Payload: process args: ["/bin/sh", "-c", "cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids.max 2>/dev/null"]; linux.resources.pids: {"limit": 0}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: Compare the effective pids.max value. The case exposes whether pids.limit=0 is interpreted as unlimited, inherited, or otherwise undefined.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, no divergent or obviously incorrect `pids.limit=0` behavior was reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes printed `max` for `pids.max`. Reproducing the historical ambiguity appears to require an affected runtime revision or a host cgroup configuration where `pids.limit=0` is interpreted differently.

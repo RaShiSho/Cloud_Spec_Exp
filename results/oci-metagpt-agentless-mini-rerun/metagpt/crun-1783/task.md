@@ -89,3 +89,6 @@ Issue text does not name a release. Git log matched `7407bbc9a5bc` (`Revert "chr
 Payload: process args: ["sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original `null` resolution issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. In a non-TTY run, the terminal-enabled config failed or timed out because no usable console was attached; with a pseudo-TTY, the runtimes entered the shell and timed out without showing the reported path-resolution failure. Reproduction appears to require the original terminal/console conditions and affected crun behavior.

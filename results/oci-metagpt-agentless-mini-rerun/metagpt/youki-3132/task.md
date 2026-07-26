@@ -89,3 +89,6 @@ The issue text does not name an exact youki release; it reports the behavior on 
 Payload: process args: ["true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original log-level issue was not reproduced with the current `repro.sh`. The payload only runs `true`, and the script does not enable or capture a runtime log stream that can distinguish normal messages logged at `ERROR` level from expected output. In the previous isolated run, runc and crun completed without useful output, while youki timed out without exposing the specific log-level symptom. Reproducing the original issue appears to require the affected youki revision plus explicit log-level capture or the cgroup/ambient-capability logging conditions from the upstream report.

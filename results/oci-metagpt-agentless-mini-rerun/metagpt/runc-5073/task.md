@@ -89,3 +89,6 @@ Original case notes identify `runc v1.3.3 and earlier` as affected. Git log sear
 Payload: process args: ["/bin/sh", "-c", "mknod /dev/mytest2 c 42 42 && echo 'unauthorized-mknod-created' || echo 'mknod-blocked'"]; linux.resources.devices: [{"allow": true, "type": "c", "major": 12, "minor": 42, "access": "r"}]
 
 Oracle: Correct device filtering blocks mknod and prints mknod-blocked. Affected runc behavior allows creating the unauthorized device node and prints unauthorized-mknod-created.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original differential device-filtering issue was not reproduced in the Docker Desktop/WSL2 validation environment. runc 1.1.14, youki 0.6.0, and crun 1.17 all printed `unauthorized-mknod-created`, so no reference runtime blocked the unauthorized device node. This likely requires a host/runtime setup with effective cgroup device filtering; the privileged nested test environment did not provide a useful blocking reference.

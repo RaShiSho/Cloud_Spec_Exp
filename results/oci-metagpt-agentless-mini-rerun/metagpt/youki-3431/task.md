@@ -90,3 +90,6 @@ commit: 0.5.7-bd54457ba9de1629f21fe678687f433aec63e7c7
 Payload: process args: ["sleep", "100"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: The number of proc mounts should remain stable across repeated exec calls. Growth indicates the bug.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original repeated-exec proc-mount growth issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. A direct `run` starts the configured `sleep 100` process and times out, and repeated `exec` probes showed a stable proc mount count of `1` for all three runtimes. Reproduction appears to require the affected youki 0.5.7 behavior or additional exec conditions from the original environment.

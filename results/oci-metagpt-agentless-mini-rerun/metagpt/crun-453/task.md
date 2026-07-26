@@ -89,3 +89,6 @@ Issue text does not name a release. Git log matched `47dd153de924` (`seccomp: su
 Payload: process args: ["/bin/sh", "-c", "echo seccomp-log-action-453; true"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; linux.seccomp: {"defaultAction": "SCMP_ACT_LOG", "architectures": ["SCMP_ARCH_X86_64"], "syscalls": [{"names": ["read", "write", "exit", "exit_group"], "action": "SCMP_ACT_ALLOW"}]}
 
 Oracle: A supporting runtime accepts SCMP_ACT_LOG and starts. An unsupported runtime fails during seccomp setup.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original unsupported-`SCMP_ACT_LOG` behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes accepted the seccomp action and printed `seccomp-log-action-453`. Reproduction appears to require a runtime or libseccomp environment that lacks `SCMP_ACT_LOG` support.

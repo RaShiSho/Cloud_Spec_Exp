@@ -89,3 +89,6 @@ Issue text does not name a release. Git log matched PR #355 (`b04df1c5317b`, hoo
 Payload: process args: ["/bin/sh", "-c", "echo hook-stderr-353-main"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
 
 Oracle: A correct runtime includes the failing hook stderr in its error output. The affected behavior drops that diagnostic.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original dropped-hook-stderr behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes surfaced `hook-stderr-353` in their error output. Reproducing the issue appears to require the affected pre-fix crun build.

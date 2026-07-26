@@ -89,3 +89,6 @@ Git log matched `8e95bdecc36d` (`Fix default filemode for device creation (#3276
 Payload: process args: ["sh", "-c", "ls -la /dev/kmsg"]; linux.resources.devices: [{"allow": false, "access": "rwm"}, {"allow": true, "type": "c", "major": 1, "minor": 11, "access": "rw"}]; linux.devices: [{"path": "/dev/kmsg", "type": "c", "major": 1, "minor": 11}]
 
 Oracle: runc, crun, and fixed youki show /dev/kmsg as crw-rw-rw-. The affected youki build shows c---------.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original device-file-mode issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes showed `/dev/kmsg` as `crw-rw-rw-`. Reproducing the issue appears to require the affected pre-fix youki build that created the device with mode `c---------`.

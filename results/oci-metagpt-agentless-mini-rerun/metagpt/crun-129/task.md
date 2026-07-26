@@ -89,3 +89,6 @@ Issue text does not name a concrete crun release; the issue body only states tha
 Payload: process args: ["/bin/sh", "-c", "echo hook-nonzero-129"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: prestart
 
 Oracle: A correct runtime exits promptly with a hook failure. The affected crun behavior hangs or fails to surface the hook error cleanly.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original hang/non-return behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes exited promptly on the failing prestart hook and surfaced a hook failure. Reproducing the historical issue appears to require the affected pre-fix crun revision.

@@ -89,3 +89,6 @@ Git log matched `123b51a4ee05` (`rbind,ro mount is read-only but not recursively
 Payload: process args: ["sh", "-c", "echo -n 'Top(/mnt/foo): '; touch /mnt/foo 2>/dev/null && echo RW || echo RO; echo -n 'Sub(/mnt/subvol/bar): '; touch /mnt/subvol/bar 2>/dev/null && echo RW || echo RO"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; additional mounts: [{"destination": "/mnt", "type": "bind", "source": "/tmp/mounts_recursive", "options": ["rbind", "ro"]}]
 
 Oracle: Both the top-level bind mount and recursive submount should be read-only. A buggy runtime allows writes through a recursive submount.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the case did not run to the original oracle because the configured bind source `/tmp/mounts_recursive` is not provided by the case. After creating that source and a submount in the temporary validation environment, runc 1.1.14, youki 0.6.0, and crun 1.17 all reported the top-level mount as read-only and the recursive submount as writable. This did not provide a reference runtime showing recursive read-only behavior, so reproducing the original differential issue appears to require additional host mount setup and a runtime/kernel combination that supports or enforces recursive read-only bind mounts.

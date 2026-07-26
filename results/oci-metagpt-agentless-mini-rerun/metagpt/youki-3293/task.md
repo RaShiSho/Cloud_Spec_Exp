@@ -89,3 +89,6 @@ Git log matched `ed3d6f6ffd82` (`fix(3293) Ambient capabilities are not applied 
 Payload: process args: ["sh", "-c", "grep '^CapAmb' /proc/self/status | awk '{print $2}'"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original ambient-capability issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes printed the same `CapAmb` value, `0000000020000420`. Reproduction appears to require the affected pre-fix youki build or additional capability conditions not captured by the modified config alone.

@@ -89,3 +89,6 @@ Issue text does not name a release. Upstream git log matched the PATH lookup fix
 Payload: process args: ["sh", "-c", "echo process-path-13; command -v sh"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original PATH lookup issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All three runtimes successfully resolved `sh`, printed `process-path-13`, and reported `/bin/sh`. Reproducing the issue appears to require the affected pre-fix crun build that did not perform the same PATH lookup.

@@ -89,3 +89,6 @@ Issue text does not name a precise release in the available local data. Git log 
 Payload: process args: ["sh", "-c", "cat /hook.log"]; hooks: prestart, createContainer
 
 Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. The default temporary-bundle run failed because the hook command writes to the hard-coded host path `/home/suiko/oci-lab/staging/youki-3186/rootfs/hook.log`, which does not exist for a temporary bundle. When the bundle was placed at that path in the test environment, all three runtimes printed both hook lines and exited successfully, so no runtime-specific difference remained. Reproduction appears to require additional original-path assumptions or a more specific affected-runtime condition.

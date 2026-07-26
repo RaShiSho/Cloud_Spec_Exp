@@ -89,3 +89,6 @@ Local dataset notes identify `crun version 1.7.1.0.0.0.6-258c` as the buggy buil
 Payload: process args: ["/bin/sh", "-c", "echo memory-limit-1083; cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || cat /sys/fs/cgroup/memory.max 2>/dev/null || true"]; linux.resources.memory: {"limit": 67108864, "swap": 134217728}; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: The buggy crun build prints max for the memory limit, while runc and fixed crun print 67108864 for the configured 64 MiB limit.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17 in the Docker Desktop/WSL2 validation environment. All three runtimes printed `67108864` for the configured memory limit. Reproducing the historical failure appears to require the affected pre-fix crun build or a host cgroup setup that exposes the old `max` behavior.

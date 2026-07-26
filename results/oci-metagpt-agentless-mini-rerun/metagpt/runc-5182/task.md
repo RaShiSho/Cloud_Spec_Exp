@@ -89,3 +89,6 @@ Issue text was not reachable during this pass. Git log matched the poststart/pos
 Payload: process args: ["/bin/sh", "-c", "exit 0"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]; hooks: poststart, poststop
 
 Oracle: A reference runtime should run poststop cleanup after poststart failure. The affected behavior leaves /tmp/post-stop absent and prints poststop-missing.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original missing-poststop behavior was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. All tested runtimes left evidence that the poststop hook ran (`poststop-ran`), although their create/start status values differed. Reproducing the issue appears to require the affected runc revision where poststop was skipped after a poststart failure.

@@ -89,3 +89,6 @@ Git log matched `f5d4cb2e3426` (`fix(3198): fix difference in how commands are p
 Payload: process args: ["sleep", "100"]; linux.resources.devices: [{"allow": false, "access": "rwm"}]
 
 Oracle: Run the same buggy_config.json with a reference runtime and an affected runtime. A valid reproduction is a stable difference in exit status, stdout, stderr, runtime state, or documented side effects for the same OCI payload.
+
+## Additional Validation Note (2026-07-19)
+Using only `buggy_config.json` with the provided `alpine-base.tar.gz` rootfs, the original exec/ps argument issue was not reproduced with runc 1.1.14, youki 0.6.0, or crun 1.17. A direct `run` only starts the configured `sleep 100` process and times out, while additional `exec` and `ps -o pid,args` probes showed matching command lines across all three runtimes. Reproduction appears to require the exact exec invocation or affected youki revision from the original report.
