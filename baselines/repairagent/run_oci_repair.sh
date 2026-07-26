@@ -187,6 +187,22 @@ path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
 }
 
+finalize_launcher_timeout_metadata() {
+  "$PYTHON_BIN" - "$LAUNCHER" "$OUTPUT_DIR/launcher_metadata.json" "$REPO" "$TIMEOUT_SECONDS" <<'PY'
+import runpy
+import sys
+from pathlib import Path
+
+launcher, metadata_path, repo, timeout_seconds = sys.argv[1:]
+namespace = runpy.run_path(launcher)
+namespace["finalize_timeout_metadata"](
+    Path(metadata_path),
+    Path(repo),
+    int(timeout_seconds),
+)
+PY
+}
+
 LAUNCH_COMMAND=(
   "${REPAIRAGENT_PYTHON_CMD[@]}" "$LAUNCHER"
   --baseline-repo "$BASELINE_REPO"
@@ -220,7 +236,10 @@ EXIT_CODE=$?
 set -e
 
 if [ "$EXIT_CODE" -ne 0 ]; then
-  if [ "$EXIT_CODE" -eq 65 ]; then
+  if [ "$EXIT_CODE" -eq 124 ]; then
+    finalize_launcher_timeout_metadata
+    update_wrapper_metadata "timed_out" "$EXIT_CODE"
+  elif [ "$EXIT_CODE" -eq 65 ]; then
     update_wrapper_metadata "patch_missing" "$EXIT_CODE"
   else
     update_wrapper_metadata "repairagent_failed" "$EXIT_CODE"

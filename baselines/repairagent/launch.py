@@ -17,6 +17,9 @@ ADAPTER_DIR = Path(__file__).resolve().parent
 PROJECT_NAME = "oci"
 BUG_INDEX = "1"
 FIX_COMMANDS = frozenset({"write_fix", "write_range", "try_fixes"})
+MAX_READ_CONTEXT_ENTRIES = 6
+MAX_READ_CONTEXT_CHARS = 18_000
+MAX_VALIDATION_OUTPUT_CHARS = 6_000
 CYCLE_INSTRUCTION = """Determine exactly one command to use based on the goals, the current state, and the progress made so far.
 Respond with exactly one JSON object and no Markdown code fences or surrounding text. The object must have this shape:
 {
@@ -27,6 +30,8 @@ Respond with exactly one JSON object and no Markdown code fences or surrounding 
   }
 }
 Use only commands listed for the current state. Use the exact argument names defined for the selected command, and include every required argument.
+Do not keep collecting broad source ranges after the evidence supports a concrete hypothesis. Move to hypothesis, focused repair design, and candidate validation within the state budget.
+In the candidate-fix state, apply a candidate immediately; source-reading commands are intentionally unavailable there.
 """
 
 
@@ -86,6 +91,113 @@ def update_terminated_metadata(
     )
     if patch.strip():
         metadata["patch_is_partial"] = True
+
+
+def finalize_timeout_metadata(
+    metadata_path: Path, repo: Path, timeout_seconds: int
+) -> bool:
+    if not metadata_path.is_file():
+        return False
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if metadata.get("status") != "starting":
+        return False
+
+    try:
+        patch = git_diff(repo)
+    except Exception as exc:
+        patch = ""
+        metadata["termination_patch_error"] = f"{type(exc).__name__}: {exc}"
+    update_terminated_metadata(metadata, signal.SIGTERM, patch)
+    metadata.update(
+        {
+            "termination_source": "wrapper_timeout",
+            "timeout_seconds": timeout_seconds,
+            "error": f"launcher exceeded wrapper timeout of {timeout_seconds} seconds",
+        }
+    )
+    write_json(metadata_path, metadata)
+    return True
+
+
+def forced_state_thresholds(max_cycles: int) -> tuple[int, int]:
+    if max_cycles <= 2:
+        return 1, 1
+    understand_until = min(8, max(1, max_cycles // 4))
+    candidate_from = min(20, max(understand_until + 1, max_cycles // 2))
+    return understand_until, min(candidate_from, max_cycles - 1)
+
+
+def adapt_task_text(task_text: str) -> str:
+    marker = "Required first command:"
+    if marker not in task_text:
+        return task_text
+
+    lines = task_text.splitlines()
+    adapted: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() != marker:
+            adapted.append(lines[index])
+            index += 1
+            continue
+
+        adapted.append(
+            "Repository revision and cleanliness are verified by the launcher before the agent starts."
+        )
+        adapted.append("Use only the commands exposed in the current RepairAgent state.")
+        index += 1
+        while index < len(lines) and lines[index].strip():
+            index += 1
+
+    suffix = "\n" if task_text.endswith("\n") else ""
+    return "\n".join(adapted) + suffix
+
+
+def compact_read_files_context(agent: Any) -> str:
+    items = [
+        (file_path, line_range, str(result))
+        for file_path, ranges in agent.read_files.items()
+        for line_range, result in ranges.items()
+    ]
+    if not items:
+        return "## Read lines:\nNo files have been read so far.\n"
+
+    kept: list[str] = []
+    remaining = MAX_READ_CONTEXT_CHARS
+    for file_path, line_range, result in reversed(items):
+        if len(kept) >= MAX_READ_CONTEXT_ENTRIES or remaining <= 0:
+            break
+        start, end = line_range.split(",", 1)
+        heading = f"Lines {start} to {end} from file: {file_path}\n"
+        available = max(0, remaining - len(heading) - 2)
+        if len(result) > available:
+            result = result[:available] + "\n[older content truncated]"
+        block = heading + result + "\n\n"
+        kept.append(block)
+        remaining -= len(block)
+
+    kept.reverse()
+    omitted = len(items) - len(kept)
+    prelude = "## Read lines:\n"
+    if omitted:
+        prelude += (
+            f"{omitted} older read result(s) were omitted to keep the repair prompt bounded.\n"
+        )
+    return prelude + "".join(kept)
+
+
+def compact_validation_result(passed: bool, output: str) -> str:
+    if passed:
+        return "0 failing tests.\nBuild validation passed."
+    if len(output) <= MAX_VALIDATION_OUTPUT_CHARS:
+        return "Validation failed.\n" + output
+    half = MAX_VALIDATION_OUTPUT_CHARS // 2
+    return (
+        "Validation failed.\n"
+        + output[:half]
+        + "\n[validation output truncated]\n"
+        + output[-half:]
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -227,10 +339,7 @@ def prepare_run_layout(output_dir: Path, baseline_root: Path, task_file: Path) -
             (
                 "1. write_fix: Apply and build a candidate. Params: project_name, bug_index, changes_dicts.",
                 "2. try_fixes: Try candidates and retain the first buildable one. Params: project_name, bug_index, fixes_list.",
-                "3. read_range: Read numbered source lines. Params: project_name, bug_index, filepath, startline, endline.",
-                "4. go_back_to_collect_more_info: Return to information gathering. Params: reason_for_going_back.",
-                "5. discard_hypothesis: Return to bug understanding. Params: reason_for_discarding.",
-                "6. goals_accomplished: Stop after a non-empty retained patch. Params: reason.",
+                "3. goals_accomplished: Stop after a non-empty retained patch. Params: reason.",
             )
         ),
     }
@@ -253,13 +362,20 @@ def prepare_run_layout(output_dir: Path, baseline_root: Path, task_file: Path) -
     write_json(run_dir / "states_description.json", states)
     write_json(run_dir / "commands_by_state.json", commands_by_state)
     write_json(run_dir / "commands_interface.json", commands_interface)
+    max_cycles = int(os.environ.get("REPAIRAGENT_OCI_MAX_CYCLES", "40"))
+    understand_until, candidate_from = forced_state_thresholds(max_cycles)
     write_json(
         run_dir / "hyperparams.json",
         {
-            "budget_control": {"name": "FULL-TRACK", "params": {"#fixes": 1}},
+            "budget_control": {
+                "name": "FORCED",
+                "params": {"#fixes": 1},
+                "T1": understand_until,
+                "T2": candidate_from,
+            },
             "repetition_handling": "RESTRICT",
             "external_fix_strategy": 0,
-            "commands_limit": int(os.environ.get("REPAIRAGENT_OCI_MAX_CYCLES", "40")),
+            "commands_limit": max_cycles,
         },
     )
     (run_dir / "plugins_config.yaml").write_text("{}\n", encoding="utf-8")
@@ -282,7 +398,10 @@ Example: [{"file_name":"path/file.c","insertions":[{"line_number":10,
 """,
         encoding="utf-8",
     )
-    shutil.copyfile(task_file, run_dir / "task.md")
+    (run_dir / "task.md").write_text(
+        adapt_task_text(task_file.read_text(encoding="utf-8")),
+        encoding="utf-8",
+    )
     return run_dir
 
 
@@ -299,7 +418,7 @@ def install_oci_tool_layer() -> None:
     def run_tests(name: str, index: int, workspace: str) -> str:
         del name, index, workspace
         passed, output = oci_tools.run_validation()
-        return ("0 failing tests.\n" if passed else "Validation failed.\n") + output
+        return compact_validation_result(passed, output)
 
     def create_fix_template(name: str, index: int) -> str:
         del name, index
@@ -332,6 +451,7 @@ def install_oci_tool_layer() -> None:
     base_agent_module.get_info = get_info
     base_agent_module.run_tests = run_tests
     base_agent_module.create_fix_template = create_fix_template
+    base_agent_module.BaseAgent.construct_read_files_context = compact_read_files_context
     agent_module.get_detailed_list_of_buggy_lines = get_detailed_list_of_buggy_lines
     agent_module.query_for_mutants = query_for_mutants
 
@@ -376,6 +496,7 @@ def run() -> int:
         os.environ["OPENAI_API_BASE_URL"] = args.base_url
 
     run_dir = prepare_run_layout(output_dir, baseline_root, task_file)
+    os.environ["REPAIRAGENT_OCI_TASK_FILE"] = str(run_dir / "task.md")
     metadata_path = output_dir / "launcher_metadata.json"
     metadata = {
         "status": "starting",

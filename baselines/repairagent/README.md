@@ -27,8 +27,15 @@ RepairAgent 在 Defects4J 上原始实验的等价复现。结果报告应明确
 `launch.py` 为每个 case 创建隔离运行目录，并在导入上游 agent 前完成以下替换：
 
 - 初始 `get_info` 使用 runner 生成的 `task.md` 和受扩展名约束的源码清单；
+- 隔离目录中的 `task.md` 会移除通用 runner 提示里要求执行、但 RepairAgent 命令集并不
+  提供的 shell/git 首命令；原始 runner 任务文件保持不变；
 - 每个隔离运行目录生成 OCI 专用的 `cycle_instruction_text.txt`，供上游 FSM 在每个
   cycle 构造 prompt，并避免沿用 Defects4J 命令示例；
+- FSM 使用上游 `FORCED` budget：默认 40 cycles 时，第 8 cycle 后离开宽泛理解阶段，
+  第 20 cycle 后进入候选验证阶段；候选阶段不再暴露源码读取和返回信息收集的命令，
+  只允许立即写入/尝试候选或在已有非空补丁后结束，避免模型通过变化行号持续空转；
+- 初始构建成功时不把无关 warning 全量注入 prompt；累计源码读取只保留最近 6 个结果且
+  总长度受限，避免长时间运行时上下文持续膨胀；
 - `read_range`、文本搜索和函数样式符号扫描支持 Go、C/header、Rust；
 - `write_fix` 保留上游的行级 change dictionary，限制路径不能逃出目标 worktree；prompt
   要求 `insertions[*].new_lines` 使用字符串列表，同时工具层兼容模型偶尔返回的多行字符串，
@@ -37,7 +44,9 @@ RepairAgent 在 Defects4J 上原始实验的等价复现。结果报告应明确
 - 首个保留且产生非空 tracked diff 的候选会使 adapter 正常结束，随后由统一 runner
   重新构建并执行 OCI oracle，避免让模型在构建成功后继续空转；
 - 禁用依赖 Defects4J buggy-line 数据和 Java mutation 模板的辅助 mutation 调用；
-- agent 退出后必须存在 tracked diff，否则 launcher 返回 `65`，wrapper 记录 `patch_missing`。
+- agent 退出后必须存在 tracked diff，否则 launcher 返回 `65`，wrapper 记录 `patch_missing`；
+- GNU timeout 返回 `124` 时，wrapper 会将仍处于 `starting` 的 launcher metadata 收尾为
+  `terminated`，并保留当时存在的 partial tracked diff 大小。
 
 这里的内部“测试”只是 runtime 构建，不等价于 OCI 行为验证。统一 runner 随后仍会重新构建
 并调用 `oracles/run_oci_oracle.py`；最终有效性只以该 oracle 为准。
