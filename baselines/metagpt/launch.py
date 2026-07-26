@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -96,7 +97,7 @@ def write_bootstrap_config(home: Path, *, api_type: str, model: str, base_url: s
             "api_key": BOOTSTRAP_API_KEY,
             "base_url": base_url,
             "model": model,
-            "calc_usage": False,
+            "calc_usage": True,
         },
         "repair_llm_output": True,
     }
@@ -155,7 +156,204 @@ def bind_metagpt_workspace(config: Any, repo: Path) -> dict[str, Any]:
 
 
 def write_metadata(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def resolve_cost_rates() -> tuple[float, float] | None:
+    prompt_value = os.environ.get("METAGPT_PROMPT_COST_PER_1K")
+    completion_value = os.environ.get("METAGPT_COMPLETION_COST_PER_1K")
+    if prompt_value is None and completion_value is None:
+        return None
+    if prompt_value is None or completion_value is None:
+        raise RuntimeError(
+            "Set both METAGPT_PROMPT_COST_PER_1K and "
+            "METAGPT_COMPLETION_COST_PER_1K, or neither."
+        )
+    try:
+        prompt_rate = float(prompt_value)
+        completion_rate = float(completion_value)
+    except ValueError as exc:
+        raise RuntimeError("MetaGPT cost rates must be numeric.") from exc
+    if prompt_rate < 0 or completion_rate < 0:
+        raise RuntimeError("MetaGPT cost rates must be non-negative.")
+    return prompt_rate, completion_rate
+
+
+def install_usage_tracking(
+    cost_module: Any,
+    *,
+    metadata: dict[str, Any],
+    metadata_path: Path,
+    configured_rates: tuple[float, float] | None,
+) -> dict[str, Any]:
+    """Record each usage update without depending on MetaGPT's final Context."""
+
+    metrics: dict[str, Any] = {
+        "schema_version": 1,
+        "tokens": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "cost_usd": None,
+        "llm_calls": 0,
+        "models": [],
+        "priced_llm_calls": 0,
+        "unpriced_llm_calls": 0,
+        "cost_source": None,
+        "warnings": [],
+    }
+    if configured_rates is not None:
+        metrics["cost_source"] = "configured_rates_per_1k_tokens"
+        metrics["configured_rates_usd_per_1k_tokens"] = {
+            "prompt": configured_rates[0],
+            "completion": configured_rates[1],
+        }
+    metadata["llm_metrics"] = metrics
+
+    lock = threading.Lock()
+    active = threading.local()
+    accumulated_cost = 0.0
+    patched_classes: list[str] = []
+
+    def persist() -> None:
+        try:
+            write_metadata(metadata_path, metadata)
+        except OSError:
+            # Metrics collection must not turn a successful repair into a failure.
+            pass
+
+    def record(
+        manager: Any,
+        *,
+        prompt_tokens: Any,
+        completion_tokens: Any,
+        model: Any,
+        cost_before: Any,
+        cost_after: Any,
+    ) -> None:
+        nonlocal accumulated_cost
+        if isinstance(prompt_tokens, bool) or not isinstance(prompt_tokens, (int, float)):
+            return
+        if isinstance(completion_tokens, bool) or not isinstance(
+            completion_tokens, (int, float)
+        ):
+            return
+        prompt = int(prompt_tokens)
+        completion = int(completion_tokens)
+        if prompt < 0 or completion < 0:
+            return
+
+        model_name = str(model) if model is not None else "<unknown>"
+        with lock:
+            metrics["tokens"]["prompt_tokens"] += prompt
+            metrics["tokens"]["completion_tokens"] += completion
+            metrics["tokens"]["total_tokens"] += prompt + completion
+            metrics["llm_calls"] += 1
+            if model_name not in metrics["models"]:
+                metrics["models"].append(model_name)
+
+            priced = False
+            if configured_rates is not None:
+                accumulated_cost += (
+                    prompt * configured_rates[0]
+                    + completion * configured_rates[1]
+                ) / 1000
+                priced = True
+            else:
+                token_costs = getattr(manager, "token_costs", None)
+                model_has_rate = (
+                    isinstance(token_costs, dict) and model_name in token_costs
+                )
+                if (
+                    model_has_rate
+                    and isinstance(cost_before, (int, float))
+                    and not isinstance(cost_before, bool)
+                    and isinstance(cost_after, (int, float))
+                    and not isinstance(cost_after, bool)
+                    and cost_after >= cost_before
+                ):
+                    accumulated_cost += float(cost_after - cost_before)
+                    priced = True
+                    metrics["cost_source"] = "metagpt_cost_manager"
+
+            if priced:
+                metrics["priced_llm_calls"] += 1
+            else:
+                metrics["unpriced_llm_calls"] += 1
+                warning = f"missing_model_price:{model_name}"
+                if warning not in metrics["warnings"]:
+                    metrics["warnings"].append(warning)
+
+            if metrics["unpriced_llm_calls"] == 0:
+                metrics["cost_usd"] = round(accumulated_cost, 12)
+            else:
+                metrics["cost_usd"] = None
+            persist()
+
+    for class_name in (
+        "CostManager",
+        "TokenCostManager",
+        "FireworksCostManager",
+    ):
+        manager_class = getattr(cost_module, class_name, None)
+        original = (
+            manager_class.__dict__.get("update_cost")
+            if isinstance(manager_class, type)
+            else None
+        )
+        if not callable(original) or getattr(original, "__oci_usage_tracking__", False):
+            continue
+
+        def tracked_update_cost(
+            self: Any,
+            prompt_tokens: Any,
+            completion_tokens: Any,
+            model: Any,
+            *args: Any,
+            _original: Any = original,
+            **kwargs: Any,
+        ) -> Any:
+            depth = getattr(active, "depth", 0)
+            active.depth = depth + 1
+            cost_before = getattr(self, "total_cost", None)
+            try:
+                return _original(
+                    self,
+                    prompt_tokens,
+                    completion_tokens,
+                    model,
+                    *args,
+                    **kwargs,
+                )
+            finally:
+                active.depth = depth
+                if depth == 0:
+                    record(
+                        self,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        model=model,
+                        cost_before=cost_before,
+                        cost_after=getattr(self, "total_cost", None),
+                    )
+
+        tracked_update_cost.__oci_usage_tracking__ = True
+        setattr(manager_class, "update_cost", tracked_update_cost)
+        patched_classes.append(class_name)
+
+    metadata["llm_usage_tracking"] = {
+        "status": "applied" if patched_classes else "unavailable",
+        "patched_classes": patched_classes,
+    }
+    if not patched_classes:
+        metrics["warnings"].append("metagpt_cost_manager_not_found")
+    persist()
+    return metrics
 
 
 def redact(value: str, secrets: tuple[str, ...]) -> str:
@@ -184,6 +382,7 @@ def main() -> int:
 
     api_key, api_key_source = resolve_api_key()
     base_url = resolve_base_url(args.base_url, args.api_type)
+    configured_rates = resolve_cost_rates()
     write_bootstrap_config(
         Path.home(), api_type=args.api_type, model=args.model, base_url=base_url
     )
@@ -212,6 +411,7 @@ def main() -> int:
     try:
         import metagpt.config2 as config_module
         from metagpt.configs.llm_config import LLMConfig
+        from metagpt.utils import cost_manager as cost_module
 
         config_module.config.llm = LLMConfig(
             api_type=args.api_type,
@@ -219,9 +419,15 @@ def main() -> int:
             base_url=base_url,
             model=args.model,
             temperature=args.temperature,
-            calc_usage=False,
+            calc_usage=True,
         )
         config_module.config.repair_llm_output = True
+        install_usage_tracking(
+            cost_module,
+            metadata=metadata,
+            metadata_path=metadata_path,
+            configured_rates=configured_rates,
+        )
 
         initial_diff = git_diff(repo)
         metadata["initial_diff_size_bytes"] = len(initial_diff.encode("utf-8"))

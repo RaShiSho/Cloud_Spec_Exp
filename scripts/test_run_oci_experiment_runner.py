@@ -460,6 +460,85 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
         self.assertIsNone(metrics["cost_usd"])
         self.assertIn("cost_usd", metrics["missing"])
 
+    def test_extracts_metagpt_launcher_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            baseline_output = output_dir / "metagpt-output"
+            baseline_output.mkdir()
+            (baseline_output / "launcher_metadata.json").write_text(
+                json.dumps(
+                    {
+                        "llm_metrics": {
+                            "tokens": {
+                                "prompt_tokens": 300,
+                                "completion_tokens": 30,
+                                "total_tokens": 330,
+                            },
+                            "cost_usd": 0.00036,
+                            "llm_calls": 2,
+                            "warnings": [],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            metrics = runner.collect_llm_metrics(
+                baseline={
+                    "name": "metagpt",
+                    "kind": "generic_repair_agent",
+                    "output_dir_name": "metagpt-output",
+                },
+                output_dir=output_dir,
+                baseline_result=self.command_result(),
+            )
+
+        self.assertEqual(metrics["tokens"]["prompt_tokens"], 300)
+        self.assertEqual(metrics["tokens"]["completion_tokens"], 30)
+        self.assertEqual(metrics["tokens"]["total_tokens"], 330)
+        self.assertEqual(metrics["cost_usd"], 0.00036)
+        self.assertEqual(metrics["llm_calls"], 2)
+        self.assertEqual(
+            metrics["sources"], [str(Path("metagpt-output") / "launcher_metadata.json")]
+        )
+
+    def test_metagpt_unknown_model_price_keeps_cost_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            baseline_output = output_dir / "metagpt-output"
+            baseline_output.mkdir()
+            (baseline_output / "launcher_metadata.json").write_text(
+                json.dumps(
+                    {
+                        "llm_metrics": {
+                            "tokens": {
+                                "prompt_tokens": 100,
+                                "completion_tokens": 20,
+                                "total_tokens": 120,
+                            },
+                            "cost_usd": None,
+                            "llm_calls": 1,
+                            "warnings": ["missing_model_price:gpt-5.5"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            metrics = runner.collect_llm_metrics(
+                baseline={"name": "metagpt", "kind": "generic_repair_agent"},
+                output_dir=output_dir,
+                baseline_result=self.command_result(),
+            )
+
+        self.assertEqual(metrics["tokens"]["total_tokens"], 120)
+        self.assertEqual(metrics["llm_calls"], 1)
+        self.assertIsNone(metrics["cost_usd"])
+        self.assertIn("cost_usd", metrics["missing"])
+        self.assertIn(
+            "metagpt:missing_model_price:gpt-5.5", metrics["warnings"]
+        )
+
     def test_autocoderover_zero_cost_is_marked_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)

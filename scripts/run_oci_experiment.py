@@ -517,6 +517,62 @@ def _extract_agentless_metrics(
     _apply_usage_matches(metrics, matches, deduplicate_ids=True)
 
 
+def _extract_metagpt_metrics(
+    metrics: dict[str, Any],
+    *,
+    baseline: dict[str, Any],
+    output_dir: Path,
+    baseline_result: Any,
+) -> None:
+    baseline_output = output_dir / baseline.get("output_dir_name", "metagpt-output")
+    metadata_path = baseline_output / "launcher_metadata.json"
+    if metadata_path.exists():
+        _add_source(metrics, metadata_path, output_dir)
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+            metrics["warnings"].append(
+                f"invalid_metagpt_launcher_metadata:{type(exc).__name__}"
+            )
+        else:
+            llm_metrics = (
+                metadata.get("llm_metrics") if isinstance(metadata, dict) else None
+            )
+            if isinstance(llm_metrics, dict):
+                tokens = llm_metrics.get("tokens")
+                if isinstance(tokens, dict):
+                    prompt = _numeric(tokens.get("prompt_tokens"))
+                    completion = _numeric(tokens.get("completion_tokens"))
+                    total = _numeric(tokens.get("total_tokens"))
+                    if prompt is not None and completion is not None:
+                        _set_token_totals(
+                            metrics,
+                            prompt_tokens=int(prompt),
+                            completion_tokens=int(completion),
+                            total_tokens=int(total) if total is not None else None,
+                        )
+                cost = _numeric(llm_metrics.get("cost_usd"))
+                calls = _numeric(llm_metrics.get("llm_calls"))
+                if cost is not None:
+                    metrics["cost_usd"] = float(cost)
+                if calls is not None:
+                    metrics["llm_calls"] = int(calls)
+                for warning in llm_metrics.get("warnings") or []:
+                    if isinstance(warning, str):
+                        metrics["warnings"].append(f"metagpt:{warning}")
+            else:
+                metrics["warnings"].append("missing_metagpt_llm_metrics")
+    else:
+        metrics["warnings"].append("missing_metagpt_launcher_metadata")
+
+    if metrics["tokens"]["total_tokens"] is None:
+        metrics["sources"].append("baseline_result.stdout+stderr")
+        matches = _completion_usage_matches(
+            f"{baseline_result.stdout}\n{baseline_result.stderr}"
+        )
+        _apply_usage_matches(metrics, matches, deduplicate_ids=True)
+
+
 def _extract_autocoderover_metrics(
     metrics: dict[str, Any],
     *,
@@ -616,6 +672,13 @@ def collect_llm_metrics(
         elif kind == "agentless_oci" or "agentless" in name:
             _extract_agentless_metrics(
                 metrics, baseline=baseline, output_dir=output_dir
+            )
+        elif name == "metagpt":
+            _extract_metagpt_metrics(
+                metrics,
+                baseline=baseline,
+                output_dir=output_dir,
+                baseline_result=baseline_result,
             )
         elif "autocoderover" in name:
             _extract_autocoderover_metrics(

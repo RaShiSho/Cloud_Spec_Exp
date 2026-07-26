@@ -88,6 +88,23 @@ LiteLLM 风格客户端使用的 `deepseek/deepseek-v4-flash`。MetaGPT 当前�
 正式实验应记录 `launcher_metadata.json` 中的 `baseline_revision`。MetaGPT 的 CLI 和角色
 编排仍在变化，只记录分支名不足以复现实验。
 
+## Token 与 Cost
+
+launcher 会开启 MetaGPT 的 `calc_usage`，并在每次 usage 更新后把累计 Token、LLM 调用
+次数和 Cost 写入 `launcher_metadata.json.llm_metrics`。写入是增量且原子的，因此 Agent
+超时或失败时也能尽量保留已发生的调用。
+
+Cost 优先使用 MetaGPT 内置模型价格表。若中转站模型（例如 `gpt-5.5`）不在该表中，
+Token 和调用次数仍会记录，但 Cost 为 `null` 并带有 `missing_model_price` 警告。可按
+中转站账单价格显式提供每千 Token 的美元费率：
+
+```bash
+export METAGPT_PROMPT_COST_PER_1K='输入费率'
+export METAGPT_COMPLETION_COST_PER_1K='输出费率'
+```
+
+两个变量必须同时设置。launcher 不推测价格，也不会把非零 Token 的未知 Cost 记为 0。
+
 ## 运行
 
 ```bash

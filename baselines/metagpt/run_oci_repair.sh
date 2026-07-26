@@ -37,6 +37,8 @@ Environment:
                                   DEEPSEEK_API_KEY, then OPENAI_API_KEY.
   METAGPT_API_TYPE                Default for --api-type.
   METAGPT_BASE_URL                Default for --base-url.
+  METAGPT_PROMPT_COST_PER_1K      Optional input-token USD rate per 1,000 tokens.
+  METAGPT_COMPLETION_COST_PER_1K  Optional output-token USD rate per 1,000 tokens.
 EOF
 }
 

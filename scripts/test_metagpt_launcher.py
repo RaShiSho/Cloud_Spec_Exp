@@ -66,20 +66,42 @@ class MetaGPTLauncherTests(unittest.TestCase):
             "    return ([{'command_name': 'end'}], True, command_rsp)\n",
             encoding="utf-8",
         )
+        (utils / "cost_manager.py").write_text(
+            "class CostManager:\n"
+            "    token_costs = {'fake-model': (0.001, 0.002)}\n"
+            "    def __init__(self):\n"
+            "        self.total_prompt_tokens = 0\n"
+            "        self.total_completion_tokens = 0\n"
+            "        self.total_cost = 0.0\n"
+            "    def update_cost(self, prompt_tokens, completion_tokens, model):\n"
+            "        self.total_prompt_tokens += prompt_tokens\n"
+            "        self.total_completion_tokens += completion_tokens\n"
+            "        prompt_rate, completion_rate = self.token_costs[model]\n"
+            "        self.total_cost += (\n"
+            "            prompt_tokens * prompt_rate\n"
+            "            + completion_tokens * completion_rate\n"
+            "        ) / 1000\n",
+            encoding="utf-8",
+        )
         (package / "software_company.py").write_text(
             "from pathlib import Path\n"
             "import subprocess\n"
             "from metagpt.config2 import config\n"
             "from metagpt.tools.libs import terminal\n"
             "from metagpt.utils import role_zero_utils\n"
+            "from metagpt.utils.cost_manager import CostManager\n"
             f"MAKE_CHANGE = {make_change!r}\n"
             "def generate_repo(idea, project_path, n_round=5, **kwargs):\n"
             "    project = Path(project_path)\n"
             "    assert Path.cwd() == project\n"
             "    assert config.workspace.path == project\n"
+            "    assert config.llm.calc_usage is True\n"
             "    assert terminal.DEFAULT_WORKSPACE_ROOT == project\n"
             "    assert getattr(terminal.Terminal, '__oci_terminal_compat__', None)\n"
             "    assert getattr(role_zero_utils, '__oci_command_compat__', None)\n"
+            "    costs = CostManager()\n"
+            "    costs.update_cost(100, 10, 'fake-model')\n"
+            "    costs.update_cost(200, 20, 'fake-model')\n"
             "    if MAKE_CHANGE:\n"
             "        Path(project, 'runtime.c').write_text(idea, encoding='utf-8')\n"
             "        subprocess.run(['git', '-C', str(project), 'add', 'runtime.c'], check=True)\n"
@@ -184,6 +206,21 @@ class MetaGPTLauncherTests(unittest.TestCase):
             self.assertGreater(metadata["launcher_pid"], 0)
             self.assertIn("generate_repo_started_at_unix", metadata)
             self.assertIn("generate_repo_finished_at_unix", metadata)
+            self.assertEqual(metadata["llm_usage_tracking"]["status"], "applied")
+            self.assertEqual(
+                metadata["llm_metrics"]["tokens"],
+                {
+                    "prompt_tokens": 300,
+                    "completion_tokens": 30,
+                    "total_tokens": 330,
+                },
+            )
+            self.assertEqual(metadata["llm_metrics"]["llm_calls"], 2)
+            self.assertAlmostEqual(metadata["llm_metrics"]["cost_usd"], 0.00036)
+            self.assertEqual(
+                metadata["llm_metrics"]["cost_source"], "metagpt_cost_manager"
+            )
+            self.assertEqual(metadata["llm_metrics"]["unpriced_llm_calls"], 0)
 
             persisted = "\n".join(
                 path.read_text(encoding="utf-8", errors="replace")
