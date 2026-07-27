@@ -183,6 +183,75 @@ def resolve_cost_rates() -> tuple[float, float] | None:
     return prompt_rate, completion_rate
 
 
+def install_stream_usage_options(
+    async_completions_class: type[Any],
+    *,
+    metadata: dict[str, Any],
+    metadata_path: Path,
+) -> dict[str, Any]:
+    """Request authoritative usage data on every streamed Chat Completions call."""
+
+    original = getattr(async_completions_class, "create", None)
+    tracking: dict[str, Any] = {
+        "status": "unavailable",
+        "strategy": None,
+        "stream_requests_with_usage": 0,
+    }
+    metadata["stream_usage_options"] = tracking
+    if not callable(original):
+        tracking["error"] = "async_chat_completions_create_not_found"
+        write_metadata(metadata_path, metadata)
+        return tracking
+    if getattr(original, "__oci_include_stream_usage__", False):
+        tracking["status"] = "already_applied"
+        write_metadata(metadata_path, metadata)
+        return tracking
+
+    try:
+        supports_direct_parameter = (
+            "stream_options" in inspect.signature(original).parameters
+        )
+    except (TypeError, ValueError):
+        supports_direct_parameter = False
+    strategy = "stream_options_parameter" if supports_direct_parameter else "extra_body"
+    tracking.update({"status": "applied", "strategy": strategy})
+    lock = threading.Lock()
+
+    async def create_with_stream_usage(
+        self: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        if kwargs.get("stream") is True:
+            if supports_direct_parameter:
+                current = kwargs.get("stream_options")
+                options = dict(current) if isinstance(current, dict) else {}
+                options["include_usage"] = True
+                kwargs["stream_options"] = options
+            else:
+                current = kwargs.get("extra_body")
+                extra_body = dict(current) if isinstance(current, dict) else {}
+                current_options = extra_body.get("stream_options")
+                options = (
+                    dict(current_options)
+                    if isinstance(current_options, dict)
+                    else {}
+                )
+                options["include_usage"] = True
+                extra_body["stream_options"] = options
+                kwargs["extra_body"] = extra_body
+            with lock:
+                tracking["stream_requests_with_usage"] += 1
+                try:
+                    write_metadata(metadata_path, metadata)
+                except OSError:
+                    pass
+        return await original(self, *args, **kwargs)
+
+    create_with_stream_usage.__oci_include_stream_usage__ = True
+    setattr(async_completions_class, "create", create_with_stream_usage)
+    write_metadata(metadata_path, metadata)
+    return tracking
+
+
 def install_usage_tracking(
     cost_module: Any,
     *,
@@ -412,6 +481,12 @@ def main() -> int:
         import metagpt.config2 as config_module
         from metagpt.configs.llm_config import LLMConfig
         from metagpt.utils import cost_manager as cost_module
+        try:
+            from openai.resources.chat.completions import AsyncCompletions
+        except ImportError:
+            from openai.resources.chat.completions.completions import (
+                AsyncCompletions,
+            )
 
         config_module.config.llm = LLMConfig(
             api_type=args.api_type,
@@ -422,6 +497,15 @@ def main() -> int:
             calc_usage=True,
         )
         config_module.config.repair_llm_output = True
+        stream_usage_tracking = install_stream_usage_options(
+            AsyncCompletions,
+            metadata=metadata,
+            metadata_path=metadata_path,
+        )
+        if stream_usage_tracking["status"] not in ("applied", "already_applied"):
+            raise RuntimeError(
+                "Unable to enable usage reporting for streamed OpenAI requests"
+            )
         install_usage_tracking(
             cost_module,
             metadata=metadata,

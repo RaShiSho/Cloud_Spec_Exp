@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -12,7 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAUNCHER = REPO_ROOT / "baselines" / "metagpt" / "launch.py"
 sys.path.insert(0, str(LAUNCHER.parent))
-from launch import redact  # noqa: E402
+from launch import install_stream_usage_options, redact  # noqa: E402
 
 
 class MetaGPTLauncherTests(unittest.TestCase):
@@ -28,11 +29,33 @@ class MetaGPTLauncherTests(unittest.TestCase):
         configs = package / "configs"
         terminal_libs = package / "tools" / "libs"
         utils = package / "utils"
+        openai_completions = (
+            baseline_repo / "openai" / "resources" / "chat" / "completions"
+        )
         configs.mkdir(parents=True)
         terminal_libs.mkdir(parents=True)
         utils.mkdir(parents=True)
-        for package_dir in (package, configs, package / "tools", terminal_libs, utils):
+        openai_completions.mkdir(parents=True)
+        for package_dir in (
+            package,
+            configs,
+            package / "tools",
+            terminal_libs,
+            utils,
+            baseline_repo / "openai",
+            baseline_repo / "openai" / "resources",
+            baseline_repo / "openai" / "resources" / "chat",
+            openai_completions,
+        ):
             (package_dir / "__init__.py").write_text("", encoding="utf-8")
+        (openai_completions / "__init__.py").write_text(
+            "class AsyncCompletions:\n"
+            "    async def create(self, *, stream=False, stream_options=None):\n"
+            "        if stream:\n"
+            "            assert stream_options == {'include_usage': True}\n"
+            "        return None\n",
+            encoding="utf-8",
+        )
         (package / "config2.py").write_text(
             "from pathlib import Path\n"
             "class Workspace:\n"
@@ -85,7 +108,9 @@ class MetaGPTLauncherTests(unittest.TestCase):
         )
         (package / "software_company.py").write_text(
             "from pathlib import Path\n"
+            "import asyncio\n"
             "import subprocess\n"
+            "from openai.resources.chat.completions import AsyncCompletions\n"
             "from metagpt.config2 import config\n"
             "from metagpt.tools.libs import terminal\n"
             "from metagpt.utils import role_zero_utils\n"
@@ -99,6 +124,7 @@ class MetaGPTLauncherTests(unittest.TestCase):
             "    assert terminal.DEFAULT_WORKSPACE_ROOT == project\n"
             "    assert getattr(terminal.Terminal, '__oci_terminal_compat__', None)\n"
             "    assert getattr(role_zero_utils, '__oci_command_compat__', None)\n"
+            "    asyncio.run(AsyncCompletions().create(stream=True))\n"
             "    costs = CostManager()\n"
             "    costs.update_cost(100, 10, 'fake-model')\n"
             "    costs.update_cost(200, 20, 'fake-model')\n"
@@ -207,6 +233,14 @@ class MetaGPTLauncherTests(unittest.TestCase):
             self.assertIn("generate_repo_started_at_unix", metadata)
             self.assertIn("generate_repo_finished_at_unix", metadata)
             self.assertEqual(metadata["llm_usage_tracking"]["status"], "applied")
+            self.assertEqual(metadata["stream_usage_options"]["status"], "applied")
+            self.assertEqual(
+                metadata["stream_usage_options"]["strategy"],
+                "stream_options_parameter",
+            )
+            self.assertEqual(
+                metadata["stream_usage_options"]["stream_requests_with_usage"], 1
+            )
             self.assertEqual(
                 metadata["llm_metrics"]["tokens"],
                 {
@@ -246,6 +280,34 @@ class MetaGPTLauncherTests(unittest.TestCase):
             self.assertEqual(metadata["status"], "failed")
             self.assertEqual(metadata["error_type"], "NoRepositoryChanges")
             self.assertEqual(metadata["worktree_diff_size_bytes"], 0)
+
+    def test_stream_usage_falls_back_to_extra_body_for_older_sdk(self) -> None:
+        received: dict[str, object] = {}
+
+        class OlderAsyncCompletions:
+            async def create(
+                self, *, stream: bool = False, extra_body: dict | None = None
+            ) -> None:
+                received["stream"] = stream
+                received["extra_body"] = extra_body
+
+        with tempfile.TemporaryDirectory() as tmp:
+            metadata_path = Path(tmp) / "metadata.json"
+            metadata: dict[str, object] = {}
+            tracking = install_stream_usage_options(
+                OlderAsyncCompletions,
+                metadata=metadata,
+                metadata_path=metadata_path,
+            )
+            asyncio.run(OlderAsyncCompletions().create(stream=True))
+
+        self.assertEqual(tracking["status"], "applied")
+        self.assertEqual(tracking["strategy"], "extra_body")
+        self.assertEqual(tracking["stream_requests_with_usage"], 1)
+        self.assertEqual(
+            received["extra_body"],
+            {"stream_options": {"include_usage": True}},
+        )
 
 
 if __name__ == "__main__":
