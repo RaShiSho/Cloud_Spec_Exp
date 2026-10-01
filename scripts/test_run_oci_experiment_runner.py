@@ -302,6 +302,10 @@ class RunOciExperimentFailureTests(unittest.TestCase):
         )
         self.assertIn("Do not use absolute paths in `### <file>` headers.", task_text)
         self.assertNotIn("Use absolute paths when calling Editor tools", task_text)
+        self.assertNotIn("Required first command:", task_text)
+        self.assertNotIn("Run reproduction commands from", task_text)
+        self.assertIn("The experiment runner checks out", task_text)
+        self.assertIn("unified oracle", task_text)
         self.assertEqual(task_row["problem_statement"], task_text)
 
 

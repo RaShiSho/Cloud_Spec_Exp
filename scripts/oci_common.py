@@ -321,17 +321,21 @@ def build_task_text(
     build_command = runtime_cfg.get("build_command", "")
     runtime_path = runtime_cfg.get("runtime_path", "")
     target_repo = Path(worktree_dir).resolve() if worktree_dir is not None else None
+    is_agentless = baseline_kind == "agentless_oci"
     target_instructions = []
-    if target_repo is not None:
-        if baseline_kind == "agentless_oci":
-            edit_path_instructions = [
-                "When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.",
-                "Do not use absolute paths in `### <file>` headers.",
-            ]
-        else:
-            edit_path_instructions = [
-                "Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.",
-            ]
+    if is_agentless:
+        target_instructions = [
+            "Agentless task (text-only patch generation):",
+            "Read the supplied source files and issue information, then return SEARCH/REPLACE edit blocks that fix the issue.",
+            "The experiment runner checks out the target revision, supplies the source context, applies your edit blocks, executes commands, builds the candidate runtime, and validates it with the unified oracle.",
+            "You have no shell, repository browsing, or Editor tools in this task. Command execution and validation are the runner's responsibility; they are not prerequisites for you to propose edits.",
+            "Commands in the issue information and README are reproduction references for the runner. Treat them as context, not instructions for you to execute.",
+            "When writing Agentless SEARCH/REPLACE edit blocks, use repository-relative file paths exactly as shown in the localized source files.",
+            "Do not use absolute paths in `### <file>` headers.",
+            "Base SEARCH blocks on the supplied source text. Do not claim to have executed commands or verified results.",
+            "",
+        ]
+    elif target_repo is not None:
         target_instructions = [
             "Writable target repository (the only location where source changes are allowed):",
             str(target_repo),
@@ -341,7 +345,25 @@ def build_task_text(
             "",
             "Inspect, edit, build, and collect git diff only in the writable target repository.",
             "Do not inspect or modify the source checkout under external/subjects; it may be at a different revision.",
-            *edit_path_instructions,
+            "Use absolute paths when calling Editor tools, and ensure every edited path is inside the writable target repository.",
+            "",
+        ]
+    execution_instructions = []
+    if not is_agentless:
+        execution_instructions = [
+            "Reproduction bundle absolute path (read-only):",
+            str(case_dir),
+            "",
+            "Rootfs tar absolute path:",
+            str(rootfs_tar),
+            "",
+            "Run reproduction commands from the reproduction bundle directory.",
+            "",
+            "Build command that will be used after your changes:",
+            build_command,
+            "",
+            "Candidate runtime path after build:",
+            str(runtime_path),
             "",
         ]
     return "\n".join(
@@ -358,24 +380,11 @@ def build_task_text(
             "Do not edit the dataset, generated worktree metadata, or oracle scripts.",
             "",
             *target_instructions,
-            "Reproduction bundle absolute path (read-only):",
-            str(case_dir),
-            "",
-            "Rootfs tar absolute path:",
-            str(rootfs_tar),
-            "",
-            "Run reproduction commands from the reproduction bundle directory.",
-            "",
-            "Build command that will be used after your changes:",
-            build_command,
-            "",
-            "Candidate runtime path after build:",
-            str(runtime_path),
-            "",
+            *execution_instructions,
             "Expected differential behavior and validation notes:",
             texts.get("expected_diff.txt", "").strip(),
             "",
-            "Case README:",
+            "Case README (reference material; execution is handled by the runner):" if is_agentless else "Case README:",
             texts.get("README.md", "").strip(),
         ]
     ).strip() + "\n"
