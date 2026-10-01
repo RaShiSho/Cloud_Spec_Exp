@@ -12,6 +12,7 @@ from typing import Any
 
 from model_profiles import ConfigError, ResolvedProfile
 from experiment_trace import trace_model_request
+from model_http_trace import install_http_trace
 
 
 def completion_parameters(profile: ResolvedProfile, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -68,6 +69,7 @@ def bind_openai(profile: ResolvedProfile, sdk: Any = None) -> None:
             def initialize(self: Any, *args: Any, **kwargs: Any) -> None:
                 kwargs.update(api_key=profile.api_key, base_url=settings["base_url"])
                 original(self, *args, **kwargs)
+                install_http_trace(self._client, profile)
             return initialize
 
         client_class.__init__ = make_init(original_init)

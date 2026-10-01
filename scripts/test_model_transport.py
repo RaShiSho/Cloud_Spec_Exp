@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -57,6 +58,114 @@ class TransportParameterTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_OPENAI, "Run this test in a baseline environment with its pinned OpenAI SDK")
 class InstalledSDKTests(unittest.TestCase):
+    def trace_context(self, stack, path, profile):
+        import openai
+        if not hasattr(openai, "OpenAI"):
+            self.skipTest("HTTP attempt tracing requires the modern OpenAI SDK")
+        stack.enter_context(mock.patch.dict(os.environ, {"OCI_MODEL_EVENT_LOG": str(path)}))
+        for cls in (openai.OpenAI, openai.AsyncOpenAI):
+            for method in ("__init__", "_prepare_options"):
+                stack.enter_context(mock.patch.object(cls, method, getattr(cls, method)))
+        bind_openai(profile, openai)
+
+    def test_http_trace_observes_sdk_retry_without_changing_response(self):
+        import httpx
+        import openai
+        profile = test_profile()
+        calls = []
+        prompt = "private request text must not appear in diagnostics"
+
+        def handler(request):
+            calls.append(request)
+            if len(calls) == 1:
+                return httpx.Response(503, json={"error": {"message": "retry me"}}, headers={"retry-after-ms": "1"})
+            return httpx.Response(200, json={"id": "offline", "object": "chat.completion", "created": 0, "model": "test-model", "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]}, headers={"x-request-id": "upstream-request", "set-cookie": "private-cookie"})
+
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+            path = Path(tmp) / "events.jsonl"
+            self.trace_context(stack, path, profile)
+            with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+                with openai.OpenAI(http_client=http, timeout=17, max_retries=1) as client:
+                    response = client.chat.completions.create(model="wrong", messages=[{"role": "user", "content": prompt}])
+                    self.assertEqual(response.choices[0].message.content, "ok")
+                    self.assertEqual(client.timeout, 17)
+                    self.assertEqual(client.max_retries, 1)
+            text = path.read_text()
+            rows = [json.loads(line) for line in text.splitlines()]
+        starts = [row for row in rows if row["event"] == "model_http_request_started"]
+        headers = [row for row in rows if row["event"] == "model_http_response_headers"]
+        finishes = [row for row in rows if row["event"] == "model_http_request_finished"]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([row["attempt"] for row in starts], [1, 2])
+        self.assertEqual([row["sdk_retry_count"] for row in starts], ["0", "1"])
+        self.assertTrue(all(row["timeout"]["read"] == 17 for row in starts))
+        self.assertEqual([row["status_code"] for row in headers], [503, 200])
+        self.assertEqual(headers[-1]["headers"]["x-request-id"], "upstream-request")
+        self.assertTrue(all(row["body_read"] for row in finishes))
+        self.assertEqual(starts[-1]["request_id"], headers[-1]["request_id"])
+        self.assertEqual(starts[-1]["request_id"], finishes[-1]["request_id"])
+        self.assertNotEqual(starts[0]["request_id"], starts[1]["request_id"])
+        for sensitive in (prompt, profile.api_key, "private-cookie", "retry me"):
+            self.assertNotIn(sensitive, text)
+
+    def test_http_trace_preserves_failure_and_records_nested_cause_after_headers(self):
+        import httpcore
+        import httpx
+        import openai
+        profile = test_profile()
+
+        class BrokenBody(httpx.SyncByteStream):
+            def __iter__(self):
+                yield b"partial response"
+                try:
+                    raise httpcore.ReadError("upstream closed " + profile.api_key)
+                except httpcore.ReadError as error:
+                    raise httpx.ReadError("response read failed") from error
+
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+            path = Path(tmp) / "events.jsonl"
+            self.trace_context(stack, path, profile)
+            with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=BrokenBody()))) as http:
+                with openai.OpenAI(http_client=http, max_retries=0) as client:
+                    with self.assertRaises(openai.APIConnectionError) as caught:
+                        client.chat.completions.create(model="wrong", messages=[])
+                    self.assertIsInstance(caught.exception.__cause__, httpx.ReadError)
+            text = path.read_text()
+            rows = [json.loads(line) for line in text.splitlines()]
+        events = [row["event"] for row in rows]
+        self.assertLess(events.index("model_http_response_headers"), events.index("model_http_request_failed"))
+        failure = next(row for row in rows if row["event"] == "model_http_request_failed")
+        self.assertEqual([item["type"] for item in failure["exception_chain"]], ["httpx.ReadError", "httpcore.ReadError"])
+        self.assertIn("<redacted>", failure["exception_chain"][1]["message"])
+        self.assertNotIn(profile.api_key, text)
+        self.assertNotIn("partial response", text)
+        self.assertNotIn("model_http_request_finished", events)
+
+    def test_async_http_trace_preserves_timeout_exception_before_headers(self):
+        import httpx
+        import openai
+        profile = test_profile()
+
+        def handler(request):
+            raise httpx.ReadTimeout("waiting for response headers", request=request)
+
+        async def request():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+                async with openai.AsyncOpenAI(http_client=http, max_retries=0) as client:
+                    client._platform = "Linux"
+                    with self.assertRaises(openai.APITimeoutError):
+                        await client.chat.completions.create(model="wrong", messages=[])
+
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+            path = Path(tmp) / "events.jsonl"
+            self.trace_context(stack, path, profile)
+            asyncio.run(request())
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+        events = [row["event"] for row in rows]
+        self.assertNotIn("model_http_response_headers", events)
+        failure = next(row for row in rows if row["event"] == "model_http_request_failed")
+        self.assertEqual(failure["exception_chain"][0]["type"], "httpx.ReadTimeout")
+
     def test_final_http_request_uses_profile(self):
         self.check_profile(test_profile())
 
