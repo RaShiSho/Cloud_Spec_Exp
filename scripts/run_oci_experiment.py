@@ -12,6 +12,7 @@ from typing import Any
 
 from baseline_commands import baseline_command, configure_baseline_environment
 from model_profiles import ConfigError, ResolvedProfile, resolve_profile
+from experiment_trace import trace_event
 from run_identity import execution_inputs, run_identity
 from oci_common import (
     DEFAULT_EXTENSIONS,
@@ -738,6 +739,7 @@ def finalize_metadata(
     metadata["elapsed_seconds"] = elapsed
     if output_dir is not None:
         write_json(output_dir / "metadata.json", metadata)
+        trace_event(output_dir / "events.jsonl", "run_finished", status=metadata.get("status"), error=metadata.get("error"), elapsed_seconds=elapsed)
     return metadata
 
 
@@ -953,6 +955,7 @@ def run_one(
     model_config = output_dir / "model_config.json"
     write_json(model_config, profile.public())
     write_json(output_dir / "metadata.json", metadata)
+    trace_event(output_dir / "events.jsonl", "run_started", baseline=baseline["name"], case_id=case["case_id"], source_ref=ref, worktree=str(worktree_dir), model_profile=profile.public())
 
     try:
         progress(f"{label} creating worktree from {source_dir} at {ref}")
@@ -1037,11 +1040,14 @@ def run_one(
 
     command = baseline_command(baseline, command_values)
     progress(f"{label} running baseline command in {baseline_cwd}")
+    baseline_env = configure_baseline_environment(baseline, profile.child_env())
+    baseline_env["OCI_MODEL_EVENT_LOG"] = str(output_dir / "model_events.jsonl")
+    trace_event(output_dir / "events.jsonl", "baseline_started", command=command, cwd=str(baseline_cwd), timeout_seconds=int(baseline.get("timeout_seconds", experiment.get("timeout_seconds", 1800))))
     agent_started_monotonic = time.monotonic()
     baseline_result = run_command(
         command,
         cwd=baseline_cwd,
-        env=configure_baseline_environment(baseline, profile.child_env()),
+        env=baseline_env,
         shell=False,
         timeout=int(
             baseline.get(
@@ -1065,6 +1071,8 @@ def run_one(
     progress(f"{label} baseline finished returncode={baseline_result.returncode} timed_out={baseline_result.timed_out}")
     write_command_logs(output_dir, None, baseline_result)
     metadata["baseline_result"] = baseline_result.to_dict()
+    write_json(output_dir / "metadata.json", metadata)
+    trace_event(output_dir / "events.jsonl", "baseline_finished", returncode=baseline_result.returncode, timed_out=baseline_result.timed_out, elapsed_seconds=agent_elapsed_seconds)
     if not baseline_result.ok:
         try:
             partial_patch = git_diff(worktree_dir)
@@ -1123,6 +1131,7 @@ def run_one(
         )
 
     progress(f"{label} building candidate runtime")
+    trace_event(output_dir / "events.jsonl", "build_started", command=runtime_cfg["build_command"], cwd=str(worktree_dir), timeout_seconds=int(experiment.get("timeout_seconds", 1800)))
     build_result = run_command(
         runtime_cfg["build_command"],
         cwd=worktree_dir,
@@ -1131,6 +1140,8 @@ def run_one(
     progress(f"{label} build finished returncode={build_result.returncode} timed_out={build_result.timed_out}")
     write_command_logs(output_dir, "build", build_result)
     metadata["build_result"] = build_result.to_dict()
+    write_json(output_dir / "metadata.json", metadata)
+    trace_event(output_dir / "events.jsonl", "build_finished", returncode=build_result.returncode, timed_out=build_result.timed_out)
     if not build_result.ok:
         progress(f"{label} error: build failed")
         metadata["status"] = "error"
@@ -1183,6 +1194,7 @@ def run_one(
     ]
     progress(f"{label} running oracle")
     from process_control import ORACLE_CLEANUP_ALLOWANCE, ORACLE_TERMINATION_GRACE
+    trace_event(output_dir / "events.jsonl", "oracle_started", command=oracle_command, timeout_seconds=oracle_timeout * 4 + ORACLE_CLEANUP_ALLOWANCE)
     oracle_result = run_command(
         oracle_command, timeout=oracle_timeout * 4 + ORACLE_CLEANUP_ALLOWANCE,
         shell=False, termination_grace=ORACLE_TERMINATION_GRACE,
@@ -1190,6 +1202,7 @@ def run_one(
     progress(f"{label} oracle finished returncode={oracle_result.returncode} timed_out={oracle_result.timed_out}")
     write_command_logs(output_dir, "oracle", oracle_result)
     metadata["oracle_result"] = oracle_result.to_dict()
+    trace_event(output_dir / "events.jsonl", "oracle_finished", returncode=oracle_result.returncode, timed_out=oracle_result.timed_out)
     update_metadata_from_oracle(
         metadata=metadata,
         output_dir=output_dir,

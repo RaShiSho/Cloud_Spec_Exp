@@ -1,0 +1,52 @@
+[
+  {
+    "source": "write_fix",
+    "patch": [
+      {
+        "file_name": "src/libcrun/container.c",
+        "insertions": [
+          {
+            "line_number": 588,
+            "new_lines": [
+              "  /* Keep the resolved executable available after seccomp restricts path lookup.  */",
+              "  cleanup_free char *executable = NULL;"
+            ]
+          },
+          {
+            "line_number": 642,
+            "new_lines": [
+              "  /* Resolve PATH inside the container before installing its seccomp filter.  */",
+              "  if (def->process && def->process->args && def->process->args[0]",
+              "      && ! strchr (def->process->args[0], '/'))",
+              "    {",
+              "      const char *path = getenv (\"PATH\");",
+              "      cleanup_free char *path_copy = xstrdup (path ? path : \"/bin:/usr/bin\");",
+              "      char *next = path_copy;",
+              "      char *directory;",
+              "",
+              "      while ((directory = strsep (&next, \":\")) != NULL)",
+              "        {",
+              "          cleanup_free char *candidate = NULL;",
+              "          xasprintf (&candidate, \"%s/%s\", *directory ? directory : \".\", def->process->args[0]);",
+              "          if (access (candidate, X_OK) == 0)",
+              "            {",
+              "              executable = xstrdup (candidate);",
+              "              break;",
+              "            }",
+              "        }",
+              "    }",
+              ""
+            ]
+          }
+        ],
+        "deletions": [],
+        "modifications": [
+          {
+            "line_number": 652,
+            "modified_line": "  execv (executable ? executable : def->process->args[0], def->process->args);"
+          }
+        ]
+      }
+    ]
+  }
+]

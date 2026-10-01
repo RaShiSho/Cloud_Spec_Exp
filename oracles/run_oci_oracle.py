@@ -16,6 +16,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.process_control import CONTAINER_CLEANUP_TIMEOUT, handle_termination, run_process
+from scripts.experiment_trace import trace_event
 
 
 def parse_args() -> argparse.Namespace:
@@ -310,6 +311,8 @@ def main() -> int:
     rootfs_tar = Path(args.rootfs_tar)
     output = Path(args.output)
     expected_diff = case_dir / "expected_diff.txt"
+    trace_path = output.with_suffix(".events.jsonl")
+    trace_event(trace_path, "oracle_started", case_id=args.case, case_dir=str(case_dir), candidate=args.candidate, reference=args.reference, timeout_seconds=args.timeout)
 
     setup_errors: list[str] = []
     if shutil.which("bash") is None:
@@ -342,6 +345,7 @@ def main() -> int:
             "expected_diff": expected_diff.read_text(encoding="utf-8", errors="replace") if expected_diff.exists() else "",
         }
         write_output(output, payload)
+        trace_event(trace_path, "oracle_finished", status="error", error_type="environment", message=payload["message"])
         return 2
 
     assert candidate is not None
@@ -350,6 +354,7 @@ def main() -> int:
     comparisons: dict[str, Any] = {}
     execution_errors: list[str] = []
     for config_name in ("base_config.json", "buggy_config.json"):
+        trace_event(trace_path, "repro_started", config=config_name, runtime=reference, runtime_label="reference")
         reference_result = run_repro(
             case_id=args.case,
             case_dir=case_dir,
@@ -359,6 +364,9 @@ def main() -> int:
             config_name=config_name,
             timeout=args.timeout,
         )
+        write_output(output.parent / (output.stem + "-executions") / f"{config_name}.reference.json", reference_result)
+        trace_event(trace_path, "repro_finished", config=config_name, runtime_label="reference", returncode=reference_result.get("returncode"), timed_out=reference_result.get("timed_out"), execution_issue=classify_execution_issue(reference_result))
+        trace_event(trace_path, "repro_started", config=config_name, runtime=candidate, runtime_label="candidate")
         candidate_result = run_repro(
             case_id=args.case,
             case_dir=case_dir,
@@ -368,6 +376,8 @@ def main() -> int:
             config_name=config_name,
             timeout=args.timeout,
         )
+        write_output(output.parent / (output.stem + "-executions") / f"{config_name}.candidate.json", candidate_result)
+        trace_event(trace_path, "repro_finished", config=config_name, runtime_label="candidate", returncode=candidate_result.get("returncode"), timed_out=candidate_result.get("timed_out"), execution_issue=classify_execution_issue(candidate_result))
         comparisons[config_name] = {
             "reference": reference_result,
             "candidate": candidate_result,
@@ -403,6 +413,7 @@ def main() -> int:
         "expected_diff": expected_diff.read_text(encoding="utf-8", errors="replace") if expected_diff.exists() else "",
     }
     write_output(output, payload)
+    trace_event(trace_path, "oracle_finished", status=status, error_type=error_type, message=message)
     return 0 if status == "pass" else 1
 
 

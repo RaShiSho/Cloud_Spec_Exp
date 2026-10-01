@@ -1,0 +1,34 @@
+四个框架试运行已完成。统一使用 crun-13、gpt profile（gpt-6-sol）和原有 600 秒框架时限。结果：仅 RepairAgent 在受控环境中跑完“模型 → 补丁 → 编译 → oracle”；其余三个未完成全流程。该 case 的未修复版本也通过 oracle，因此本次 PASS 只能证明流程执行成功，不能证明修复有效。
+
+当前 .env 中 MSWEA_COST_TRACKING、MSWEA_MODEL_NAME、OPENAI_API_BASE、OPENAI_BASE_URL 四个旧变量触发模型注册表校验。四个原始入口尝试均在模型调用前以退出码 2 结束。随后仅在诊断进程内过滤这四个变量，使用原注册表的 gpt 配置继续运行；原 .env、模型配置和原实验配置文件均未改动。试运行的新实验配置及全部参数见 experiment.yaml、test_setup.json 和各 run_config.json。
+
+各框架的受控运行结果：
+- mini-swe-agent：9.113 秒，退出码 1，模型请求 0 次。适配器写 mini.json，上游加载器强制改为 mini.yaml，导致 FileNotFoundError。独立实验验证：JSON 文件确实存在时仍失败；相同内容采用 .yaml 文件名即可加载。未修改适配器。
+- Agentless：179.578 秒，框架退出码 0，但没有产生补丁。模型已返回有效响应，明确表示无法执行提示词要求的首条仓库命令，因此没有提供 SEARCH/REPLACE 编辑块。离线重放确认实际响应解析为空；相同解析器能正确处理符合格式的 C 编辑。它不是一次编译失败，也未进入 oracle。未尝试更改提示词重跑。
+- RepairAgent：554.773 秒，生成 2173 字节补丁，编译退出码 0，oracle PASS。另复现了字符串关键词按字符搜索、GNU 风格 C 函数漏检两个工具问题；这些问题出现在本次过程中，但没有阻止完成。
+- MetaGPT：600.300 秒，退出码 124，保留 4462 字节部分补丁。尚未进入统一编译与 oracle。日志显示响应格式解析重试，14:26:08 才开始源码编辑，14:27:36 的编辑还因行号与预期内容不一致而失败。不能据此断言延长时限一定成功。外层 metadata.json 已记录终止，内层 launcher_metadata.json 仍保留 running_generate_repo；进程检查确认本次进程均已退出。
+
+对照结果及解释：
+- 同一个已安装 runc 作为候选和参考：基础配置、问题配置均成功，四次容器执行退出码均为 0，说明当前宿主机满足该 case 的基本执行条件。
+- 另建隔离工作树，使用配置中指定的未修复提交 8b0ac12dd9f0eb457695e6b3386bf700ef05c3aa，构建前后源码 diff 均为 0；它同样 PASS。基础输出为 clean-base，问题配置输出为 process-path-13 与 /bin/sh，和 RepairAgent 补丁版本一致。当前复现输入在此环境下无法区分修复前后，不能将 RepairAgent 的 PASS 计为已证明的漏洞修复。
+- 本地 Git 历史确认，实验配置对应 c047a49 的父提交，c047a49 的提交说明明确关闭 issue #13；case README 引用的 620b91 实际修复 issue #1664。这是数据说明与当前 case 不一致，尚未修正。
+
+模型统计有额外限制：Agentless 报告 114019 tokens，RepairAgent 报告 455531 tokens；MetaGPT 显示 0 tokens，但日志有 gpt-6-sol 的计数不支持警告，应视为用量不可得，而非没有消耗。三者 USD 费用均不可得。model_events.jsonl 记录的是请求准备事件，包含重试，不能等同于完成次数或计费次数。
+
+只新增了必要日志与诊断材料，没有修复以上问题。框架自动生成的候选补丁保留在各自隔离工作树中。日志改动包括阶段开始/结束、命令与时限、模型参数（不含密钥/提示正文）、oracle 单次执行快照及中间 metadata。130 项回归测试中 127 项通过、3 项因系统 Python 缺少 OpenAI SDK 跳过。原配置与框架源码已进行完整性核对，日志中未检出已知密钥明文。
+
+证据入口：
+- report.json：结构化结论与证据映射。
+- original-results.json、original/：原 .env 下的四次启动失败。
+- controlled/<框架>/crun-13/：模型快照、命令事件、stdout/stderr、候选补丁、最终结果。
+- controlled/metagpt/crun-13/metagpt-debug.log：包含命令和响应的完整本次调试日志。
+- diagnostics/：文件名、补丁解析、RepairAgent 工具的独立实验；case 提交核对；参考与未修复版本对照；进程退出证据。
+- pipeline-summary.json、pipeline-summary.md：项目原生汇总器生成的 1 pass / 3 error 结果。必须结合上述未修复版本也 PASS 的限制解释。
+- input-integrity.json、credential-scan.json、logging-regression-tests.log：完整性、密钥扫描、回归验证。
+
+离线诊断可重放（不发起 API 请求）：
+/home/aludy/miniconda3/envs/mini-swe/bin/python results/framework-smoke-20261001/offline_probes.py mini
+/home/aludy/miniconda3/envs/agentless/bin/python results/framework-smoke-20261001/offline_probes.py agentless
+python results/framework-smoke-20261001/offline_probes.py repairagent
+
+受控运行入口为 controlled_runner.py，需搭配 experiment.yaml、--case crun-13 和 --baseline 参数。现有结果目录不能直接覆盖；重跑时应复制配置到新的结果目录与实验名称，并注意其会实际调用模型。pristine_control.py 保存了未修复版本对照的实际执行步骤。

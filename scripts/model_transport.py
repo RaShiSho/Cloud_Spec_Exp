@@ -11,6 +11,7 @@ import os
 from typing import Any
 
 from model_profiles import ConfigError, ResolvedProfile
+from experiment_trace import trace_model_request
 
 
 def completion_parameters(profile: ResolvedProfile, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -45,6 +46,7 @@ def bind_openai(profile: ResolvedProfile, sdk: Any = None) -> None:
         def create(*args: Any, **kwargs: Any) -> Any:
             params = completion_parameters(profile, kwargs)
             params.update(api_key=profile.api_key, api_base=settings["base_url"])
+            trace_model_request(settings, params)
             return original(*args, **params)
 
         sdk.ChatCompletion.create = create
@@ -80,6 +82,7 @@ def bind_openai(profile: ResolvedProfile, sdk: Any = None) -> None:
                 options.extra_json = None
                 client.api_key = profile.api_key
                 client.base_url = settings["base_url"]
+                trace_model_request(settings, options.json_data)
             elif "model" in body:
                 raise ConfigError("The selected profile supports chat completions only; an unconfigured model API was requested")
 
