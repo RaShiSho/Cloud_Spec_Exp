@@ -46,3 +46,12 @@ annotations、缺失或无效 PID 和普通工作负载数值均保留，避免�
 运行上下文记录在每侧的 `execution_context` 中，便于审计归一化依据。
 
 `expected_diff.txt` 作为诊断材料保留；当前不会自动将其中的自然语言转换成断言。
+
+## 超时清理
+
+在 POSIX 系统上，repro、baseline 和构建命令各自使用独立进程组。超时先发送 TERM，
+宽限期后发送 KILL，并回收直接子进程。外层实验脚本终止 oracle 时，也会给 oracle
+时间清理其管理的进程组。超时或中断后，oracle 额外执行对应容器的 `delete -f`，
+再移除 bundle；如果观测到 runtime 通过 sudo 执行，清理也使用非交互 sudo。
+清理失败会记录 `cleanup_warning` 并保留临时目录，避免删除仍被使用的 bundle。
+`--timeout` 指每次执行的时限；进程终止与容器清理有额外的有限宽限时间。

@@ -1181,7 +1181,11 @@ def run_one(
         str(oracle_timeout),
     ]
     progress(f"{label} running oracle")
-    oracle_result = run_command(oracle_command, timeout=oracle_timeout * 4, shell=False)
+    from process_control import ORACLE_CLEANUP_ALLOWANCE, ORACLE_TERMINATION_GRACE
+    oracle_result = run_command(
+        oracle_command, timeout=oracle_timeout * 4 + ORACLE_CLEANUP_ALLOWANCE,
+        shell=False, termination_grace=ORACLE_TERMINATION_GRACE,
+    )
     progress(f"{label} oracle finished returncode={oracle_result.returncode} timed_out={oracle_result.timed_out}")
     write_command_logs(output_dir, "oracle", oracle_result)
     metadata["oracle_result"] = oracle_result.to_dict()

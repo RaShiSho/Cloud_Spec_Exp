@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from .process_control import run_process, TERMINATION_GRACE_SECONDS
+else:
+    from process_control import run_process, TERMINATION_GRACE_SECONDS
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GARBLE_MARKERS = ("?" * 4, chr(0xFFFD), chr(0x6769), chr(0x9418), chr(0x95BF))
 REQUIRED_CASE_FILES = (
@@ -178,19 +183,17 @@ def run_command(
     env: dict[str, str] | None = None,
     timeout: int | None = None,
     shell: bool | None = None,
+    termination_grace: float = TERMINATION_GRACE_SECONDS,
 ) -> CommandResult:
     use_shell = isinstance(command, str) if shell is None else shell
     try:
-        completed = subprocess.run(
+        completed = run_process(
             command,
             cwd=str(cwd) if cwd else None,
             env=env,
             timeout=timeout,
             shell=use_shell,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
+            termination_grace=termination_grace,
         )
         return CommandResult(
             command=command,
@@ -207,7 +210,7 @@ def run_command(
             stdout=ensure_text(exc.stdout),
             stderr=ensure_text(exc.stderr),
             timed_out=True,
-            error=f"timeout after {timeout}s",
+            error=f"timeout after {timeout}s" + ("; " + "; ".join(exc.cleanup_errors) if getattr(exc, "cleanup_errors", None) else ""),
         )
     except OSError as exc:
         return CommandResult(

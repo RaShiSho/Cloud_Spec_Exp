@@ -14,6 +14,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.process_control import CONTAINER_CLEANUP_TIMEOUT, handle_termination, run_process
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare OCI runtime behavior against a reference runtime.")
@@ -140,6 +143,21 @@ def cleanup_temp_dir(path: Path) -> str | None:
     return None
 
 
+def cleanup_container(runtime: str, container_id: str, privileged: bool) -> str | None:
+    command = (["sudo", "-n"] if privileged else []) + [runtime, "delete", "-f", container_id]
+    try:
+        result = run_process(command, timeout=CONTAINER_CLEANUP_TIMEOUT,
+                             privileged_cleanup=lambda: privileged)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"container cleanup failed: {exc}"
+    if result.returncode:
+        message = (result.stderr + "\n" + result.stdout).strip()
+        # The repro's EXIT trap may already have removed the container.
+        if not re.search(r"(?i)(?:container.*(?:does not exist|not found)|no such (?:container|file or directory))", message):
+            return f"container cleanup failed (exit {result.returncode}): {message}"
+    return None
+
+
 def run_repro(
     *,
     case_id: str,
@@ -152,12 +170,21 @@ def run_repro(
 ) -> dict[str, Any]:
     start = time.monotonic()
     tmp = Path(tempfile.mkdtemp(prefix=f"oci-{case_id}-{runtime_label}-{config_name}-"))
-    result: dict[str, Any]
+    result: dict[str, Any] | None = None
+    needs_cleanup = False
+    warnings: list[str] = []
     try:
         invocations = tmp / "runtime-invocations"
         exit_statuses = tmp / "runtime-exit-statuses"
         exit_statuses.touch(mode=0o600)
         workdirs = tmp / "runtime-workdirs"
+        uids = tmp / "runtime-uids"
+        for path in (invocations, workdirs, uids):
+            path.touch(mode=0o600)
+
+        def privileged() -> bool:
+            return os.name == "posix" and os.geteuid() != 0 and "0" in uids.read_text().splitlines()
+
         launcher = tmp / "runtime"
         # A shell wrapper also works for repro scripts which use sudo. Record
         # calls in a file rather than stdout, where they would affect verdicts.
@@ -165,6 +192,7 @@ def run_repro(
             "#!/bin/sh\n"
             f"printf '%s\\n' \"${{1-}}\" >> {shlex.quote(str(invocations))}\n"
             f"printf '%s\\n' \"$PWD\" >> {shlex.quote(str(workdirs))}\n"
+            f"id -u >> {shlex.quote(str(uids))}\n"
             "set +e\n"
             f"{shlex.quote(runtime)} \"$@\"\n"
             "status=$?\n"
@@ -180,20 +208,20 @@ def run_repro(
                 "CONFIG": config_name,
                 "ROOTFS_TAR": bash_env_path(rootfs_tar),
                 "BUNDLE": bash_env_path(Path(tmp) / "bundle"),
+                "TMPDIR": bash_env_path(tmp),
                 "CONTAINER_ID": f"{case_id}-{runtime_label}-{config_name}-{uuid.uuid4().hex[:8]}",
             }
         )
         try:
-            completed = subprocess.run(
+            needs_cleanup = True
+            completed = run_process(
                 ["bash", "repro.sh"],
                 cwd=str(case_dir),
                 env=env,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                capture_output=True,
                 timeout=timeout,
+                privileged_cleanup=privileged,
             )
+            needs_cleanup = False
             result = {
                 "runtime_label": runtime_label,
                 "config": config_name,
@@ -205,6 +233,7 @@ def run_repro(
                 "error": None,
             }
         except subprocess.TimeoutExpired as exc:
+            warnings.extend(getattr(exc, "cleanup_errors", []))
             result = {
                 "runtime_label": runtime_label,
                 "config": config_name,
@@ -226,6 +255,9 @@ def run_repro(
                 "timed_out": False,
                 "error": str(exc),
             }
+        except BaseException as exc:
+            warnings.extend(getattr(exc, "cleanup_errors", []))
+            raise
         result["runtime_invoked"] = invocations.exists() and any(
             command != "delete" for command in invocations.read_text().splitlines()
         )
@@ -246,9 +278,21 @@ def run_repro(
             }),
         }
     finally:
-        cleanup_warning = cleanup_temp_dir(tmp)
+        if needs_cleanup and invocations.exists() and any(command != "delete" for command in invocations.read_text().splitlines()):
+            warning = cleanup_container(runtime, env["CONTAINER_ID"], privileged())
+            if warning:
+                warnings.append(warning)
+        if warnings:
+            warnings.append(f"retained temporary directory for cleanup: {tmp}")
+        else:
+            warning = cleanup_temp_dir(tmp)
+            if warning:
+                warnings.append(warning)
+        if result is None and warnings:
+            print("; ".join(warnings), file=sys.stderr, flush=True)
 
-    result["cleanup_warning"] = cleanup_warning
+    assert result is not None
+    result["cleanup_warning"] = "; ".join(warnings) or None
     return result
 
 
@@ -363,4 +407,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    with handle_termination():
+        sys.exit(main())

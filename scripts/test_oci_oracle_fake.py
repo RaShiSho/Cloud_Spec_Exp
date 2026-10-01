@@ -42,8 +42,8 @@ class OciOracleCleanupTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             mock.patch.object(oracle.tempfile, "mkdtemp", return_value=tmp),
             mock.patch.object(
-                oracle.subprocess,
-                "run",
+                oracle,
+                "run_process",
                 return_value=completed,
             ),
             mock.patch.object(
@@ -265,7 +265,7 @@ class FakeOciOracleTests(unittest.TestCase):
 
     def test_error_when_candidate_times_out(self) -> None:
         reference = self.write_runtime("reference.sh", 'echo "$1"\n')
-        candidate = self.write_runtime("candidate.sh", "sleep 5\n")
+        candidate = self.write_runtime("candidate.sh", 'if [ "$1" = delete ]; then exit 0; fi\nsleep 5\n')
         payload = self.run_oracle(candidate, reference, timeout=1)
         self.assertEqual(payload["status"], "error")
         self.assertIn("timeout", payload["message"])
