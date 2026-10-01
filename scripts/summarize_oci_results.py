@@ -20,17 +20,38 @@ def parse_args() -> argparse.Namespace:
 
 def load_oracle(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        value = json.load(f)
+    if not isinstance(value, dict):
+        raise ValueError(f"expected a JSON object: {path}")
+    return value
+
+
+def missing_oracle(metadata_path: Path, case_id: str) -> dict[str, Any]:
+    metadata = load_oracle(metadata_path)
+    terminal = metadata.get("status") in {"error", "done"}
+    return {
+        "case_id": metadata.get("case_id", case_id),
+        "status": "error" if terminal else "incomplete",
+        "error_type": "execution" if metadata.get("status") == "error" else "missing_oracle",
+        "message": metadata.get("error") or "missing oracle.json; no completed behavioral verdict",
+        "elapsed_seconds": metadata.get("elapsed_seconds", 0),
+    }
 
 
 def collect(results_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for oracle_path in sorted(results_dir.glob("*/*/oracle.json")):
-        baseline = oracle_path.parent.parent.name
-        case_id = oracle_path.parent.name
+    # Include legacy failures and interrupted runs which only wrote metadata.
+    directories = {path.parent for pattern in ("*/*/oracle.json", "*/*/metadata.json") for path in results_dir.glob(pattern)}
+    for directory in sorted(directories):
+        oracle_path = directory / "oracle.json"
+        metadata_path = directory / "metadata.json"
+        baseline = directory.parent.name
+        case_id = directory.name
         try:
-            oracle = load_oracle(oracle_path)
-        except (OSError, json.JSONDecodeError) as exc:
+            oracle = load_oracle(oracle_path) if oracle_path.exists() else missing_oracle(metadata_path, case_id)
+            if oracle.get("status") not in {"pass", "fail", "error", "incomplete"}:
+                raise ValueError(f"invalid oracle status: {oracle.get('status')!r}")
+        except (OSError, ValueError) as exc:
             oracle = {
                 "case_id": case_id,
                 "status": "error",
@@ -45,7 +66,9 @@ def collect(results_dir: Path) -> list[dict[str, Any]]:
                 "error_type": oracle.get("error_type"),
                 "message": oracle.get("message", ""),
                 "elapsed_seconds": oracle.get("elapsed_seconds", 0),
-                "oracle_path": str(oracle_path),
+                "oracle_path": str(oracle_path) if oracle_path.exists() else None,
+                "metadata_path": str(metadata_path) if metadata_path.exists() else None,
+                "result_source": "oracle" if oracle_path.exists() else "metadata",
             }
         )
     return rows
@@ -73,12 +96,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## By Baseline",
         "",
-        "| Baseline | pass | fail | error | env_error |",
-        "|---|---:|---:|---:|---:|",
+        "| Baseline | pass | fail | error | env_error | incomplete |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for baseline, counts in summary["by_baseline"].items():
         lines.append(
-            f"| {baseline} | {counts.get('pass', 0)} | {counts.get('fail', 0)} | {counts.get('error', 0)} | {counts.get('env_error', 0)} |"
+            f"| {baseline} | {counts.get('pass', 0)} | {counts.get('fail', 0)} | {counts.get('error', 0)} | {counts.get('env_error', 0)} | {counts.get('incomplete', 0)} |"
         )
     lines.extend(
         [

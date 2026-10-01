@@ -634,6 +634,10 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                     output_dir=output_dir,
                     oracle_result=self.command_result(returncode=1),
                 )
+                if fixture is None:
+                    fallback = json.loads((output_dir / "oracle.json").read_text())
+                    self.assertEqual(fallback["status"], "error")
+                    self.assertEqual(fallback["error_type"], "execution")
 
             self.assertEqual(metadata["status"], "error")
             self.assertEqual(metadata["oracle_status"], expected_status)
@@ -745,17 +749,16 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                         output_root / "generic" / "crun-13" / "metadata.json"
                     ).read_text(encoding="utf-8")
                 )
+                if scenario == "oracle_failure":
+                    fallback = json.loads((output_root / "generic" / "crun-13" / "oracle.json").read_text())
+                    self.assertEqual(fallback["status"], "error")
+                    self.assertEqual(fallback["message"], metadata["error"])
 
             expected_status = "done" if scenario == "success" else "error"
             self.assertEqual(result["status"], expected_status)
             self.assertEqual(metadata["status"], expected_status)
             if scenario == "oracle_failure":
                 self.assertEqual(metadata["oracle_status"], "missing")
-                self.assertFalse(
-                    (
-                        output_root / "generic" / "crun-13" / "oracle.json"
-                    ).exists()
-                )
             self.assertEqual(
                 metadata["elapsed_seconds"],
                 metadata["metrics"]["pipeline_elapsed_seconds"],

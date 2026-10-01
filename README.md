@@ -186,7 +186,8 @@ MetaGPT adapter 使用上游现有项目增量开发入口，并把 API key 仅�
 
 ### `scripts/summarize_oci_results.py`
 
-汇总实验结果目录下的 `oracle.json`，生成机器可读的 `summary.json` 和便于阅读的 `summary.md`。
+汇总实验结果目录下的 `oracle.json`，缺失时参考 `metadata.json`，生成机器可读的
+`summary.json` 和便于阅读的 `summary.md`。
 
 常用命令：
 
@@ -199,7 +200,7 @@ python scripts/summarize_oci_results.py \
 
 | 参数 | 必填 | 说明 |
 |---|---:|---|
-| `--results-dir <path>` | 是 | 实验结果根目录，通常是 `results/<experiment>`。脚本会扫描 `<baseline>/<case>/oracle.json`。 |
+| `--results-dir <path>` | 是 | 实验结果根目录，通常是 `results/<experiment>`。扫描 `<baseline>/<case>/` 下的 oracle 和 metadata 文件。 |
 | `--output-json <path>` | 否 | summary JSON 输出路径。默认写到 `<results-dir>/summary.json`。 |
 | `--output-md <path>` | 否 | summary Markdown 输出路径。默认写到 `<results-dir>/summary.md`。 |
 
@@ -209,6 +210,11 @@ python scripts/summarize_oci_results.py \
 - `fail`：candidate 行为与 reference 不一致。
 - `error`：baseline、构建、oracle 或 setup 出错。
 - `env_error`：`oracle.json` 中 `error_type` 为 `environment` 的环境错误。
+- `incomplete`：只有尚未完成的 `metadata.json`，暂时没有行为判定。
+
+oracle 超时或退出却没有写出 `oracle.json` 时，runner 会补写 `error` 结果。
+汇总也会读取旧任务的 `metadata.json`，将其中记录的失败计入 `error`；同一任务
+同时有两份文件时只统计一次。缺失最终判定的进行中任务单独计为 `incomplete`。
 
 ### `scripts/populate_buggy_refs.py`
 

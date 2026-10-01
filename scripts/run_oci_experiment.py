@@ -845,6 +845,7 @@ def update_metadata_from_oracle(
         metadata["status"] = "error"
         metadata["oracle_status"] = "missing"
         metadata["error"] = message
+        write_oracle_error(output_dir, str(metadata.get("case_id", output_dir.name)), "execution", message)
         return
 
     try:
