@@ -16,9 +16,13 @@ import re
 import shutil
 import subprocess
 import sys
-from functools import cached_property
+from functools import cached_property, partial
 from pathlib import Path
 from typing import Any, Iterable
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from model_profiles import load_runtime_profile
+from model_transport import bind_openai
 
 
 IGNORED_PARTS = {
@@ -37,19 +41,33 @@ MAX_INDEXED_FILE_BYTES = 1_048_576
 NO_CHANGES_EXIT_CODE = 65
 
 
+def profile_chat_model(profile: Any, chat_class: Any, **kwargs: Any) -> Any:
+    """Prevent native provider/protocol and sampler fallbacks."""
+    kwargs.update(
+        model=profile.settings["model"],
+        base_url=profile.settings["base_url"],
+        api_key=profile.api_key,
+        temperature=profile.settings["temperature"],
+        max_tokens=profile.settings["max_tokens"],
+    )
+    if "use_responses_api" in getattr(chat_class, "model_fields", {}):
+        kwargs["use_responses_api"] = False
+    return chat_class(**kwargs)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        allow_abbrev=False,
         description="Launch PatchAgent with an OCI-compatible builder."
     )
     parser.add_argument("--baseline-repo", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--task-file", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model-config", required=True)
     parser.add_argument("--build-command", required=True)
     parser.add_argument("--source-extensions", default="")
     parser.add_argument("--build-timeout-seconds", type=int, default=600)
-    parser.add_argument("--base-url")
     parser.add_argument(
         "--fast",
         action="store_true",
@@ -196,31 +214,6 @@ def remove_nested_git_metadata(root: Path) -> list[str]:
     return sorted(removed)
 
 
-def configure_openai_environment(base_url: str | None) -> tuple[str, str]:
-    key_source = ""
-    for name in ("PATCHAGENT_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
-        value = os.environ.get(name)
-        if value:
-            os.environ["OPENAI_API_KEY"] = value
-            key_source = name
-            break
-    if not key_source:
-        raise RuntimeError(
-            "Missing API key: set PATCHAGENT_API_KEY, DEEPSEEK_API_KEY, "
-            "or OPENAI_API_KEY."
-        )
-
-    resolved_base_url = (
-        base_url
-        or os.environ.get("PATCHAGENT_BASE_URL")
-        or os.environ.get("OPENAI_BASE_URL")
-        or os.environ.get("OPENAI_API_BASE")
-        or "https://api.deepseek.com"
-    )
-    os.environ["OPENAI_BASE_URL"] = resolved_base_url
-    return key_source, resolved_base_url
-
-
 def apply_patch_to_target(repo: Path, patch: str) -> None:
     encoded = patch.encode("utf-8")
     check = subprocess.run(
@@ -257,6 +250,9 @@ def apply_patch_to_target(repo: Path, patch: str) -> None:
 
 def main() -> int:
     args = parse_args()
+    profile = load_runtime_profile(args.model_config)
+    args.model = profile.settings["model"]
+    bind_openai(profile)
     if args.build_timeout_seconds < 1:
         raise ValueError("--build-timeout-seconds must be positive")
 
@@ -273,7 +269,7 @@ def main() -> int:
     if git_diff(repo):
         raise RuntimeError("PatchAgent requires a clean target worktree before launch")
 
-    key_source, base_url = configure_openai_environment(args.base_url)
+    key_source, base_url = profile.key_source, profile.settings["base_url"]
     extensions = parse_source_extensions(args.source_extensions)
     task_text = task_file.read_text(encoding="utf-8", errors="replace")
     workspace = output_dir / "workspace"
@@ -290,6 +286,11 @@ def main() -> int:
     from patchagent.task import PatchTask, ValidationResult
     from git import Repo
     from langchain_core.tools import StructuredTool
+    from langchain_openai import ChatOpenAI
+
+    # Upstream falls back to Azure after a constructor error. A selected
+    # OpenAI-compatible profile must fail rather than switch providers.
+    clike_common.construct_chat_llm = partial(profile_chat_model, profile, ChatOpenAI)
 
     class OCIPoC(PoC):
         pass
@@ -404,6 +405,7 @@ def main() -> int:
     clike_common.create_locate_tool = create_oci_locate_tool
 
     metadata: dict[str, Any] = {
+        "model_profile": profile.public(),
         "status": "starting",
         "baseline_repo": str(baseline_repo),
         "baseline_revision": git_revision(baseline_repo),
@@ -460,7 +462,7 @@ def main() -> int:
             write_json(metadata_path, metadata)
             return NO_CHANGES_EXIT_CODE
     except Exception as exc:
-        metadata.update({"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+        metadata.update({"status": "failed", "error": profile.redact(f"{type(exc).__name__}: {exc}")})
         write_json(metadata_path, metadata)
         raise
 

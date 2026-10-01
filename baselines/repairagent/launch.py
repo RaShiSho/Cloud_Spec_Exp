@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from model_profiles import load_runtime_profile
+from model_transport import bind_openai
+
 
 ADAPTER_DIR = Path(__file__).resolve().parent
 PROJECT_NAME = "oci"
@@ -201,17 +205,16 @@ def compact_validation_result(passed: bool, output: str) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch RepairAgent with OCI-compatible tools.")
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="Launch RepairAgent with OCI-compatible tools.")
     parser.add_argument("--baseline-repo", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--task-file", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model-config", required=True)
     parser.add_argument("--test-command", required=True)
     parser.add_argument("--source-extensions", default="")
     parser.add_argument("--max-cycles", type=int, default=40)
     parser.add_argument("--test-timeout-seconds", type=int, default=600)
-    parser.add_argument("--base-url", default="")
     return parser.parse_args()
 
 
@@ -465,6 +468,9 @@ def install_oci_tool_layer() -> None:
 
 def run() -> int:
     args = parse_args()
+    profile = load_runtime_profile(args.model_config)
+    args.model = profile.settings["model"]
+    bind_openai(profile)
     if args.max_cycles < 1 or args.test_timeout_seconds < 1:
         raise ValueError("--max-cycles and --test-timeout-seconds must be positive")
     baseline_repo = required_path(args.baseline_repo, directory=True)
@@ -487,18 +493,17 @@ def run() -> int:
             "REPAIRAGENT_OCI_SOURCE_EXTENSIONS": args.source_extensions,
             "REPAIRAGENT_OCI_TEST_TIMEOUT": str(args.test_timeout_seconds),
             "REPAIRAGENT_OCI_MAX_CYCLES": str(args.max_cycles),
-            "TEMPERATURE": os.environ.get("REPAIRAGENT_TEMPERATURE", "0"),
+            "TEMPERATURE": str(profile.settings["temperature"] if profile.settings["temperature"] is not None else 1),
             "CHAT_MESSAGES_ENABLED": "False",
             "PLAIN_OUTPUT": "True",
         }
     )
-    if args.base_url:
-        os.environ["OPENAI_API_BASE_URL"] = args.base_url
 
     run_dir = prepare_run_layout(output_dir, baseline_root, task_file)
     os.environ["REPAIRAGENT_OCI_TASK_FILE"] = str(run_dir / "task.md")
     metadata_path = output_dir / "launcher_metadata.json"
     metadata = {
+        "model_profile": profile.public(),
         "status": "starting",
         "baseline_revision": git_revision(baseline_repo),
         "baseline_root": str(baseline_root),
@@ -564,7 +569,7 @@ def run() -> int:
             if exc.code not in (None, 0):
                 raise
     except Exception as exc:
-        metadata.update({"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+        metadata.update({"status": "failed", "error": profile.redact(f"{type(exc).__name__}: {exc}")})
         write_json(metadata_path, metadata)
         raise
     finally:

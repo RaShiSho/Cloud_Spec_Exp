@@ -33,9 +33,10 @@ conda run -n patchagent python -m pip install -e \
 
 正式实验应记录 `launcher_metadata.json` 中的 `baseline_revision`，不要只记录分支名。
 
-设置 `PATCHAGENT_API_KEY`、`DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`。API base 的优先级为
-命令行 `--base-url`、`PATCHAGENT_BASE_URL`、`OPENAI_BASE_URL`、`OPENAI_API_BASE`；
-均未设置时使用 `https://api.deepseek.com`。
+模型、地址和采样参数统一配置在 `configs/model_profiles.yaml`，实验 YAML 只设置
+`model_profile` 名称。密钥由该 profile 的 `api_key_env` 精确指定，无供应商回退。
+runner 会打印最终配置，并通过 `--model-config` 传入不含密钥的快照；wrapper 不再接受
+`--model`、`--base-url` 或环境变量中的独立模型覆盖。详情见根目录 README。
 
 ## OCI 适配
 

@@ -15,32 +15,53 @@
 - `results/`：实验输出目录，包含每个 baseline/case 的日志、metadata、patch 和 oracle 结果。
 - `scripts/`：实验准备、运行、汇总和辅助脚本。
 
-## 环境变量
+## 模型配置与密钥
 
-项目支持从仓库根目录 `.env` 自动读取环境变量。真实密钥不要提交到 git。
+所有模型配置集中在 `configs/model_profiles.yaml`。实验 YAML 只选择名称：
+
+```yaml
+model_profile: deepseek-official
+```
+
+内置 `deepseek-official`、`openai-official` 和 `openai-gateway` 三套配置；中转配置中的
+`your-gateway.example` 是占位地址，使用前必须替换。可以增加中文名称，例如“模型A官方接口”。
+每套配置完整指定 `protocol`、`model`、`base_url`、`api_key_env`、`temperature`、
+`max_tokens` 和 `token_limit_parameter`。目前六种适配器统一支持 OpenAI-compatible
+Chat Completions 协议（`protocol: openai`）；其他协议会明确报错。
+
+`model` 填服务端实际接受的模型 ID，不添加 LiteLLM 的 `openai/` 前缀，适配器会处理前缀。
+`temperature: null` 表示请求中不发送该参数。`token_limit_parameter` 选择服务端接受的
+`max_tokens` 或 `max_completion_tokens`。这些设置用于每次模型请求，也适用于 Agentless
+后续采样和 PatchAgent 多轮尝试，因此替代上游内置的采样参数变化。
+
+真实密钥只放在仓库根目录 `.env` 或 shell 环境中，变量名必须与所选配置的
+`api_key_env` 一致。不要提交真实密钥到 Git。
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-常用变量包括：
+同一个变量在 shell 和 `.env` 中的值必须一致，包括空值；否则直接报错，不再设置优先级。
+可在 `.env` 中同时保留多套配置引用的密钥变量。选中的密钥缺失时不会回退到其他供应商。
+`PIP_INDEX_URL` / `PIP_DEFAULT_TIMEOUT` 仅供依赖安装使用。
 
-- `DEEPSEEK_API_KEY`：DeepSeek API key。
-- `OPENAI_API_KEY`：OpenAI-compatible 客户端读取的 API key，可填 DeepSeek key。
-- `OPENAI_API_BASE` / `OPENAI_BASE_URL`：OpenAI-compatible API base URL，例如 `https://api.deepseek.com`。
-- `MSWEA_MODEL_NAME`：mini-SWE-agent 默认模型名。
-- `MSWEA_COST_TRACKING`：mini-SWE-agent 费用统计策略。
-- `PIP_INDEX_URL` / `PIP_DEFAULT_TIMEOUT`：可选 pip 镜像和超时配置。
+从旧配置迁移时，删除 `.env` 和 shell 中的 `OPENAI_API_BASE`、`OPENAI_BASE_URL`、
+`MSWEA_MODEL_NAME`、`ACR_MODEL`、各 baseline 的 `*_BASE_URL` / temperature 等旧设置，
+把相应值移到配置表。实验内的 `model`、baseline 内的 `model`、`command`、`adapter`、
+`adapter_patch`、`cwd`、顶层 `paths`、`oracle.command`、`keep_failed_workdirs` 已移除。
+重复 YAML 字段、未知字段、某类 baseline 不会使用的选项均报错，禁用的 baseline 也会校验。
+Conda 环境通过 baseline 的 `conda_env` 选择，不再从 shell 的 `*_CONDA_ENV` 读取。
 
-已经在 shell 中 `export` 的变量优先级高于 `.env`。
+启动及 `--dry-run` 都展示最终模型、接口地址、采样参数、密钥变量及其来源，隐藏密钥内容。
+`--dry-run` 可以在密钥尚未填写时检查配置；路径或配置检查失败时返回 `2`。
 
 ## 配置文件
 
 - `configs/experiment.first20.example.yaml`：前 20 个 case 的模板配置，使用 `benchmark.selection.mode: first_n` 和 `count: 20`。
 - `configs/experiment.full.example.yaml`：全量数据集模板配置，使用 `benchmark.selection.mode: all`，会读取 `metadata.json` 中的全部 case。
 - `configs/experiment.first20.local.yaml`：本地运行配置示例，包含你已经填过的一部分 `buggy_ref_by_case`。
-- `configs/experiment.metagpt.rest.yaml`：仅启用 MetaGPT，选择已配置 `buggy_ref_by_case` 的剩余 youki case。
+- `configs/experiment.metagpt.yaml`：仅启用 MetaGPT，选择已配置 `buggy_ref_by_case` 的剩余 youki case。
 - `configs/experiment.repairagent.yaml`：仅启用 RepairAgent OCI 工具层，选择所有已配置 buggy ref 的 case。
 
 全量示例配置默认启用 `mini-swe-agent` 和 `agentless-oci-adapted`。AutoCodeRover 与 MetaGPT
@@ -114,13 +135,15 @@ python scripts/run_oci_experiment.py \
 | `--limit <n>` | 否 | 在 case 过滤后截取前 `n` 个 case。 |
 | `--dry-run` | 否 | 只执行配置加载、case 选择和 preflight，不创建 worktree，不运行 baseline，不删除文件。 |
 | `--clean` | 否 | 正式运行前清理当前 baseline/case 对应的旧结果目录和旧 worktree。和 `--dry-run` 一起使用时只报告计划，不删除。 |
-| `--resume` | 否 | 跳过结果目录中已经存在的所有 case，不检查完成、失败或中断状态。不能与 `--clean` 同时使用。 |
+| `--resume` | 否 | 先核对所有选中结果的配置标识；配置相同时跳过已完成 case，重跑失败或中断 case。不能与 `--clean` 同时使用。 |
 
 主要输出：
 
 - 终端 `stderr`：进度日志，例如加载配置、创建 worktree、运行 baseline、构建、运行 oracle。
 - 终端 `stdout`：最终 JSON 结果，便于脚本解析。
 - `results/<experiment>/<baseline>/<case_id>/metadata.json`：本次运行元数据。
+- `run_config.json`：配置标识及用于比对的配置、源码版本和输入文件摘要。
+- `model_config.json`：传给适配器的模型配置快照，仅含密钥来源，不含密钥内容。
 - `results/<experiment>/<baseline>/<case_id>/task.md`：传给 baseline 的任务文本。
 - `results/<experiment>/<baseline>/<case_id>/candidate.patch`：baseline 修改源码后产生的 git diff。
 - `results/<experiment>/<baseline>/<case_id>/oracle.json`：oracle 判定结果。
@@ -130,11 +153,14 @@ python scripts/run_oci_experiment.py \
 
 注意事项：
 
-- 不加 `--clean` 或 `--resume` 时，如果目标 worktree 已存在，脚本会报错。
+- 不加 `--clean` 或 `--resume` 时，如果目标结果目录或 worktree 已存在，脚本会报错。
 - `--clean` 只清理本次选中的 baseline/case，不会清理整个实验目录。
-- 长时间全量实验建议使用 `--resume`；首次运行也可直接使用该参数。结果目录已存在的
-  case（包括失败、中断、空目录或损坏 metadata）都会被跳过；如需强制重跑，使用
-  `--case <case-id> --clean`。
+- `--resume` 要求配置标识完全相同；模型、地址、密钥来源/内容、采样参数、实验参数、
+  baseline/runtime 配置或相关输入变化都会使旧结果失效。配置标识在任务开始时写入，
+  因此中断任务也能核对。全部选中目录核对完成后才开始执行。
+- 配置不同、旧版结果缺少配置标识、空目录或损坏 metadata 都会报错并保留原结果。
+  请更换 `experiment.output_dir` 保存新实验；明确需要替换时使用 `--case <case-id> --clean`。
+- `--resume` 仅跳过 `status: done` 且 oracle verdict 有效的任务；同配置的失败、中断任务会清理并重跑。
 - preflight 会检查数据集、runtime source、baseline repo、`git`、`bash`、reference runtime 和 build command。
 
 AutoCodeRover 全量命令：
@@ -151,7 +177,7 @@ MetaGPT 剩余 case 命令：
 
 ```bash
 python scripts/run_oci_experiment.py \
-  --config configs/experiment.metagpt.rest.yaml \
+  --config configs/experiment.metagpt.yaml \
   --resume
 ```
 
@@ -235,8 +261,7 @@ python scripts/populate_buggy_refs.py \
 
 公共工具库，不建议直接作为 CLI 运行。其他脚本主要通过它复用以下能力：
 
-- `load_dotenv()`：读取仓库根目录 `.env`，支持 `KEY=value`、引号、空行和 `#` 注释，不覆盖已存在的 shell 环境变量。
-- `load_config()`：读取 YAML 配置，并在读取前加载 `.env`。
+- `load_config()`：读取 YAML 并严格验证实验字段；准备 case 时不需要密钥。模型和 `.env` 由 `model_profiles.resolve_profile()` 在启动实验时校验、解析，不修改父进程环境变量。
 - `load_oci_cases()`：读取数据集 metadata，按 `benchmark.selection.mode: first_n`、`all` 或 `buggy_refs` 选择 case，并检查必需文件。
 - `build_task_text()`：把 case README、expected diff、构建命令和 runtime 信息组装成 baseline prompt。
 - `run_command()`：统一执行 subprocess，捕获 stdout/stderr、timeout 和错误信息。

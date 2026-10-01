@@ -1,45 +1,100 @@
-# 复制本文件为实际实验配置，例如 experiment.local.yaml。
+# Copy this file to configs/experiment.full.local.yaml before running.
+#
+# This config selects the whole OCI differential dataset. It keeps the
+# less-integrated baselines disabled until their OCI wrapper scripts are ready.
 
 experiment:
-  name: cloud-spec-exp-smoke
-  seed: 0
-  output_dir: results/cloud-spec-exp-smoke
+  name: oci-smoke
+  output_dir: results/oci-smoke
+  worktree_root: external/worktrees
+  timeout_seconds: 1800
 
-model:
-  provider: openai
-  name: gpt-4.1
-  temperature: 0
+model_profile: deepseek-official
 
 benchmark:
-  cases_dir: benchmarks/cases
-  case_ids:
-    - example-bug-001
+  metadata_file: external/oci-differential-dataset/metadata.json
+  cases_dir: external/oci-differential-dataset/cases
+  rootfs_tar: external/oci-differential-dataset/alpine-base.tar.gz
+  selection:
+    mode: first_n
+    count: 1
+
+runtimes:
+  runc:
+    source_dir: external/subjects/runc
+    build_command: "make runc"
+    runtime_path: runc
+    reference_runtime: runc
+    source_extensions: [".go"]
+    buggy_ref_by_case:
+      runc-2430: 7673bee6bfbc28c8cfbc64165eea29b83e9957f0
+      runc-2928: d279ebd97d8832020e2c6f50cc3a11d0499a4690
+      runc-3020: f454bb10d77969ab44e752c8299d3a4da71b4f45
+      runc-3944: a3785c88ec5b2b271e13ebb872cf5bd49bcedace
+      runc-4014: a3a0ec48c464fe6458d2ba067f6707c027e5384e
+      runc-4772: 3764d6e888b21b3f67855736e7605e3785a3d553^
+      runc-5073: b4887cec320c922de3c8e9a89e1dc6fd867586a9
+      runc-5182: 3cdda464fa1f1eb0d5774acacf73bb446df5f3d8^
+  crun:
+    source_dir: external/subjects/crun
+    build_command: "./autogen.sh && ./configure && make -j$(nproc)"
+    runtime_path: crun
+    reference_runtime: runc
+    source_extensions: [".c", ".h"]
+    buggy_ref_by_case:
+      crun-13: c047a49b8d798e210054e411a999e83f6c05bdbf^
+      crun-129: 3d28553bd97cbd077dd9612c3c931a6b49d92fe2
+      crun-237: a75a4fd27631f2222b9d2578ec98ad6094762098^
+      crun-353: c7ac9320589f1ac206617c45a1314e30ea19eac1^
+      crun-453: 47dd153de92414b5bfdbcfefc87380aa38ac3fa1^
+      crun-876: 6904cf4a4fec6929abdd8d6b9676ed5fa9119612^
+      crun-1083: 3880f04675f5eaea60c8b36e21849ba01a09e1b2^
+      crun-1099: 234d77c96fc4aebb46d35fdcf820a00e4dd79e77^
+      crun-1161: 56a2550692d910948a746f9ca65e9bdd1702362d
+      crun-1307: 98db1d2fa60756c523b655c7479cef7c07c15f21^
+      crun-1783: 7407bbc9a5bc8c32eac466a54022410ce08e3b58^
+      crun-1943: 8e8186b3f0879b3cf11dccb21505d1ff6d809633^
+  youki:
+    source_dir: external/subjects/youki
+    build_command: "cargo build --release"
+    runtime_path: target/release/youki
+    reference_runtime: runc
+    source_extensions: [".rs"]
+    buggy_ref_by_case: {}
 
 oracle:
-  kind: runC
-  command: "python oracles/run_oracle.py --case {case_id} --candidate {candidate_path}"
-  success_condition: "candidate behavior matches reference implementation"
+  timeout_seconds: 300
 
 baselines:
-  - name: mini-SWE-agent
-    enabled: true
-    repo_dir: baselines/mini-swe-agent
-    command: "python run.py --config {config_path} --case {case_id}"
-  - name: Agentless
-    enabled: true
-    repo_dir: baselines/Agentless
-    command: "python repair.py --config {config_path} --case {case_id}"
-  - name: AutoCodeRover
-    enabled: false
-    repo_dir: baselines/auto-code-rover
-    command: "python app/main.py --config {config_path} --case {case_id}"
-
-evaluation:
-  timeout_seconds: 1800
-  keep_failed_workdirs: true
-  metrics:
-    - resolved_by_oracle
-    - regression_passed
-    - wall_time_seconds
-    - token_usage
-    - patch_size
+- name: mini-swe-agent
+  enabled: true
+  kind: mini_swe_agent
+  repo_dir: external/baselines/mini-swe-agent
+  trajectory_name: trajectory.json
+  conda_env: mini-swe
+- name: agentless-oci-adapted
+  enabled: true
+  kind: agentless_oci
+  repo_dir: external/baselines/Agentless
+  output_dir_name: agentless-output
+  top_n_files: 5
+  max_samples: 1
+  conda_env: agentless
+- name: autocoderover
+  enabled: false
+  kind: autocoderover
+  repo_dir: external/baselines/AutoCodeRover
+  output_dir_name: autocoderover-output
+  conda_env: auto-code-rover
+- name: metagpt
+  enabled: false
+  kind: metagpt
+  repo_dir: external/baselines/MetaGPT
+  output_dir_name: metagpt-output
+  conda_env: metagpt
+- name: repairagent
+  enabled: false
+  kind: repairagent
+  repo_dir: external/baselines/RepairAgent
+  output_dir_name: repairagent-output
+  conda_env: repairagent

@@ -77,13 +77,10 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
   conda run -n metagpt python -m playwright install chromium
 ```
 
-配置至少一个 key：`METAGPT_API_KEY`、`DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`。API base
-依次读取 `METAGPT_BASE_URL`、`OPENAI_API_BASE`、`OPENAI_BASE_URL`；DeepSeek 默认回退到
-`https://api.deepseek.com`。
-
-专属配置中的 baseline model 使用 provider 原生名 `deepseek-v4-flash`，而不是全局供
-LiteLLM 风格客户端使用的 `deepseek/deepseek-v4-flash`。MetaGPT 当前的 DeepSeek provider
-会把 model 名直接传给 OpenAI-compatible client。
+模型、地址和采样参数统一配置在 `configs/model_profiles.yaml`，实验 YAML 只设置
+`model_profile` 名称。密钥由该 profile 的 `api_key_env` 精确指定，无供应商回退。
+runner 会打印最终配置，并通过 `--model-config` 传入不含密钥的快照；wrapper 不再接受
+`--model`、`--base-url` 或环境变量中的独立模型覆盖。详情见根目录 README。
 
 正式实验应记录 `launcher_metadata.json` 中的 `baseline_revision`。MetaGPT 的 CLI 和角色
 编排仍在变化，只记录分支名不足以复现实验。
@@ -109,7 +106,7 @@ export METAGPT_COMPLETION_COST_PER_1K='输出费率'
 
 ```bash
 python scripts/run_oci_experiment.py \
-  --config configs/experiment.metagpt.rest.yaml \
+  --config configs/experiment.metagpt.yaml \
   --case youki-2756 \
   --clean
 ```

@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LAUNCHER = REPO_ROOT / "baselines" / "metagpt" / "launch.py"
 sys.path.insert(0, str(LAUNCHER.parent))
 from launch import install_stream_usage_options, redact  # noqa: E402
+from profile_test_support import test_profile, write_snapshot
+from model_profiles import LEGACY_MODEL_ENV
 
 
 class MetaGPTLauncherTests(unittest.TestCase):
@@ -54,6 +56,15 @@ class MetaGPTLauncherTests(unittest.TestCase):
             "        if stream:\n"
             "            assert stream_options == {'include_usage': True}\n"
             "        return None\n",
+            encoding="utf-8",
+        )
+        (baseline_repo / "openai" / "__init__.py").write_text(
+            "class OpenAI:\n"
+            "    def __init__(self, **kwargs): pass\n"
+            "    def _prepare_options(self, options): return options\n"
+            "class AsyncOpenAI:\n"
+            "    def __init__(self, **kwargs): pass\n"
+            "    async def _prepare_options(self, options): return options\n",
             encoding="utf-8",
         )
         (package / "config2.py").write_text(
@@ -171,6 +182,9 @@ class MetaGPTLauncherTests(unittest.TestCase):
         home = root / "home"
         secret = "test-secret-must-not-be-persisted"
         env = os.environ.copy()
+        for name in LEGACY_MODEL_ENV:
+            env.pop(name, None)
+        snapshot = write_snapshot(root / "model_config.json", test_profile(model="fake-model", api_key_env="METAGPT_API_KEY"))
         env.update(
             {
                 "HOME": str(home),
@@ -190,8 +204,8 @@ class MetaGPTLauncherTests(unittest.TestCase):
                 str(task_file),
                 "--output-dir",
                 str(output_dir),
-                "--model",
-                "fake-model",
+                "--model-config",
+                str(snapshot),
                 "--n-round",
                 "1",
             ],
@@ -221,7 +235,7 @@ class MetaGPTLauncherTests(unittest.TestCase):
                 (output_dir / "launcher_metadata.json").read_text(encoding="utf-8")
             )
             self.assertEqual(metadata["status"], "completed")
-            self.assertEqual(metadata["api_key_source"], "METAGPT_API_KEY")
+            self.assertEqual(metadata["api_key_source"], "METAGPT_API_KEY (environment)")
             self.assertEqual(metadata["terminal_compat"]["status"], "applied")
             self.assertTrue(metadata["terminal_compat"]["workspace_root_override"])
             self.assertEqual(metadata["command_compat"]["status"], "applied")

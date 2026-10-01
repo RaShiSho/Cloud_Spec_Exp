@@ -6,8 +6,7 @@ BASELINE_REPO=""
 REPO=""
 TASK_FILE=""
 OUTPUT_DIR=""
-MODEL=""
-BASE_URL="${REPAIRAGENT_BASE_URL:-${OPENAI_API_BASE:-${OPENAI_BASE_URL:-https://api.deepseek.com}}}"
+MODEL_CONFIG=""
 TEST_COMMAND=""
 SOURCE_EXTENSIONS=""
 TIMEOUT_SECONDS="0"
@@ -16,12 +15,11 @@ TEST_TIMEOUT_SECONDS="600"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE --output-dir DIR --model MODEL --test-command COMMAND [options]
+Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE --output-dir DIR --model-config FILE --test-command COMMAND [options]
 
 Run RepairAgent's upstream FSM with an OCI-compatible tool layer.
 
 Options:
-  --base-url URL                 OpenAI-compatible API base URL.
   --source-extensions CSV        Source suffixes visible to search (for example .c,.h).
   --timeout-seconds N            Stop RepairAgent after N seconds (0 disables).
   --max-cycles N                 Maximum RepairAgent command cycles (default: 40).
@@ -30,10 +28,6 @@ Options:
 Environment:
   REPAIRAGENT_CONDA_ENV          Run with "conda run -n ENV python".
   REPAIRAGENT_PYTHON             Otherwise use this Python executable.
-  REPAIRAGENT_API_KEY            Preferred API key; falls back to DEEPSEEK_API_KEY,
-                                 then OPENAI_API_KEY.
-  REPAIRAGENT_BASE_URL           Default OpenAI-compatible API base URL.
-  REPAIRAGENT_TEMPERATURE        LLM temperature (default: 0).
 EOF
 }
 
@@ -43,8 +37,7 @@ while [ "$#" -gt 0 ]; do
     --repo) REPO="${2:-}"; shift 2 ;;
     --task-file) TASK_FILE="${2:-}"; shift 2 ;;
     --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
-    --model) MODEL="${2:-}"; shift 2 ;;
-    --base-url) BASE_URL="${2:-}"; shift 2 ;;
+    --model-config) MODEL_CONFIG="${2:-}"; shift 2 ;;
     --test-command) TEST_COMMAND="${2:-}"; shift 2 ;;
     --source-extensions) SOURCE_EXTENSIONS="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
@@ -55,7 +48,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL" ] || [ -z "$TEST_COMMAND" ]; then
+if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL_CONFIG" ] || [ -z "$TEST_COMMAND" ]; then
   echo "Missing required argument." >&2
   usage
   exit 2
@@ -125,19 +118,14 @@ if [ "$TIMEOUT_SECONDS" -gt 0 ] && ! command -v timeout >/dev/null 2>&1; then
   exit 2
 fi
 
-API_KEY="${REPAIRAGENT_API_KEY:-${DEEPSEEK_API_KEY:-${OPENAI_API_KEY:-}}}"
-if [ -z "$API_KEY" ]; then
-  echo "Missing API key: set REPAIRAGENT_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY." >&2
-  exit 2
-fi
 
-"$PYTHON_BIN" - "$BASELINE_NAME" "$BASELINE_REPO" "$REPO" "$TASK_FILE" "$OUTPUT_DIR" "$MODEL" "$BASE_URL" "$TEST_COMMAND" "$SOURCE_EXTENSIONS" "$TIMEOUT_SECONDS" "$MAX_CYCLES" "$TEST_TIMEOUT_SECONDS" "$(pwd)" <<'PY'
+"$PYTHON_BIN" - "$BASELINE_NAME" "$BASELINE_REPO" "$REPO" "$TASK_FILE" "$OUTPUT_DIR" "$MODEL_CONFIG" "$TEST_COMMAND" "$SOURCE_EXTENSIONS" "$TIMEOUT_SECONDS" "$MAX_CYCLES" "$TEST_TIMEOUT_SECONDS" "$(pwd)" <<'PY'
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-(baseline, baseline_repo, repo, task_file, output_dir, model, base_url,
+(baseline, baseline_repo, repo, task_file, output_dir, model_config,
  test_command, source_extensions, timeout_seconds, max_cycles,
  test_timeout_seconds, cwd) = sys.argv[1:]
 revision = subprocess.run(
@@ -153,8 +141,7 @@ payload = {
     "repo": repo,
     "task_file": task_file,
     "output_dir": output_dir,
-    "model": model,
-    "base_url": base_url or None,
+    "model_config": model_config,
     "test_command": test_command,
     "source_extensions": source_extensions,
     "timeout_seconds": int(timeout_seconds),
@@ -209,26 +196,19 @@ LAUNCH_COMMAND=(
   --repo "$REPO"
   --task-file "$TASK_FILE"
   --output-dir "$OUTPUT_DIR"
-  --model "$MODEL"
+  --model-config "$MODEL_CONFIG"
   --test-command "$TEST_COMMAND"
   --source-extensions "$SOURCE_EXTENSIONS"
   --max-cycles "$MAX_CYCLES"
   --test-timeout-seconds "$TEST_TIMEOUT_SECONDS"
 )
-if [ -n "$BASE_URL" ]; then
-  LAUNCH_COMMAND+=(--base-url "$BASE_URL")
-fi
 
 echo "Starting RepairAgent with the OCI tool compatibility layer." >&2
 set +e
 if [ "$TIMEOUT_SECONDS" -gt 0 ]; then
-  OPENAI_API_KEY="$API_KEY" \
-  OPENAI_API_BASE_URL="$BASE_URL" \
   PYTHONPATH="$BASELINE_REPO/repair_agent:$ADAPTER_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     timeout --signal=TERM --kill-after=30s "${TIMEOUT_SECONDS}s" "${LAUNCH_COMMAND[@]}"
 else
-  OPENAI_API_KEY="$API_KEY" \
-  OPENAI_API_BASE_URL="$BASE_URL" \
   PYTHONPATH="$BASELINE_REPO/repair_agent:$ADAPTER_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     "${LAUNCH_COMMAND[@]}"
 fi

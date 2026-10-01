@@ -82,8 +82,8 @@ workspace 中启动 shell，所以 `pwd` 不一定等于当前仓库路径；路
   `command` 是新的诊断证据，不再把 EOF 误表现为永久超时。
 
 这个探针不会请求 LLM，因此假 key 是有意设计，不能用于正式实验。正式运行仍必须在启动
-runner 的同一个 WSL shell 中设置 `METAGPT_API_KEY`、`DEEPSEEK_API_KEY` 或
-`OPENAI_API_KEY`，并继续通过 adapter 注入；不要把真实 key 写入脚本或 YAML。
+runner 使用的命名 profile（`configs/model_profiles.yaml`）中明确指定 `api_key_env`，
+并在根目录 `.env` 或 shell 中填写该变量；不再提供多种 key 的回退顺序。不要把真实 key 写入脚本或 YAML。
 
 ### 1.2 准备共享 Playwright 浏览器缓存
 

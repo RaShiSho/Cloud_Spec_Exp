@@ -397,7 +397,7 @@ class RepairAgentLauncherTests(unittest.TestCase):
                 repo=str(repo),
                 task_file=str(task),
                 output_dir=str(output),
-                model="fixture-model",
+                model_config="fixture-model-config.json",
                 test_command="true",
                 source_extensions=".c,.h",
                 max_cycles=4,
@@ -425,6 +425,8 @@ class RepairAgentLauncherTests(unittest.TestCase):
             }
             with (
                 mock.patch.object(launch, "parse_args", return_value=args),
+                mock.patch.object(launch, "load_runtime_profile", return_value=__import__("profile_test_support").test_profile(model="fixture-model")),
+                mock.patch.object(launch, "bind_openai"),
                 mock.patch.object(launch, "install_oci_tool_layer"),
                 mock.patch.dict(sys.modules, modules),
             ):

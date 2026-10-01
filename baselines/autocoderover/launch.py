@@ -15,6 +15,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from model_profiles import ConfigError, load_runtime_profile
+from model_transport import bind_litellm, bind_openai
+
 
 LITELLM_GENERIC_PREFIX = "litellm-generic-"
 IGNORED_SOURCE_PARTS = {
@@ -148,6 +152,16 @@ def install_non_python_source_fallback(search_backend: Any, extensions: set[str]
 
 
 def main() -> int:
+    if "--model" in sys.argv or "--model-temperature" in sys.argv or any(arg.startswith(("--model=", "--model-temperature=")) for arg in sys.argv):
+        raise ConfigError("Model overrides are not allowed; use --model-config")
+    if sys.argv.count("--model-config") != 1:
+        raise ConfigError("Exactly one --model-config snapshot is required")
+    index = sys.argv.index("--model-config")
+    profile = load_runtime_profile(sys.argv[index + 1])
+    del sys.argv[index:index + 2]
+    sys.argv.extend(["--model", "openai/" + profile.settings["model"], "--model-temperature", str(profile.settings["temperature"] if profile.settings["temperature"] is not None else 1)])
+    bind_openai(profile)
+    bind_litellm(profile)
     normalized_argv, model_names = normalize_model_args(sys.argv)
     sys.argv = normalized_argv
 

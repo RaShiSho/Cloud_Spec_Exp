@@ -36,7 +36,14 @@
 configs/experiment.example.yaml -> configs/experiment.local.yaml
 ```
 
-填写真实模型、case、baseline 和 oracle 配置后，通过 `scripts/` 中的统一入口运行。
+在 `configs/model_profiles.yaml` 填写完整模型配置，实验中只设置 `model_profile` 名称。
+密钥放入该 profile 的 `api_key_env` 所指定的变量（shell 或根目录 `.env`）；两个来源值
+不同则报错。填写 case、baseline 和 oracle 配置后，先运行统一入口的 `--dry-run`，
+核对打印的模型、地址和密钥来源，再执行实验。
+
+续跑使用 `--resume`。配置不同或旧结果缺少配置标识时会报错，原结果保留；请更换
+输出目录，或用 `--case <case-id> --clean` 明确替换选中的旧任务。相同配置下，已完成
+任务跳过，失败及中断任务重跑。
 
 ## 5. 汇总结果
 

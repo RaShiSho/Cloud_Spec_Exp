@@ -10,6 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from baseline_commands import baseline_command, configure_baseline_environment
+from model_profiles import ConfigError, ResolvedProfile, resolve_profile
+from run_identity import execution_inputs, run_identity
 from oci_common import (
     DEFAULT_EXTENSIONS,
     REPO_ROOT,
@@ -24,7 +27,6 @@ from oci_common import (
     run_command,
     safe_id,
     scan_candidate_files,
-    shell_quote,
     write_json,
     write_text,
 )
@@ -40,7 +42,7 @@ def run_label(baseline: dict[str, Any], case: dict[str, Any]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run OCI repair experiments for configured baselines.")
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="Run OCI repair experiments for configured baselines.")
     parser.add_argument("--config", required=True, help="Experiment YAML config.")
     parser.add_argument("--baseline", action="append", help="Baseline name to run. Repeatable.")
     parser.add_argument("--case", action="append", help="Case id to run. Repeatable.")
@@ -50,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Skip every case whose result directory already exists.",
+        help="Continue only results with the same configuration; skip completed runs and retry incomplete runs.",
     )
     return parser.parse_args()
 
@@ -64,6 +66,9 @@ def enabled_baselines(config: dict[str, Any], names: list[str] | None) -> list[d
         if requested and baseline.get("name") not in requested:
             continue
         selected.append(baseline)
+    missing = requested - {baseline["name"] for baseline in selected}
+    if missing:
+        raise ConfigError("Unknown or disabled baseline selection: " + ", ".join(sorted(missing)))
     return selected
 
 
@@ -145,12 +150,6 @@ def preflight(
             problems.append(
                 f"{baseline.get('name')}: task_timeout_seconds requires GNU timeout on PATH"
             )
-        if baseline.get("adapter_patch"):
-            patch_path = resolve_path(baseline.get("adapter_patch"))
-            if patch_path is None or not patch_path.exists():
-                problems.append(f"{baseline.get('name')}: missing adapter_patch: {patch_path}")
-        if not baseline.get("command"):
-            problems.append(f"{baseline.get('name')}: missing command template")
     return problems
 
 
@@ -159,30 +158,24 @@ def print_dry_run(
     cases: list[dict[str, Any]],
     baselines: list[dict[str, Any]],
     problems: list[str],
+    profile: ResolvedProfile,
+    identities: dict[tuple[str, str], dict[str, Any]],
 ) -> None:
     payload = {
         "experiment": config.get("experiment", {}).get("name"),
         "cases": [case["case_id"] for case in cases],
         "baselines": [baseline.get("name") for baseline in baselines],
         "problems": problems,
+        "model_profile": profile.public(),
+        "runs": [{"baseline": baseline, "case": case, "config_fingerprint": identity["fingerprint"]} for (baseline, case), identity in identities.items()],
     }
     print(json.dumps(payload, ensure_ascii=True, indent=2))
 
 
-def render_command(template: str, values: dict[str, Any]) -> str:
-    quoted = {key: shell_quote(value) for key, value in values.items()}
-    return template.format(**quoted)
-
-
 def resolve_baseline_cwd(baseline: dict[str, Any], worktree_dir: Path) -> Path:
-    cwd_mode = baseline.get("cwd", "worktree_dir")
-    if cwd_mode == "worktree_dir":
+    if baseline["kind"] == "mini_swe_agent":
         return worktree_dir
-    if cwd_mode == "repo_dir":
-        repo_dir = resolve_path(baseline.get("repo_dir"))
-        return repo_dir or worktree_dir
-    custom_cwd = resolve_path(cwd_mode)
-    return custom_cwd or worktree_dir
+    return resolve_path(baseline["repo_dir"]) or worktree_dir
 
 
 def output_dir_for_run(
@@ -196,7 +189,7 @@ def output_dir_for_run(
 
 
 def load_terminal_result(
-    config: dict[str, Any], baseline: dict[str, Any], case: dict[str, Any]
+    config: dict[str, Any], baseline: dict[str, Any], case: dict[str, Any], fingerprint: str
 ) -> dict[str, Any] | None:
     output_dir = output_dir_for_run(config, baseline, case)
     if not output_dir.is_dir():
@@ -211,16 +204,22 @@ def load_terminal_result(
     except (OSError, json.JSONDecodeError):
         pass
 
-    if metadata is None:
-        metadata = {
-            "case": case,
-            "baseline": baseline.get("name"),
-            "status": "skipped_existing",
-            "output_dir": str(output_dir),
-        }
-
+    if metadata is None or not metadata.get("config_fingerprint"):
+        raise ConfigError(f"Cannot resume {output_dir}: missing valid configuration fingerprint (legacy or damaged result). Use a new output_dir, or --clean to explicitly replace selected results.")
+    if metadata["config_fingerprint"] != fingerprint:
+        raise ConfigError(f"Cannot resume {output_dir}: configuration changed (saved {metadata['config_fingerprint']}, current {fingerprint}). Use a new output_dir, or --clean to explicitly replace selected results.")
+    if metadata.get("status") != "done":
+        return None
+    try:
+        oracle = json.loads((output_dir / "oracle.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(oracle, dict):
+        return None
+    if oracle.get("status") not in {"pass", "fail"}:
+        return None
     metadata["resumed_skip"] = True
-    metadata["resume_reason"] = "output_directory_exists"
+    metadata["resume_reason"] = "completed_with_same_configuration"
     return metadata
 
 
@@ -886,13 +885,16 @@ def run_one(
     case: dict[str, Any],
     baseline: dict[str, Any],
     clean: bool = False,
+    profile: ResolvedProfile | None = None,
+    identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     started_monotonic = time.monotonic()
     started_at_unix = time.time()
     metrics = empty_metrics()
     experiment = config.get("experiment", {})
     benchmark = config.get("benchmark", {})
-    model = config.get("model", {})
+    profile = profile or resolve_profile(config["model_profile"])
+    identity = identity or run_identity(config, baseline, case, profile, execution_inputs(config, [baseline]))
     runtime_cfg = get_runtime_config(config, case["runtime"])
     source_dir = resolve_path(runtime_cfg.get("source_dir"))
     assert source_dir is not None
@@ -935,6 +937,9 @@ def run_one(
 
     ref = source_ref_for_case(runtime_cfg, case["case_id"])
     metadata: dict[str, Any] = {
+        "config_fingerprint": identity["fingerprint"],
+        "model_profile": profile.public(),
+        "status": "starting",
         "case": case,
         "baseline": baseline.get("name"),
         "baseline_kind": baseline.get("kind"),
@@ -943,6 +948,10 @@ def run_one(
         "worktree_dir": str(worktree_dir),
         "started_at_unix": started_at_unix,
     }
+    write_json(output_dir / "run_config.json", identity)
+    model_config = output_dir / "model_config.json"
+    write_json(model_config, profile.public())
+    write_json(output_dir / "metadata.json", metadata)
 
     try:
         progress(f"{label} creating worktree from {source_dir} at {ref}")
@@ -973,7 +982,7 @@ def run_one(
     baseline_output_dir = output_dir / baseline.get("output_dir_name", f"{baseline['name']}-output")
     baseline_repo_dir = resolve_path(baseline.get("repo_dir")) or Path("")
     command_values: dict[str, Any] = {
-        "model": baseline.get("model") or model.get("name", ""),
+        "model_config": model_config,
         "task_text": task_text,
         "task_file": task_file,
         "case_id": case["case_id"],
@@ -1025,18 +1034,24 @@ def run_one(
         )
         progress(f"{label} Agentless inputs ready: task={agentless_inputs['task_jsonl']} loc={agentless_inputs['loc_jsonl']}")
 
-    command = render_command(baseline["command"], command_values)
+    command = baseline_command(baseline, command_values)
     progress(f"{label} running baseline command in {baseline_cwd}")
     agent_started_monotonic = time.monotonic()
     baseline_result = run_command(
         command,
         cwd=baseline_cwd,
+        env=configure_baseline_environment(baseline, profile.child_env()),
+        shell=False,
         timeout=int(
             baseline.get(
                 "timeout_seconds", experiment.get("timeout_seconds", 1800)
             )
         ),
     )
+    baseline_result.stdout = profile.redact(baseline_result.stdout)
+    baseline_result.stderr = profile.redact(baseline_result.stderr)
+    if baseline_result.error:
+        baseline_result.error = profile.redact(baseline_result.error)
     agent_elapsed_seconds = round(
         time.monotonic() - agent_started_monotonic, 3
     )
@@ -1186,26 +1201,46 @@ def run_one(
     return metadata
 
 
-def main() -> int:
+def _main() -> int:
     args = parse_args()
     if args.clean and args.resume:
         progress("argument error: --clean and --resume are mutually exclusive")
         return 2
     progress(f"loading config: {args.config}")
     config = load_config(args.config)
+    profile = resolve_profile(config["model_profile"], require_key=not args.dry_run)
+    progress("resolved model configuration: " + json.dumps(profile.public(), ensure_ascii=False, sort_keys=True))
+    if not profile.api_key:
+        progress("dry-run: selected credential is unset; execution will require it")
     cases, case_problems = selected_cases(config, args.case, args.limit)
     baselines = enabled_baselines(config, args.baseline)
     progress(f"selected {len(cases)} case(s), {len(baselines)} baseline(s)")
     progress("running preflight checks")
     problems = case_problems + preflight(config, cases, baselines)
+    if args.limit is not None and args.limit < 1:
+        problems.append("--limit must be positive")
+    identities = {}
+    existing_results = {}
+    if not problems:
+        inputs = execution_inputs(config, baselines)
+        # Audit every selected directory before launching or cleaning any run.
+        for baseline in baselines:
+            for case in cases:
+                key = (baseline["name"], case["case_id"])
+                identity = run_identity(config, baseline, case, profile, inputs)
+                identities[key] = identity
+                if args.resume:
+                    existing_results[key] = load_terminal_result(config, baseline, case, identity["fingerprint"])
+                elif not args.clean and output_dir_for_run(config, baseline, case).exists():
+                    problems.append(f"Output already exists: {output_dir_for_run(config, baseline, case)}. Use --resume, a new output_dir, or --clean.")
     progress(f"preflight finished with {len(problems)} problem(s)")
 
     if args.dry_run:
         if args.clean:
             progress("clean requested with dry-run; no files will be removed")
         progress("dry-run mode: printing plan without executing baselines")
-        print_dry_run(config, cases, baselines, problems)
-        return 0
+        print_dry_run(config, cases, baselines, problems, profile, identities)
+        return 2 if problems else 0
     if problems:
         progress("preflight failed; aborting experiment")
         print(json.dumps({"problems": problems}, ensure_ascii=True, indent=2), file=sys.stderr)
@@ -1215,24 +1250,35 @@ def main() -> int:
     for baseline in baselines:
         for case in cases:
             label = run_label(baseline, case)
+            key = (baseline["name"], case["case_id"])
             if args.resume:
-                existing_result = load_terminal_result(config, baseline, case)
+                existing_result = existing_results[key]
                 if existing_result is not None:
-                    progress(f"{label} resume: result directory exists; skipping")
+                    progress(f"{label} resume: completed with identical configuration; skipping")
                     results.append(existing_result)
                     continue
-            progress(f"{label} starting run")
+            progress(f"{label} starting run config_fingerprint={identities[key]['fingerprint']}")
             results.append(
                 run_one(
                     config=config,
                     case=case,
                     baseline=baseline,
                     clean=args.clean or args.resume,
+                    profile=profile,
+                    identity=identities[key],
                 )
             )
             progress(f"{label} finished run status={results[-1].get('status')}")
     print(json.dumps({"runs": results}, ensure_ascii=True, indent=2))
     return 0
+
+
+def main() -> int:
+    try:
+        return _main()
+    except (ConfigError, OSError) as exc:
+        progress(f"configuration error: {exc}")
+        return 2
 
 
 if __name__ == "__main__":

@@ -5,18 +5,17 @@ BASELINE_REPO=""
 REPO=""
 TASK_FILE=""
 OUTPUT_DIR=""
-MODEL=""
+MODEL_CONFIG=""
 BUILD_COMMAND=""
 SOURCE_EXTENSIONS=""
 TIMEOUT_SECONDS="0"
 BUILD_TIMEOUT_SECONDS="600"
-BASE_URL="${PATCHAGENT_BASE_URL:-${OPENAI_BASE_URL:-${OPENAI_API_BASE:-}}}"
 FAST="false"
 
 usage() {
   cat >&2 <<'EOF'
 Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE \
-  --output-dir DIR --model MODEL --build-command COMMAND [options]
+  --output-dir DIR --model-config FILE --build-command COMMAND [options]
 
 Run upstream PatchAgent with the Cloud-Spec-Exp OCI builder.
 
@@ -24,15 +23,11 @@ Options:
   --source-extensions LIST    Comma-separated source suffixes.
   --timeout-seconds N         Stop the whole PatchAgent run after N seconds.
   --build-timeout-seconds N   Timeout for each candidate build.
-  --base-url URL              OpenAI-compatible API base URL.
   --fast                      One randomized upstream attempt (15 iterations).
 
 Environment:
   PATCHAGENT_CONDA_ENV        Run with "conda run -n ENV python".
   PATCHAGENT_PYTHON           Otherwise use this Python executable.
-  PATCHAGENT_API_KEY          Preferred API key; falls back to
-                              DEEPSEEK_API_KEY, then OPENAI_API_KEY.
-  PATCHAGENT_BASE_URL         Default OpenAI-compatible API base URL.
 EOF
 }
 
@@ -42,12 +37,11 @@ while [ "$#" -gt 0 ]; do
     --repo) REPO="${2:-}"; shift 2 ;;
     --task-file) TASK_FILE="${2:-}"; shift 2 ;;
     --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
-    --model) MODEL="${2:-}"; shift 2 ;;
+    --model-config) MODEL_CONFIG="${2:-}"; shift 2 ;;
     --build-command) BUILD_COMMAND="${2:-}"; shift 2 ;;
     --source-extensions) SOURCE_EXTENSIONS="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
     --build-timeout-seconds) BUILD_TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
-    --base-url) BASE_URL="${2:-}"; shift 2 ;;
     --fast) FAST="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -55,7 +49,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || \
-   [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL" ] || [ -z "$BUILD_COMMAND" ]; then
+   [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL_CONFIG" ] || [ -z "$BUILD_COMMAND" ]; then
   echo "Missing required argument." >&2
   usage
   exit 2
@@ -146,14 +140,11 @@ COMMAND=(
   --repo "$REPO"
   --task-file "$TASK_FILE"
   --output-dir "$OUTPUT_DIR"
-  --model "$MODEL"
+  --model-config "$MODEL_CONFIG"
   --build-command "$BUILD_COMMAND"
   --source-extensions "$SOURCE_EXTENSIONS"
   --build-timeout-seconds "$BUILD_TIMEOUT_SECONDS"
 )
-if [ -n "$BASE_URL" ]; then
-  COMMAND+=(--base-url "$BASE_URL")
-fi
 if [ "$FAST" = "true" ]; then
   COMMAND+=(--fast)
 fi

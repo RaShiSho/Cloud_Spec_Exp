@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shlex
 import shutil
@@ -10,12 +9,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-try:
-    import yaml
-except ImportError:  # pragma: no cover - exercised only on minimal hosts.
-    yaml = None
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GARBLE_MARKERS = ("?" * 4, chr(0xFFFD), chr(0x6769), chr(0x9418), chr(0x95BF))
@@ -75,33 +68,6 @@ def _parse_dotenv_value(raw_value: str) -> str:
     return value
 
 
-def load_dotenv(path: str | Path | None = None, override: bool = False) -> dict[str, str]:
-    dotenv_path = Path(path) if path is not None else REPO_ROOT / ".env"
-    if not dotenv_path.exists():
-        return {}
-
-    loaded: dict[str, str] = {}
-    with dotenv_path.open("r", encoding="utf-8") as f:
-        for line_number, raw_line in enumerate(f, start=1):
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("export "):
-                line = line[len("export ") :].lstrip()
-            if "=" not in line:
-                continue
-            key, raw_value = line.split("=", 1)
-            key = key.strip()
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-                raise ValueError(f"Invalid .env key at {dotenv_path}:{line_number}: {key}")
-            if key in os.environ and not override:
-                continue
-            value = _parse_dotenv_value(raw_value)
-            os.environ[key] = value
-            loaded[key] = value
-    return loaded
-
-
 @dataclass
 class CommandResult:
     command: str | list[str]
@@ -129,14 +95,14 @@ class CommandResult:
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
-    load_dotenv()
-    if yaml is None:
-        raise RuntimeError("PyYAML is required to read YAML config files: pip install PyYAML")
-    with Path(path).open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"Config must be a YAML mapping: {path}")
-    return data
+    if __package__:
+        from .experiment_config import validate_experiment
+        from .model_profiles import read_yaml
+    else:
+        from experiment_config import validate_experiment
+        from model_profiles import read_yaml
+
+    return validate_experiment(read_yaml(path))
 
 
 def resolve_path(value: str | Path | None, root: Path = REPO_ROOT) -> Path | None:
@@ -150,9 +116,11 @@ def resolve_path(value: str | Path | None, root: Path = REPO_ROOT) -> Path | Non
 
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as f:
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
+    temporary.replace(path)
 
 
 def ensure_text(value: str | bytes | None) -> str:

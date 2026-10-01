@@ -13,6 +13,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 import run_oci_experiment as runner  # noqa: E402
 from oci_common import CommandResult  # noqa: E402
+from model_profiles import ConfigError
+from profile_test_support import test_profile
 
 
 class RunOciExperimentGitDiffTests(unittest.TestCase):
@@ -49,113 +51,55 @@ class RunOciExperimentGitDiffTests(unittest.TestCase):
 
 
 class RunOciExperimentResumeTests(unittest.TestCase):
-    def test_does_not_skip_when_result_directory_is_missing(self) -> None:
+    def test_missing_directory_is_not_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
-            output_root = Path(tmp)
-            config = {"experiment": {"output_dir": str(output_root)}}
-            baseline = {"name": "autocoderover"}
-            case = {"case_id": "crun-13"}
+            self.assertIsNone(runner.load_terminal_result(
+                {"experiment": {"output_dir": tmp}}, {"name": "agent"}, {"case_id": "crun-1"}, "same"
+            ))
 
-            result = runner.load_terminal_result(config, baseline, case)
-
-        self.assertIsNone(result)
-
-    def test_skips_existing_results_regardless_of_status(self) -> None:
+    def test_only_completed_matching_results_are_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
-            output_root = Path(tmp)
-            config = {"experiment": {"output_dir": str(output_root)}}
-            baseline = {"name": "autocoderover"}
-
-            for status in ("done", "error", "running"):
-                with self.subTest(status=status):
-                    case = {"case_id": f"crun-{status}"}
-                    output_dir = output_root / "autocoderover" / case["case_id"]
-                    output_dir.mkdir(parents=True)
-                    (output_dir / "metadata.json").write_text(
-                        json.dumps({"status": status}), encoding="utf-8"
-                    )
-
-                    result = runner.load_terminal_result(config, baseline, case)
-
-                    self.assertIsNotNone(result)
-                    assert result is not None
-                    self.assertEqual(result["status"], status)
+            config = {"experiment": {"output_dir": tmp}}
+            baseline = {"name": "agent"}
+            for status in ("done", "error", "starting"):
+                case = {"case_id": "crun-" + status}
+                output = Path(tmp) / "agent" / case["case_id"]
+                output.mkdir(parents=True)
+                (output / "metadata.json").write_text(json.dumps({"status": status, "config_fingerprint": "same"}))
+                (output / "oracle.json").write_text('{"status":"pass"}')
+                result = runner.load_terminal_result(config, baseline, case, "same")
+                if status == "done":
                     self.assertTrue(result["resumed_skip"])
-                    self.assertEqual(
-                        result["resume_reason"], "output_directory_exists"
-                    )
+                    self.assertEqual(result["resume_reason"], "completed_with_same_configuration")
+                else:
+                    self.assertIsNone(result)
 
-    def test_skips_empty_or_partial_result_directories(self) -> None:
+    def test_legacy_damaged_or_different_results_are_preserved_and_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            output_root = Path(tmp)
-            config = {"experiment": {"output_dir": str(output_root)}}
-            baseline = {"name": "autocoderover"}
+            config = {"experiment": {"output_dir": tmp}}
+            baseline = {"name": "agent"}
+            case = {"case_id": "crun-1"}
+            output = Path(tmp) / "agent" / "crun-1"
+            output.mkdir(parents=True)
+            marker = output / "candidate.patch"
+            marker.write_text("keep this patch")
+            for payload in (None, "{invalid", '{}', '{"config_fingerprint":"old","status":"done"}'):
+                with self.subTest(payload=payload):
+                    if payload is not None:
+                        (output / "metadata.json").write_text(payload)
+                    with self.assertRaises(ConfigError):
+                        runner.load_terminal_result(config, baseline, case, "new")
+                    self.assertEqual(marker.read_text(), "keep this patch")
 
-            for case_id, fixture_name, fixture_content in (
-                ("crun-empty", None, None),
-                ("crun-task", "task.md", "partial task"),
-                ("crun-invalid", "metadata.json", "{invalid"),
-            ):
-                with self.subTest(case_id=case_id):
-                    case = {"case_id": case_id}
-                    output_dir = output_root / "autocoderover" / case_id
-                    output_dir.mkdir(parents=True)
-                    if fixture_name is not None:
-                        (output_dir / fixture_name).write_text(
-                            fixture_content or "", encoding="utf-8"
-                        )
-
-                    result = runner.load_terminal_result(config, baseline, case)
-
-                    self.assertIsNotNone(result)
-                    assert result is not None
-                    self.assertEqual(result["status"], "skipped_existing")
-                    self.assertEqual(result["case"], case)
-                    self.assertEqual(result["baseline"], "autocoderover")
-                    self.assertEqual(result["output_dir"], str(output_dir))
-                    self.assertTrue(result["resumed_skip"])
-                    self.assertEqual(
-                        result["resume_reason"], "output_directory_exists"
-                    )
-
-    def test_resume_does_not_run_or_clean_an_existing_case(self) -> None:
-        case = {"case_id": "crun-13"}
-        baseline = {"name": "metagpt"}
-        existing_result = {
-            "case": case,
-            "baseline": "metagpt",
-            "status": "error",
-            "resumed_skip": True,
-            "resume_reason": "output_directory_exists",
-        }
-        args = mock.Mock(
-            clean=False,
-            resume=True,
-            config="experiment.yaml",
-            case=None,
-            baseline=None,
-            limit=None,
-            dry_run=False,
-        )
-
-        with (
-            mock.patch.object(runner, "parse_args", return_value=args),
-            mock.patch.object(runner, "load_config", return_value={}),
-            mock.patch.object(runner, "selected_cases", return_value=([case], [])),
-            mock.patch.object(runner, "enabled_baselines", return_value=[baseline]),
-            mock.patch.object(runner, "preflight", return_value=[]),
-            mock.patch.object(
-                runner, "load_terminal_result", return_value=existing_result
-            ),
-            mock.patch.object(runner, "run_one") as run_one,
-            mock.patch.object(runner, "clean_previous_run") as clean_previous_run,
-            mock.patch("builtins.print"),
-        ):
-            exit_code = runner.main()
-
-        self.assertEqual(exit_code, 0)
-        run_one.assert_not_called()
-        clean_previous_run.assert_not_called()
+    def test_done_without_valid_oracle_is_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "agent" / "crun-1"
+            output.mkdir(parents=True)
+            (output / "metadata.json").write_text('{"config_fingerprint":"same","status":"done"}')
+            for payload in (None, "{invalid", "[]", '{"status":"error"}'):
+                if payload is not None:
+                    (output / "oracle.json").write_text(payload)
+                self.assertIsNone(runner.load_terminal_result({"experiment": {"output_dir": tmp}}, {"name": "agent"}, {"case_id": "crun-1"}, "same"))
 
 
 class RunOciExperimentFailureTests(unittest.TestCase):
@@ -188,7 +132,7 @@ class RunOciExperimentFailureTests(unittest.TestCase):
                     "worktree_root": str(root / "worktrees"),
                     "timeout_seconds": 30,
                 },
-                "model": {"name": "test-model"},
+                "model_profile": "test",
                 "benchmark": {},
                 "runtimes": {
                     "crun": {
@@ -210,8 +154,8 @@ class RunOciExperimentFailureTests(unittest.TestCase):
             }
             baseline = {
                 "name": "autocoderover",
-                "kind": "generic_repair_agent",
-                "command": "run-baseline",
+                "kind": "autocoderover",
+                "repo_dir": str(source_dir),
                 "timeout_seconds": 30,
             }
             failure = CommandResult(
@@ -219,7 +163,7 @@ class RunOciExperimentFailureTests(unittest.TestCase):
                 cwd=str(source_dir),
                 returncode=1,
                 stdout="",
-                stderr="traceback\nfatal detail\n",
+                stderr="traceback\nfatal detail " + test_profile().api_key + "\n",
             )
 
             with (
@@ -233,6 +177,7 @@ class RunOciExperimentFailureTests(unittest.TestCase):
                     config=config,
                     case=case,
                     baseline=baseline,
+                    profile=test_profile(), identity={"fingerprint": "test-identity", "configuration": {}},
                 )
 
             metadata = json.loads(
@@ -257,6 +202,9 @@ class RunOciExperimentFailureTests(unittest.TestCase):
         self.assertIn("return code 1: fatal detail", result["error"])
         self.assertGreater(result["started_at_unix"], 1_000_000_000)
         self.assertEqual(metadata["error"], result["error"])
+        self.assertEqual(metadata["config_fingerprint"], "test-identity")
+        self.assertEqual(metadata["model_profile"], test_profile().public())
+        self.assertNotIn(test_profile().api_key, json.dumps(metadata))
         self.assertTrue(metadata["patch_is_partial"])
         self.assertIn("metrics", metadata)
         self.assertEqual(
@@ -283,7 +231,7 @@ class RunOciExperimentFailureTests(unittest.TestCase):
                     "worktree_root": str(root / "worktrees"),
                     "timeout_seconds": 30,
                 },
-                "model": {"name": "test-model"},
+                "model_profile": "test",
                 "benchmark": {},
                 "runtimes": {
                     "crun": {
@@ -306,7 +254,7 @@ class RunOciExperimentFailureTests(unittest.TestCase):
             baseline = {
                 "name": "agentless-oci-adapted",
                 "kind": "agentless_oci",
-                "command": "run-baseline",
+                "repo_dir": str(source_dir),
                 "top_n_files": 5,
             }
             failure = CommandResult(
@@ -332,7 +280,7 @@ class RunOciExperimentFailureTests(unittest.TestCase):
                 mock.patch.object(runner, "run_command", return_value=failure),
                 mock.patch.object(runner, "git_diff", return_value=""),
             ):
-                runner.run_one(config=config, case=case, baseline=baseline)
+                runner.run_one(config=config, case=case, baseline=baseline, profile=test_profile(), identity={"fingerprint": "test-identity", "configuration": {}})
 
             task_text = (
                 output_root / "agentless-oci-adapted" / "crun-13" / "task.md"
@@ -486,7 +434,7 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
             metrics = runner.collect_llm_metrics(
                 baseline={
                     "name": "metagpt",
-                    "kind": "generic_repair_agent",
+                    "kind": "autocoderover",
                     "output_dir_name": "metagpt-output",
                 },
                 output_dir=output_dir,
@@ -526,7 +474,7 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
             )
 
             metrics = runner.collect_llm_metrics(
-                baseline={"name": "metagpt", "kind": "generic_repair_agent"},
+                baseline={"name": "metagpt", "kind": "autocoderover"},
                 output_dir=output_dir,
                 baseline_result=self.command_result(),
             )
@@ -551,7 +499,7 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
             )
 
             metrics = runner.collect_llm_metrics(
-                baseline={"name": "autocoderover", "kind": "generic_repair_agent"},
+                baseline={"name": "autocoderover", "kind": "autocoderover"},
                 output_dir=output_dir,
                 baseline_result=self.command_result(),
             )
@@ -569,7 +517,7 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
             ]
         )
         metrics = runner.collect_llm_metrics(
-            baseline={"name": "repairagent", "kind": "generic_repair_agent"},
+            baseline={"name": "repairagent", "kind": "autocoderover"},
             output_dir=Path("."),
             baseline_result=self.command_result(stdout=stdout),
         )
@@ -708,7 +656,7 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                         "worktree_root": str(worktree_root),
                         "timeout_seconds": 30,
                     },
-                    "model": {"name": "test-model"},
+                    "model_profile": "test",
                     "benchmark": {"rootfs_tar": str(root / "rootfs.tar.gz")},
                     "oracle": {"timeout_seconds": 1},
                     "runtimes": {
@@ -731,8 +679,8 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                 }
                 baseline = {
                     "name": "generic",
-                    "kind": "generic_repair_agent",
-                    "command": "run-baseline",
+                    "kind": "autocoderover",
+                    "repo_dir": str(source_dir),
                 }
                 success = self.command_result()
                 build_failure = self.command_result(returncode=1)
@@ -789,6 +737,7 @@ class RunOciExperimentMetricsTests(unittest.TestCase):
                         config=config,
                         case=case,
                         baseline=baseline,
+                    profile=test_profile(), identity={"fingerprint": "test-identity", "configuration": {}},
                     )
 
                 metadata = json.loads(

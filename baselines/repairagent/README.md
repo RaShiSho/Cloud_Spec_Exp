@@ -64,12 +64,10 @@ conda run -n repairagent python -m pip install \
   -r external/baselines/RepairAgent/repair_agent/requirements-core.txt
 ```
 
-adapter 依次读取 `REPAIRAGENT_API_KEY`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY`。
-API base 依次读取 `REPAIRAGENT_BASE_URL`、`OPENAI_API_BASE`、`OPENAI_BASE_URL`，默认
-`https://api.deepseek.com`。上游配置实际识别的是 `OPENAI_API_BASE_URL`，wrapper 会完成映射。
-
-专属配置使用 provider 原生模型名 `deepseek-v4-flash`。上游 OpenAI-compatible client 会把
-该名称直接传给服务端；全局的 LiteLLM 风格名称 `deepseek/deepseek-v4-flash` 不适用于这里。
+模型、地址和采样参数统一配置在 `configs/model_profiles.yaml`，实验 YAML 只设置
+`model_profile` 名称。密钥由该 profile 的 `api_key_env` 精确指定，无供应商回退。
+runner 会打印最终配置，并通过 `--model-config` 传入不含密钥的快照；wrapper 不再接受
+`--model`、`--base-url` 或环境变量中的独立模型覆盖。详情见根目录 README。
 
 ## 运行
 

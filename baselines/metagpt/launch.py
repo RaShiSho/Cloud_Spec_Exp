@@ -12,6 +12,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from model_profiles import load_runtime_profile
+from model_transport import bind_openai
+
 from command_compat import (
     InvalidMetaGPTCommand,
     get_command_compat_state,
@@ -33,16 +37,14 @@ class NoRepositoryChanges(RuntimeError):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        allow_abbrev=False,
         description="Launch MetaGPT against an existing OCI runtime repository."
     )
     parser.add_argument("--baseline-repo", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--task-file", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--api-type", default="deepseek")
-    parser.add_argument("--base-url")
-    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--model-config", required=True, help="Resolved model snapshot written by the experiment runner.")
     parser.add_argument("--n-round", type=int, default=10)
     parser.add_argument("--investment", type=float, default=3.0)
     parser.add_argument("--max-auto-summarize-code", type=int, default=0)
@@ -57,30 +59,6 @@ def required_path(value: str, *, directory: bool) -> Path:
         kind = "directory" if directory else "file"
         raise FileNotFoundError(f"Missing required {kind}: {path}")
     return path
-
-
-def resolve_api_key() -> tuple[str, str]:
-    for name in ("METAGPT_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
-        value = os.environ.get(name)
-        if value:
-            return value, name
-    raise RuntimeError(
-        "Missing API key: set METAGPT_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY."
-    )
-
-
-def resolve_base_url(explicit: str | None, api_type: str) -> str:
-    configured = (
-        explicit
-        or os.environ.get("METAGPT_BASE_URL")
-        or os.environ.get("OPENAI_API_BASE")
-        or os.environ.get("OPENAI_BASE_URL")
-    )
-    if configured:
-        return configured
-    if api_type == "deepseek":
-        return "https://api.deepseek.com"
-    return "https://api.openai.com/v1"
 
 
 def write_bootstrap_config(home: Path, *, api_type: str, model: str, base_url: str) -> Path:
@@ -435,6 +413,10 @@ def redact(value: str, secrets: tuple[str, ...]) -> str:
 
 def main() -> int:
     args = parse_args()
+    profile = load_runtime_profile(args.model_config)
+    args.model = profile.settings["model"]
+    args.api_type = "openai"
+    args.temperature = profile.settings["temperature"]
     if args.n_round <= 0:
         raise ValueError("--n-round must be greater than zero")
     if args.investment <= 0:
@@ -449,8 +431,8 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     metadata_path = output_dir / "launcher_metadata.json"
 
-    api_key, api_key_source = resolve_api_key()
-    base_url = resolve_base_url(args.base_url, args.api_type)
+    api_key, api_key_source = profile.api_key, profile.key_source
+    base_url = profile.settings["base_url"]
     configured_rates = resolve_cost_rates()
     write_bootstrap_config(
         Path.home(), api_type=args.api_type, model=args.model, base_url=base_url
@@ -458,8 +440,10 @@ def main() -> int:
 
     os.environ["METAGPT_PROJECT_ROOT"] = str(baseline_repo)
     sys.path.insert(0, str(baseline_repo))
+    bind_openai(profile)
 
     metadata: dict[str, Any] = {
+        "model_profile": profile.public(),
         "status": "starting",
         "baseline_repo": str(baseline_repo),
         "baseline_revision": git_revision(baseline_repo),
@@ -493,7 +477,8 @@ def main() -> int:
             api_key=api_key,
             base_url=base_url,
             model=args.model,
-            temperature=args.temperature,
+            temperature=args.temperature if args.temperature is not None else 1.0,
+            max_token=profile.settings["max_tokens"],
             calc_usage=True,
         )
         config_module.config.repair_llm_output = True

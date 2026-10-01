@@ -6,9 +6,7 @@ BASELINE_REPO=""
 REPO=""
 TASK_FILE=""
 OUTPUT_DIR=""
-MODEL=""
-API_TYPE="${METAGPT_API_TYPE:-deepseek}"
-BASE_URL="${METAGPT_BASE_URL:-${OPENAI_API_BASE:-${OPENAI_BASE_URL:-}}}"
+MODEL_CONFIG=""
 TIMEOUT_SECONDS="0"
 N_ROUND="10"
 INVESTMENT="3.0"
@@ -17,13 +15,11 @@ RUN_TESTS="false"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE --output-dir DIR --model MODEL [options]
+Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE --output-dir DIR --model-config FILE [options]
 
 Run MetaGPT incremental development against an OCI runtime worktree.
 
 Options:
-  --api-type TYPE                 MetaGPT LLM provider type (default: deepseek).
-  --base-url URL                  OpenAI-compatible API base URL.
   --timeout-seconds N             Stop MetaGPT after N seconds (0 disables).
   --n-round N                     MetaGPT team rounds (default: 10).
   --investment N                  MetaGPT team budget (default: 3.0).
@@ -33,10 +29,6 @@ Options:
 Environment:
   METAGPT_CONDA_ENV               Run with "conda run -n ENV python".
   METAGPT_PYTHON                  Otherwise use this Python executable.
-  METAGPT_API_KEY                 Preferred API key; falls back to
-                                  DEEPSEEK_API_KEY, then OPENAI_API_KEY.
-  METAGPT_API_TYPE                Default for --api-type.
-  METAGPT_BASE_URL                Default for --base-url.
   METAGPT_PROMPT_COST_PER_1K      Optional input-token USD rate per 1,000 tokens.
   METAGPT_COMPLETION_COST_PER_1K  Optional output-token USD rate per 1,000 tokens.
 EOF
@@ -48,9 +40,7 @@ while [ "$#" -gt 0 ]; do
     --repo) REPO="${2:-}"; shift 2 ;;
     --task-file) TASK_FILE="${2:-}"; shift 2 ;;
     --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
-    --model) MODEL="${2:-}"; shift 2 ;;
-    --api-type) API_TYPE="${2:-}"; shift 2 ;;
-    --base-url) BASE_URL="${2:-}"; shift 2 ;;
+    --model-config) MODEL_CONFIG="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
     --n-round) N_ROUND="${2:-}"; shift 2 ;;
     --investment) INVESTMENT="${2:-}"; shift 2 ;;
@@ -61,7 +51,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL" ]; then
+if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL_CONFIG" ]; then
   echo "Missing required argument." >&2
   usage
   exit 2
@@ -154,13 +144,13 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$PYTHON_BIN" - "$BASELINE_NAME" "$BASELINE_REPO" "$REPO" "$TASK_FILE" "$OUTPUT_DIR" "$MODEL" "$API_TYPE" "$BASE_URL" "$N_ROUND" "$INVESTMENT" "$MAX_AUTO_SUMMARIZE_CODE" "$RUN_TESTS" "$(pwd)" <<'PY'
+"$PYTHON_BIN" - "$BASELINE_NAME" "$BASELINE_REPO" "$REPO" "$TASK_FILE" "$OUTPUT_DIR" "$MODEL_CONFIG" "$N_ROUND" "$INVESTMENT" "$MAX_AUTO_SUMMARIZE_CODE" "$RUN_TESTS" "$(pwd)" <<'PY'
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-(baseline, baseline_repo, repo, task_file, output_dir, model, api_type, base_url,
+(baseline, baseline_repo, repo, task_file, output_dir, model_config,
  n_round, investment, max_auto_summarize_code, run_tests, cwd) = sys.argv[1:]
 revision = subprocess.run(
     ["git", "-C", baseline_repo, "rev-parse", "HEAD"],
@@ -175,9 +165,7 @@ payload = {
     "repo": repo,
     "task_file": task_file,
     "output_dir": output_dir,
-    "model": model,
-    "api_type": api_type,
-    "base_url": base_url or None,
+    "model_config": model_config,
     "n_round": int(n_round),
     "investment": float(investment),
     "max_auto_summarize_code": int(max_auto_summarize_code),
@@ -214,15 +202,11 @@ LAUNCH_COMMAND=(
   --repo "$REPO"
   --task-file "$TASK_FILE"
   --output-dir "$OUTPUT_DIR"
-  --model "$MODEL"
-  --api-type "$API_TYPE"
+  --model-config "$MODEL_CONFIG"
   --n-round "$N_ROUND"
   --investment "$INVESTMENT"
   --max-auto-summarize-code "$MAX_AUTO_SUMMARIZE_CODE"
 )
-if [ -n "$BASE_URL" ]; then
-  LAUNCH_COMMAND+=(--base-url "$BASE_URL")
-fi
 if [ "$RUN_TESTS" = "true" ]; then
   LAUNCH_COMMAND+=(--run-tests)
 fi

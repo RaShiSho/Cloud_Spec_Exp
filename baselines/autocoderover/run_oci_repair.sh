@@ -6,14 +6,14 @@ BASELINE_REPO=""
 REPO=""
 TASK_FILE=""
 OUTPUT_DIR=""
-MODEL=""
+MODEL_CONFIG=""
 TIMEOUT_SECONDS="0"
 CONV_ROUND_LIMIT="15"
 SOURCE_EXTENSIONS=""
 
 usage() {
   cat >&2 <<'EOF'
-Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE --output-dir DIR --model MODEL [options]
+Usage: run_oci_repair.sh --baseline-repo DIR --repo DIR --task-file FILE --output-dir DIR --model-config FILE [options]
 
 This is a Cloud-Spec-Exp OCI adapter skeleton for AutoCodeRover.
 It invokes AutoCodeRover upstream local-issue mode and applies the selected
@@ -48,8 +48,8 @@ while [ "$#" -gt 0 ]; do
       OUTPUT_DIR="${2:-}"
       shift 2
       ;;
-    --model)
-      MODEL="${2:-}"
+    --model-config)
+      MODEL_CONFIG="${2:-}"
       shift 2
       ;;
     --timeout-seconds)
@@ -76,7 +76,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL" ]; then
+if [ -z "$BASELINE_REPO" ] || [ -z "$REPO" ] || [ -z "$TASK_FILE" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$MODEL_CONFIG" ]; then
   echo "Missing required argument." >&2
   usage
   exit 2
@@ -133,8 +133,6 @@ fi
 
 ACR_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ACR_RUN_DIR="$OUTPUT_DIR/acr-runs/$ACR_RUN_ID"
-ACR_MODEL_NAME="${ACR_MODEL:-$MODEL}"
-ACR_MODEL_TEMPERATURE="${ACR_MODEL_TEMPERATURE:-0}"
 ACR_TASK_ID="${ACR_TASK_ID:-$(basename "$(dirname "$TASK_FILE")")}"
 mkdir -p "$ACR_RUN_DIR"
 
@@ -159,21 +157,19 @@ if [ "$TIMEOUT_SECONDS" -gt 0 ] && ! command -v timeout >/dev/null 2>&1; then
   exit 2
 fi
 
-"$PYTHON_BIN" - "$BASELINE_NAME" "$BASELINE_REPO" "$REPO" "$TASK_FILE" "$OUTPUT_DIR" "$MODEL" "$ACR_MODEL_NAME" "$ACR_MODEL_TEMPERATURE" "$ACR_TASK_ID" "$ACR_RUN_DIR" "$SOURCE_EXTENSIONS" "$(pwd)" <<'PY'
+"$PYTHON_BIN" - "$BASELINE_NAME" "$BASELINE_REPO" "$REPO" "$TASK_FILE" "$OUTPUT_DIR" "$MODEL_CONFIG" "$ACR_TASK_ID" "$ACR_RUN_DIR" "$SOURCE_EXTENSIONS" "$(pwd)" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-baseline, baseline_repo, repo, task_file, output_dir, model, acr_model, acr_temperature, acr_task_id, acr_run_dir, source_extensions, cwd = sys.argv[1:]
+baseline, baseline_repo, repo, task_file, output_dir, model_config, acr_task_id, acr_run_dir, source_extensions, cwd = sys.argv[1:]
 payload = {
     "baseline": baseline,
     "baseline_repo": baseline_repo,
     "repo": repo,
     "task_file": task_file,
     "output_dir": output_dir,
-    "model": model,
-    "acr_model": acr_model,
-    "acr_model_temperature": acr_temperature,
+    "model_config": model_config,
     "acr_task_id": acr_task_id,
     "acr_run_dir": acr_run_dir,
     "source_extensions": source_extensions,
@@ -208,14 +204,10 @@ echo "Starting AutoCodeRover local-issue mode." >&2
 set +e
 (
   cd "$BASELINE_REPO"
-  if [ -z "${OPENAI_KEY:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
-    export OPENAI_KEY="$OPENAI_API_KEY"
-  fi
   ACR_COMMAND=(
     "${ACR_PYTHON_CMD[@]}" "$ACR_LAUNCHER" local-issue
     --output-dir "$ACR_RUN_DIR"
-    --model "$ACR_MODEL_NAME"
-    --model-temperature "$ACR_MODEL_TEMPERATURE"
+    --model-config "$MODEL_CONFIG"
     --conv-round-limit "$CONV_ROUND_LIMIT"
     --task-id "$ACR_TASK_ID"
     --local-repo "$REPO"
