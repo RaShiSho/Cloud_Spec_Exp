@@ -48,7 +48,7 @@ def main() -> None:
                 "cost_tracking": "ignore_errors",
                 "model_kwargs": model_kwargs,
             })
-            config_path = Path(config_dir) / "mini.json"
+            config_path = Path(config_dir) / "mini.yaml"
             config_path.write_text(json.dumps(config), encoding="utf-8")
             sys.argv = ["mini", "-c", str(config_path), "-y", "-t", Path(args.task_file).read_text(), "-o", args.output, "--exit-immediately"]
             runpy.run_module("minisweagent.run.mini", run_name="__main__")

@@ -1,0 +1,42 @@
+mini-swe-agent 1200 秒试运行报告
+
+结果：PASS，完整流程已跑通并完成统一 oracle 验证。
+案例：crun-13；模型配置：gpt（gpt-6-sol）。
+实际配置：experiment.yaml；通过标准 scripts/run_oci_experiment.py 入口执行。
+
+配置修改
+configs/experiment.mini.yaml 中 mini-swe-agent 条目新增 timeout_seconds: 1200。
+统一构建上限仍为 600 秒，oracle 每次复现上限仍为 300 秒。
+.env 未修改，模型配置文件未修改。
+
+阶段与耗时
+mini 修复：648.982 秒，正常提交，返回码 0，完成 26 次模型调用。
+统一构建：73.846 秒，返回码 0。
+统一 oracle：1.086 秒，返回码 0，状态 pass。
+全流程：724.162 秒，约 12 分 4 秒，最终元数据 status=done、oracle_status=pass。
+时间：2026-10-01 07:27:09 至 07:39:13 UTC（北京时间 15:27:09 至 15:39:13）。
+生成候选补丁 7002 字节，包含 4 个源码/测试文件的修改。
+
+实际验证
+统一 oracle 对参考 runc 和候选 crun 分别运行 base_config.json、buggy_config.json，共 4 次真实 OCI 执行。
+4 次执行均返回 0，无超时、无清理警告。
+base_config.json 的两侧输出均为 clean-base。
+buggy_config.json 的两侧输出均为 process-path-13 和 /bin/sh。
+
+中间问题
+mini 内部首次构建因单条命令 30 秒上限中断子模块拉取。随后 mini 注销了被中断的子模块并提交候选补丁。
+标准流水线的统一构建阶段重新初始化依赖并成功编译。本轮没有手动修改候选源码、没有跳过统一构建，也没有绕过 oracle。
+本次不把 mini 自身尚未完成的内部测试视为通过；通过的是后续真实统一构建和 oracle。
+
+结果边界
+此前未修改旧版本在同一主机、同一载荷下也能通过 oracle，详见 ../framework-smoke-20261001/diagnostics/pristine-control/control.json。
+本次 PASS 证明实验流程跑通且给定载荷下行为一致，不能单独证明历史缺陷已修复。
+
+主要证据
+report.json：机器可读报告。
+pipeline-summary.json：标准汇总结果。
+runs/mini-swe-agent/crun-13/events.jsonl：阶段时间线。
+runs/mini-swe-agent/crun-13/oracle.json：统一 oracle 完整结果。
+runs/mini-swe-agent/crun-13/oracle-executions/：4 次实际执行记录。
+runs/mini-swe-agent/crun-13/candidate.patch：mini 提交的候选补丁。
+input-integrity.json：输入文件一致性检查。

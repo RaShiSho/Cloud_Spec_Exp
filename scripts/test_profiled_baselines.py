@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -17,6 +18,46 @@ import launch_profiled_baseline as launcher
 
 
 class ProfiledBaselineTests(unittest.TestCase):
+    @unittest.skipUnless(
+        (ROOT / "external/baselines/mini-swe-agent/src/minisweagent/config/__init__.py").is_file(),
+        "mini-swe-agent checkout is required for the real configuration loader",
+    )
+    def test_mini_generated_config_loads_with_upstream_loader(self):
+        source = ROOT / "external/baselines/mini-swe-agent/src/minisweagent/config/__init__.py"
+        spec = importlib.util.spec_from_file_location("mini_config_contract", source)
+        upstream_config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(upstream_config)
+        package = types.ModuleType("minisweagent")
+        package.__path__ = []
+        modules = {"minisweagent": package, "minisweagent.config": upstream_config}
+        profile = test_profile()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task = root / "task.md"
+            task.write_text("repair this")
+            snapshot = write_snapshot(root / "profile.json", profile)
+            argv = ["launcher", "--kind", "mini_swe_agent", "--baseline-repo", str(source.parents[3]), "--model-config", str(snapshot), "--task-file", str(task), "--output", str(root / "trajectory.json")]
+
+            def load_generated_config(name, **kwargs):
+                self.assertEqual(name, "minisweagent.run.mini")
+                path = Path(sys.argv[sys.argv.index("-c") + 1])
+                config = upstream_config.get_config_from_spec(str(path))
+                self.assertEqual(config["model"]["model_name"], "openai/test-model")
+                self.assertEqual(config["model"]["model_kwargs"]["api_base"], profile.settings["base_url"])
+                self.assertNotIn(profile.api_key, path.read_text())
+
+            with (
+                mock.patch.dict(sys.modules, modules),
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(sys, "path", sys.path.copy()),
+                mock.patch.dict(os.environ, {"TEST_MODEL_KEY": profile.api_key}, clear=True),
+                mock.patch.object(launcher, "bind_openai"),
+                mock.patch.object(launcher, "bind_litellm"),
+                mock.patch.object(launcher.runpy, "run_module", side_effect=load_generated_config) as run_module,
+            ):
+                launcher.main()
+            run_module.assert_called_once()
+
     def test_wrappers_reject_old_model_and_endpoint_overrides(self):
         for name in ("metagpt", "repairagent", "patchagent", "autocoderover"):
             for option in ("--model", "--base-url"):

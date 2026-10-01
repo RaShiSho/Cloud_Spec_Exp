@@ -1,0 +1,32 @@
+mini-swe-agent 最小启动修复与复测
+
+结论
+启动问题已经修复。本轮 mini 正常加载配置并完成 26 次模型调用，但在 600 秒内没有正式提交结果，实验最终状态为 ERROR（baseline timeout，返回码 124），完整流程未通过。
+
+修改
+scripts/launch_profiled_baseline.py:51 仅将临时配置文件名 mini.json 改为 mini.yaml，匹配上游配置加载器的后缀处理；配置内容仍为有效的 YAML。
+scripts/test_profiled_baselines.py 新增调用真实上游配置加载器的回归测试。旧代码下测试因缺失 mini.yaml 失败，修复后完整测试集 131 项：128 通过、3 跳过、0 失败。
+.env、configs/model_profiles.yaml 和原始 configs/experiment.mini.yaml 的 SHA-256 与本轮开始时一致。
+
+实际复测
+使用标准 scripts/run_oci_experiment.py 入口，选择 crun-13 和 gpt 配置（gpt-6-sol）；没有使用上一轮诊断时的环境变量过滤。
+时间：2026-10-01 06:58:09 至 07:08:09 UTC（北京时间 14:58:09 至 15:08:09）。
+总耗时 600.222 秒。保留 6426 字节候选补丁，修改 4 个文件，标记为 partial。
+轨迹记录了构建成功、OCI 复现命令返回 0、7 项工具函数测试通过。期间一次工具命令的 30 秒超时打断了子模块初始化，mini 自行恢复后继续构建。最后几步清理生成文件并检查 diff；外层 600 秒超时时尚未提交完成命令。
+实验脚本的统一构建和 oracle 没有执行。oracle.json 是超时错误记录，不是验证通过记录。
+测试进程已经退出，没有本轮工作目录下的遗留进程。
+
+结果边界
+此次确认的是启动修复有效。候选源码补丁未经独立审查，不能据此声称历史运行时缺陷已经修好。
+此前同一案例的未修改旧版本也能通过 oracle，详见 ../framework-smoke-20261001/diagnostics/pristine-control/control.json；当前载荷在此主机上不足以单独证明修复效果。
+
+主要证据
+report.json：机器可读结论及证据索引。
+startup-fix.patch：本轮启动修复及回归测试。
+regression-before.log / regression-after.log：修复前后的测试记录。
+runs/mini-swe-agent/crun-13/metadata.json：最终状态和统计。
+runs/mini-swe-agent/crun-13/trajectory.json：完整模型与工具轨迹。
+runs/mini-swe-agent/crun-13/candidate.patch：超时时保存的候选源码修改。
+trajectory-checks.json：内部构建、复现及测试的原始轨迹摘录。
+input-integrity.json：输入文件未变检查。
+process-completion.json：进程退出检查。
