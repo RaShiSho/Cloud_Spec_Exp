@@ -216,6 +216,53 @@ class FakeOciOracleTests(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["comparisons"], {})
 
+    def test_runtime_paths_and_execution_ids_do_not_change_verdict(self) -> None:
+        (self.case_dir / "repro.sh").write_text(
+            'echo "Running with $RUNTIME"\n'
+            'echo "bundle=$BUNDLE container=$CONTAINER_ID"\n'
+            '"$RUNTIME" "$CONFIG"\n'
+        )
+        reference = self.write_runtime("reference.sh", 'echo "max"\n')
+        candidate = self.write_runtime("candidate.sh", 'echo "max"\n')
+        payload = self.run_oracle(candidate, reference)
+        self.assertEqual(payload["status"], "pass")
+        base = payload["comparisons"]["base_config.json"]
+        self.assertNotEqual(base["reference"]["stdout"], base["candidate"]["stdout"])
+        self.assertEqual(base["normalized_reference"], base["normalized_candidate"])
+
+    def test_log_timestamps_are_ignored_but_error_messages_are_not(self) -> None:
+        def body(timestamp: str, message: str) -> str:
+            return f'if [ "$1" = buggy_config.json ]; then echo \'time="{timestamp}" level=error msg="{message}"\' >&2; exit 1; fi\n'
+        reference = self.write_runtime("reference.sh", body("2026-01-01T01:02:03Z", "expected rejection"))
+        candidate = self.write_runtime("candidate.sh", body("2026-01-01T01:02:04.123+08:00", "expected rejection"))
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "pass")
+        candidate = self.write_runtime("candidate.sh", body("2026-01-01T01:02:04Z", "different rejection"))
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "fail")
+
+    def test_oci_state_ignores_generated_pid_but_preserves_lifecycle_status(self) -> None:
+        def body(status: str) -> str:
+            return 'printf \'{"ociVersion":"1.0.2","id":"%s","status":"' + status + '","pid":%s,"bundle":"%s"}\\n\' "$CONTAINER_ID" "$$" "$BUNDLE"\n'
+        reference = self.write_runtime("reference.sh", body("created"))
+        candidate = self.write_runtime("candidate.sh", body("created"))
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "pass")
+        candidate = self.write_runtime("candidate.sh", body("creating"))
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "fail")
+
+    def test_workload_numbers_and_exit_codes_remain_significant(self) -> None:
+        reference = self.write_runtime("reference.sh", 'echo 67108864\n')
+        candidate = self.write_runtime("candidate.sh", 'echo 33554432\n')
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "fail")
+        candidate = self.write_runtime("candidate.sh", 'echo 67108864\nif [ "$1" = buggy_config.json ]; then exit 1; fi\n')
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "fail")
+
+    def test_script_created_bundle_workdir_is_normalized(self) -> None:
+        (self.case_dir / "repro.sh").write_text(
+            'bundle=$(mktemp -d)\ntrap \'rm -rf "$bundle"\' EXIT\n'
+            'cd "$bundle"\n"$RUNTIME" "$CONFIG"\n'
+        )
+        runtime = self.write_runtime("runtime.sh", 'echo "$PWD"\n')
+        self.assertEqual(self.run_oracle(runtime, runtime)["status"], "pass")
+
     def test_error_when_candidate_times_out(self) -> None:
         reference = self.write_runtime("reference.sh", 'echo "$1"\n')
         candidate = self.write_runtime("candidate.sh", "sleep 5\n")

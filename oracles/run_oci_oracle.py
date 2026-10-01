@@ -35,12 +35,55 @@ def resolve_executable(value: str) -> str | None:
     return found
 
 
+def normalized_output(text: str, context: dict[str, Any]) -> str:
+    replacements = {
+        context.get("runtime"): "<runtime>",
+        context.get("launcher"): "<runtime>",
+        context.get("bundle"): "<bundle>",
+        context.get("temporary_dir"): "<execution-dir>",
+        context.get("container_id"): "<container-id>",
+    }
+    for directory in context.get("bundle_workdirs", []):
+        replacements[directory] = "<bundle>"
+    for value in sorted((key for key in replacements if key), key=len, reverse=True):
+        text = text.replace(value, replacements[value])
+    # Strip only log timestamps, not arbitrary numbers or workload output.
+    timestamp = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+    text = re.sub(r'(?m)^time="' + timestamp + r'"(?=\s+level=)', 'time="<timestamp>"', text)
+    text = re.sub(r"(?m)^" + timestamp + r"(?=\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\b)", "<timestamp>", text)
+
+    # createRuntime hooks can print OCI state JSON among other output lines.
+    # Its positive PID is per execution; status, annotations and invalid/missing
+    # PIDs remain observable. Do not normalize arbitrary JSON workload values.
+    decoder = json.JSONDecoder()
+    parts: list[str] = []
+    cursor = 0
+    while (start := text.find("{", cursor)) >= 0:
+        parts.append(text[cursor:start])
+        try:
+            state, length = decoder.raw_decode(text[start:])
+        except ValueError:
+            parts.append("{")
+            cursor = start + 1
+            continue
+        fragment = text[start:start + length]
+        if isinstance(state, dict) and {"ociVersion", "id", "status", "bundle", "pid"} <= state.keys() and state["id"] == "<container-id>":
+            if type(state["pid"]) is int and state["pid"] > 0:
+                state["pid"] = "<runtime-pid>"
+            fragment = json.dumps(state, sort_keys=True, ensure_ascii=False)
+        parts.append(fragment)
+        cursor = start + length
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
 def fingerprint(result: dict[str, Any]) -> dict[str, Any]:
+    context = result.get("execution_context", {})
     return {
         "returncode": result["returncode"],
         "runtime_returncodes": result.get("runtime_returncodes", []),
-        "stdout": result["stdout"],
-        "stderr": result["stderr"],
+        "stdout": normalized_output(result["stdout"], context),
+        "stderr": normalized_output(result["stderr"], context),
     }
 
 
@@ -114,12 +157,14 @@ def run_repro(
         invocations = tmp / "runtime-invocations"
         exit_statuses = tmp / "runtime-exit-statuses"
         exit_statuses.touch(mode=0o600)
+        workdirs = tmp / "runtime-workdirs"
         launcher = tmp / "runtime"
         # A shell wrapper also works for repro scripts which use sudo. Record
         # calls in a file rather than stdout, where they would affect verdicts.
         launcher.write_text(
             "#!/bin/sh\n"
             f"printf '%s\\n' \"${{1-}}\" >> {shlex.quote(str(invocations))}\n"
+            f"printf '%s\\n' \"$PWD\" >> {shlex.quote(str(workdirs))}\n"
             "set +e\n"
             f"{shlex.quote(runtime)} \"$@\"\n"
             "status=$?\n"
@@ -189,6 +234,17 @@ def run_repro(
             for line in exit_statuses.read_text().splitlines()
             for command, code in [line.rsplit("\t", 1)] if command != "delete"
         ]
+        result["execution_context"] = {
+            "runtime": runtime,
+            "launcher": str(launcher),
+            "bundle": env["BUNDLE"],
+            "container_id": env["CONTAINER_ID"],
+            "temporary_dir": str(tmp),
+            "bundle_workdirs": sorted({
+                directory for directory in (workdirs.read_text().splitlines() if workdirs.exists() else [])
+                if Path(directory) != case_dir.resolve()
+            }),
+        }
     finally:
         cleanup_warning = cleanup_temp_dir(tmp)
 
@@ -271,6 +327,8 @@ def main() -> int:
         comparisons[config_name] = {
             "reference": reference_result,
             "candidate": candidate_result,
+            "normalized_reference": fingerprint(reference_result),
+            "normalized_candidate": fingerprint(candidate_result),
             "matches": fingerprint(reference_result) == fingerprint(candidate_result),
         }
         for label, result in (("reference", reference_result), ("candidate", candidate_result)):
