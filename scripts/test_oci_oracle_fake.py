@@ -39,11 +39,8 @@ class OciOracleCleanupTests(unittest.TestCase):
             stderr="",
         )
         with (
-            mock.patch.object(
-                oracle.tempfile,
-                "mkdtemp",
-                return_value="/tmp/oci-cleanup-test",
-            ),
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(oracle.tempfile, "mkdtemp", return_value=tmp),
             mock.patch.object(
                 oracle.subprocess,
                 "run",
@@ -102,7 +99,8 @@ class FakeOciOracleTests(unittest.TestCase):
 
     def write_runtime(self, name: str, body: str) -> Path:
         path = self.root / name
-        path.write_text(body, encoding="utf-8")
+        path.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+        path.chmod(0o700)
         return path
 
     def run_oracle(self, candidate: Path, reference: Path, timeout: int = 3) -> dict:
@@ -150,6 +148,73 @@ class FakeOciOracleTests(unittest.TestCase):
         payload = self.run_oracle(candidate, self.root / "missing.sh")
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["error_type"], "environment")
+
+    def test_setup_failure_is_not_a_pass_even_if_cleanup_calls_runtime(self) -> None:
+        runtime = self.write_runtime("runtime.sh", "exit 0\n")
+        (self.case_dir / "repro.sh").write_text(
+            'trap \'"$RUNTIME" delete fake >/dev/null 2>&1\' EXIT\n'
+            'echo "sudo: a password is required" >&2\nexit 1\n'
+        )
+        payload = self.run_oracle(runtime, runtime)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_type"], "environment")
+        self.assertFalse(payload["comparisons"]["base_config.json"]["reference"]["runtime_invoked"])
+
+    def test_noop_reproduction_does_not_pass(self) -> None:
+        runtime = self.write_runtime("runtime.sh", "exit 0\n")
+        (self.case_dir / "repro.sh").write_text("exit 0\n")
+        self.assertEqual(self.run_oracle(runtime, runtime)["status"], "error")
+
+    def test_failed_reference_base_is_an_environment_error(self) -> None:
+        runtime = self.write_runtime("runtime.sh", 'echo "unavailable host feature" >&2\nexit 1\n')
+        payload = self.run_oracle(runtime, runtime)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_type"], "environment")
+
+    def test_swallowed_runtime_failure_cannot_pass_the_reference_control(self) -> None:
+        # Lifecycle repros such as runc-5182 print statuses and then exit zero.
+        (self.case_dir / "repro.sh").write_text('"$RUNTIME" "$CONFIG"\nexit 0\n')
+        runtime = self.write_runtime("runtime.sh", 'echo "failure without a recognized diagnostic" >&2\nexit 1\n')
+        payload = self.run_oracle(runtime, runtime)
+        self.assertEqual(payload["status"], "error")
+        base = payload["comparisons"]["base_config.json"]["reference"]
+        self.assertEqual(base["returncode"], 0)
+        self.assertEqual(base["runtime_returncodes"][0]["returncode"], 1)
+
+    def test_swallowed_candidate_failure_remains_a_behavioral_difference(self) -> None:
+        (self.case_dir / "repro.sh").write_text('"$RUNTIME" "$CONFIG"\nexit 0\n')
+        reference = self.write_runtime("reference.sh", "exit 0\n")
+        candidate = self.write_runtime("candidate.sh", "exit 1\n")
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "fail")
+
+    def test_swallowed_privilege_failure_on_buggy_config_is_an_error(self) -> None:
+        (self.case_dir / "repro.sh").write_text('"$RUNTIME" "$CONFIG"\nexit 0\n')
+        runtime = self.write_runtime("runtime.sh", 'if [ "$1" = buggy_config.json ]; then echo "rootless container requires user namespaces" >&2; exit 1; fi\n')
+        payload = self.run_oracle(runtime, runtime)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_type"], "environment")
+
+    def test_expected_nonzero_buggy_behavior_can_pass(self) -> None:
+        runtime = self.write_runtime("runtime.sh", 'if [ "$1" = buggy_config.json ]; then echo "expected rejection" >&2; exit 1; fi\n')
+        self.assertEqual(self.run_oracle(runtime, runtime)["status"], "pass")
+
+    def test_candidate_only_base_failure_is_a_regression(self) -> None:
+        reference = self.write_runtime("reference.sh", 'echo "$1"\n')
+        candidate = self.write_runtime("candidate.sh", 'echo "regression" >&2\nexit 1\n')
+        self.assertEqual(self.run_oracle(candidate, reference)["status"], "fail")
+
+    def test_known_privilege_failure_on_buggy_config_is_environment_error(self) -> None:
+        runtime = self.write_runtime("runtime.sh", 'if [ "$1" = buggy_config.json ]; then echo "rootless container requires user namespaces" >&2; exit 1; fi\n')
+        payload = self.run_oracle(runtime, runtime)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["error_type"], "environment")
+
+    def test_missing_config_file_is_environment_error(self) -> None:
+        runtime = self.write_runtime("runtime.sh", "exit 0\n")
+        (self.case_dir / "base_config.json").unlink()
+        payload = self.run_oracle(runtime, runtime)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["comparisons"], {})
 
     def test_error_when_candidate_times_out(self) -> None:
         reference = self.write_runtime("reference.sh", 'echo "$1"\n')

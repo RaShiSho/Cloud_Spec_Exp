@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -28,7 +30,7 @@ def parse_args() -> argparse.Namespace:
 def resolve_executable(value: str) -> str | None:
     path = Path(value)
     if path.is_absolute() or any(sep in value for sep in ("/", "\\")):
-        return str(path) if path.exists() else None
+        return str(path.resolve()) if path.is_file() and os.access(path, os.X_OK) else None
     found = shutil.which(value)
     return found
 
@@ -36,6 +38,7 @@ def resolve_executable(value: str) -> str | None:
 def fingerprint(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "returncode": result["returncode"],
+        "runtime_returncodes": result.get("runtime_returncodes", []),
         "stdout": result["stdout"],
         "stderr": result["stderr"],
     }
@@ -49,7 +52,24 @@ def classify_execution_issue(result: dict[str, Any]) -> str | None:
         return "timeout"
     if result.get("error"):
         return "execution"
+    # A failing tar/cp/sudo (or an empty reproduction script) is not evidence
+    # about the runtime. Cleanup-only `delete` calls do not count as execution.
+    if result.get("runtime_invoked") is False:
+        return "environment"
     if result.get("returncode") in (126, 127):
+        return "environment"
+    if (
+        "rootless container requires user namespaces" in combined_output
+        or re.search(r"(?m)^sudo:.*(?:password|not allowed|not permitted|no new privileges)", combined_output)
+        or re.search(r"(?:cgroup|seccomp|user namespaces?).*(?:not supported|not available|not enabled|not mounted)", combined_output)
+    ):
+        return "environment"
+    # The clean reference is the positive control. Its failure makes both
+    # comparisons inconclusive, even when the candidate fails identically.
+    if result.get("runtime_label") == "reference" and result.get("config") == "base_config.json" and (
+        result.get("returncode") != 0
+        or any(call["returncode"] != 0 for call in result.get("runtime_returncodes", []))
+    ):
         return "environment"
     return None
 
@@ -91,10 +111,27 @@ def run_repro(
     tmp = Path(tempfile.mkdtemp(prefix=f"oci-{case_id}-{runtime_label}-{config_name}-"))
     result: dict[str, Any]
     try:
+        invocations = tmp / "runtime-invocations"
+        exit_statuses = tmp / "runtime-exit-statuses"
+        exit_statuses.touch(mode=0o600)
+        launcher = tmp / "runtime"
+        # A shell wrapper also works for repro scripts which use sudo. Record
+        # calls in a file rather than stdout, where they would affect verdicts.
+        launcher.write_text(
+            "#!/bin/sh\n"
+            f"printf '%s\\n' \"${{1-}}\" >> {shlex.quote(str(invocations))}\n"
+            "set +e\n"
+            f"{shlex.quote(runtime)} \"$@\"\n"
+            "status=$?\n"
+            f"printf '%s\\t%s\\n' \"${{1-}}\" \"$status\" >> {shlex.quote(str(exit_statuses))}\n"
+            "exit \"$status\"\n",
+            encoding="utf-8",
+        )
+        launcher.chmod(0o700)
         env = os.environ.copy()
         env.update(
             {
-                "RUNTIME": bash_env_path(runtime),
+                "RUNTIME": bash_env_path(launcher),
                 "CONFIG": config_name,
                 "ROOTFS_TAR": bash_env_path(rootfs_tar),
                 "BUNDLE": bash_env_path(Path(tmp) / "bundle"),
@@ -144,6 +181,14 @@ def run_repro(
                 "timed_out": False,
                 "error": str(exc),
             }
+        result["runtime_invoked"] = invocations.exists() and any(
+            command != "delete" for command in invocations.read_text().splitlines()
+        )
+        result["runtime_returncodes"] = [
+            {"command": command, "returncode": int(code)}
+            for line in exit_statuses.read_text().splitlines()
+            for command, code in [line.rsplit("\t", 1)] if command != "delete"
+        ]
     finally:
         cleanup_warning = cleanup_temp_dir(tmp)
 
@@ -173,6 +218,9 @@ def main() -> int:
         setup_errors.append(f"missing case_dir: {case_dir}")
     if not (case_dir / "repro.sh").exists():
         setup_errors.append(f"missing repro.sh in case_dir: {case_dir}")
+    for config_name in ("base_config.json", "buggy_config.json"):
+        if not (case_dir / config_name).is_file():
+            setup_errors.append(f"missing {config_name} in case_dir: {case_dir}")
     if not rootfs_tar.exists():
         setup_errors.append(f"missing rootfs_tar: {rootfs_tar}")
 
